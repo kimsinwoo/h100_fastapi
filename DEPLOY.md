@@ -28,18 +28,27 @@ cd backend && ./run.sh
   **없는 경로**일 때만 `index.html` 로 넘겨야 합니다.  
   그래야 JS 요청에 HTML이 안 가서 MIME 오류가 나지 않습니다.
 
-nginx 예시 (백엔드 8000 포트로 API 프록시):
+nginx 예시 (백엔드 8000 포트로 API 프록시). **이미지 생성이 오래 걸리므로** 타임아웃을 넉넉히 두어야 "invalid response from upstream" 오류가 나지 않습니다:
 
 ```nginx
 server {
     listen 80;
-    root /path/to/frontend/dist;   # dist 안에 index.html, assets/ 가 있음
+    root /path/to/frontend/dist;
     index index.html;
+
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_connect_timeout 30s;
+
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /static/ {
         proxy_pass http://127.0.0.1:8000;
