@@ -90,8 +90,9 @@ def create_app() -> FastAPI:
     static_path.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
-    # 빌드된 프론트엔드 서빙: static_frontend 폴더가 있으면 / 에서 index.html + /assets/*.js 제공
-    # (이렇게 해야 JS 요청에 HTML이 아닌 실제 .js가 가서 MIME 오류가 나지 않음)
+    # 빌드된 프론트엔드 서빙 (순서 중요: /assets 마운트 → GET / → 404 시에만 index.html)
+    # Catch-all GET /{path:path} 사용 시 /assets/*.js 요청까지 index.html 로 가서 MIME 오류 발생하므로
+    # /assets 는 StaticFiles 전용, SPA 폴백은 404 예외 핸들러로만 처리. 자세한 설명: docs/FASTAPI_VITE_STATIC_SERVING.md
     frontend_path = settings.frontend_dir if settings.frontend_dir else Path("static_frontend")
     if frontend_path.is_absolute():
         frontend_resolved = frontend_path
