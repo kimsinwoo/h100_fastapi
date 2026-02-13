@@ -1,0 +1,34 @@
+# Full stack: backend (FastAPI) + frontend (nginx serving React build)
+# Backend downloads Z-Image-Turbo on first request; GPU recommended.
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu121
+    ports:
+      - "8000:8000"
+    environment:
+      - DEVICE_PREFERENCE=auto
+      - CORS_ORIGINS=*
+    volumes:
+      - generated_data:/app/static/generated
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  generated_data: {}
