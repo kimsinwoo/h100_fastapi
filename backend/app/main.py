@@ -9,6 +9,8 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -105,6 +107,7 @@ def create_app() -> FastAPI:
         if "/assets/" in index_content and "main.tsx" not in index_content and "react-refresh" not in index_content:
             assets_dir = frontend_resolved / "assets"
             if assets_dir.is_dir():
+                # /assets/* 는 반드시 여기서만 처리 → JS/CSS 가 MIME 맞게 내려감 (catch-all 이 가로채지 않음)
                 app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend_assets")
             else:
                 logger.warning("Frontend assets dir not found: %s — check build output", assets_dir)
@@ -113,10 +116,8 @@ def create_app() -> FastAPI:
             async def serve_index():
                 return FileResponse(index_path, media_type="text/html")
 
-            @app.get("/{path:path}")
-            async def spa_fallback(path: str):
-                # /api, /static, /health, /docs, /assets 는 위에서 처리됨. 나머지 GET 은 index.html (SPA)
-                return FileResponse(index_path, media_type="text/html")
+            # SPA: 404 일 때만 index.html 반환. catch-all 제거해서 /assets/xxx 가 HTML 로 안 나가게 함
+            app.state.frontend_index_path = index_path
 
             logger.info("Serving frontend (production build) from %s", frontend_resolved)
             frontend_ok = True
@@ -139,6 +140,16 @@ def create_app() -> FastAPI:
             )
         if not frontend_resolved.exists():
             logger.warning("Frontend dir not found: %s — run scripts/build_and_serve.sh", frontend_resolved)
+
+    # 404 시 프론트가 있으면 GET 요청에 index.html (SPA 라우팅)
+    index_for_spa = getattr(app.state, "frontend_index_path", None)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 404 and request.method == "GET" and index_for_spa is not None:
+            return FileResponse(index_for_spa, media_type="text/html")
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     return app
 
