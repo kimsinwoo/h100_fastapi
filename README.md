@@ -49,7 +49,28 @@ zimage_webapp/
 
 ## Run instructions
 
-### AI 서버 바로 실행 (설정 없이)
+### AI 서버 하나로 실행 (프론트 포함, MIME 오류 방지)
+
+브라우저에서 **AI 서버 주소 하나**로 쓰려면, **빌드된 프론트**를 백엔드가 서빙해야 합니다. 그래야 JS 요청에 HTML이 아닌 실제 `.js`가 가서 "Expected a JavaScript module but got text/html" 오류가 나지 않습니다.
+
+**1) 프론트 빌드 후 백엔드로 복사 (한 번만 실행)**
+
+```bash
+cd zimage_webapp
+chmod +x scripts/build_and_serve.sh
+./scripts/build_and_serve.sh
+```
+
+**2) 백엔드 실행**
+
+```bash
+cd backend
+./run.sh
+```
+
+이후 브라우저에서 **http://서버:8000** 으로 접속하면 됩니다. (프론트는 Vite로 따로 띄우지 않아도 됩니다.)
+
+### AI 서버만 실행 (API만 쓸 때)
 
 **.env 없이** 라이브러리만 설치하고 실행하면 됩니다.
 

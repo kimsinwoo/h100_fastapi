@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Paths
     static_dir: Path = Field(default=Path("static"))
     generated_dir_name: str = Field(default="generated")
+    frontend_dir: Path | None = Field(default=Path("static_frontend"), description="빌드된 프론트엔드 폴더; 있으면 / 에서 서빙")
     upload_max_size_mb: int = Field(default=20, ge=1, le=100)
 
     # Z-Image model
