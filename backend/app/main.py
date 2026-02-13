@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import router
@@ -96,18 +97,32 @@ def create_app() -> FastAPI:
         # backend/app/main.py -> parent.parent = backend 디렉터리
         backend_dir = Path(__file__).resolve().parent.parent
         frontend_resolved = backend_dir / frontend_path
-    # 배포용 빌드만 서빙: index.html 이 /assets/ 를 참조해야 함. /src/main.tsx 이면 dev용이라 서빙 안 함 (MIME 오류 방지)
+    # 배포용 빌드만 서빙: index.html 이 /assets/ 를 참조해야 함.
+    index_path = frontend_resolved / "index.html"
     frontend_ok = False
-    if frontend_resolved.exists() and (frontend_resolved / "index.html").exists():
-        index_content = (frontend_resolved / "index.html").read_text(encoding="utf-8", errors="ignore")
+    if frontend_resolved.exists() and index_path.exists():
+        index_content = index_path.read_text(encoding="utf-8", errors="ignore")
         if "/assets/" in index_content and "main.tsx" not in index_content and "react-refresh" not in index_content:
-            app.mount("/", StaticFiles(directory=str(frontend_resolved), html=True), name="frontend")
+            assets_dir = frontend_resolved / "assets"
+            if assets_dir.is_dir():
+                app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend_assets")
+            else:
+                logger.warning("Frontend assets dir not found: %s — check build output", assets_dir)
+
+            @app.get("/")
+            async def serve_index():
+                return FileResponse(index_path, media_type="text/html")
+
+            @app.get("/{path:path}")
+            async def spa_fallback(path: str):
+                # /api, /static, /health, /docs, /assets 는 위에서 처리됨. 나머지 GET 은 index.html (SPA)
+                return FileResponse(index_path, media_type="text/html")
+
             logger.info("Serving frontend (production build) from %s", frontend_resolved)
             frontend_ok = True
         else:
             logger.warning(
-                "Frontend at %s looks like DEV build (has main.tsx/react-refresh). "
-                "Run: ./scripts/build_and_serve.sh then restart. Serving help page at / instead.",
+                "Frontend at %s looks like DEV build. Run: ./scripts/build_and_serve.sh then restart.",
                 frontend_resolved,
             )
     if not frontend_ok:
@@ -117,11 +132,9 @@ def create_app() -> FastAPI:
             return HTMLResponse(
                 "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Z-Image AI</title></head><body>"
                 "<h1>Z-Image AI</h1><p>API 문서: <a href='/docs'>/docs</a></p>"
-                "<p><strong>프론트 화면이 안 뜨면:</strong> 배포용 빌드를 사용해야 합니다.</p>"
-                "<ul><li>프로젝트 루트에서 <code>./scripts/build_and_serve.sh</code> 실행</li>"
-                "<li>그 다음 백엔드 서버 재시작</li>"
-                "<li>또는 <code>frontend/dist</code> 폴더 <strong>안의 내용만</strong> <code>backend/static_frontend</code> 에 복사 (frontend 폴더 전체가 아님)</li></ul>"
-                "</body></html>",
+                "<p><strong>프론트가 안 뜨면:</strong> <code>./scripts/build_and_serve.sh</code> 실행 후 서버 재시작.</p>"
+                "<p>경로 확인: <code>%s</code></p></body></html>"
+                % (frontend_resolved,),
                 status_code=200,
             )
         if not frontend_resolved.exists():
