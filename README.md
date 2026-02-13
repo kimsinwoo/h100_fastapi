@@ -70,6 +70,8 @@ cd backend
 
 이후 브라우저에서 **http://서버:8000** 으로 접속하면 됩니다. (프론트는 Vite로 따로 띄우지 않아도 됩니다.)
 
+**배포 후에도 "Expected JavaScript but got text/html" 오류가 나면:** 서버에 **빌드 결과물**(`frontend/dist` 안의 내용)만 올렸는지 확인하세요. 자세한 내용은 [DEPLOY.md](DEPLOY.md) 참고.
+
 ### AI 서버만 실행 (API만 쓸 때)
 
 **.env 없이** 라이브러리만 설치하고 실행하면 됩니다.

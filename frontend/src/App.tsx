@@ -1,14 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ImageUploader } from "./components/ImageUploader";
 import { LoadingOverlay } from "./components/LoadingSpinner";
 import { ResultViewer } from "./components/ResultViewer";
 import { StyleSelector } from "./components/StyleSelector";
-import {
-  generateImage,
-  getHealth,
-  getErrorMessage,
-  isApiError,
-} from "./services/api";
+import { generateImage, getHealth, getErrorMessage } from "./services/api";
 import type { GenerateResponse } from "./types/api";
 
 type AppState =

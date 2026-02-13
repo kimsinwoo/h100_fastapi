@@ -96,19 +96,36 @@ def create_app() -> FastAPI:
         # backend/app/main.py -> parent.parent = backend 디렉터리
         backend_dir = Path(__file__).resolve().parent.parent
         frontend_resolved = backend_dir / frontend_path
+    # 배포용 빌드만 서빙: index.html 이 /assets/ 를 참조해야 함. /src/main.tsx 이면 dev용이라 서빙 안 함 (MIME 오류 방지)
+    frontend_ok = False
     if frontend_resolved.exists() and (frontend_resolved / "index.html").exists():
-        app.mount("/", StaticFiles(directory=str(frontend_resolved), html=True), name="frontend")
-        logger.info("Serving frontend from %s", frontend_resolved)
-    else:
+        index_content = (frontend_resolved / "index.html").read_text(encoding="utf-8", errors="ignore")
+        if "/assets/" in index_content and "main.tsx" not in index_content and "react-refresh" not in index_content:
+            app.mount("/", StaticFiles(directory=str(frontend_resolved), html=True), name="frontend")
+            logger.info("Serving frontend (production build) from %s", frontend_resolved)
+            frontend_ok = True
+        else:
+            logger.warning(
+                "Frontend at %s looks like DEV build (has main.tsx/react-refresh). "
+                "Run: ./scripts/build_and_serve.sh then restart. Serving help page at / instead.",
+                frontend_resolved,
+            )
+    if not frontend_ok:
         @app.get("/")
-        async def root_no_frontend():
+        async def root_help():
             from fastapi.responses import HTMLResponse
             return HTMLResponse(
-                "<h1>Z-Image AI</h1><p>API: <a href='/docs'>/docs</a></p>"
-                "<p>프론트엔드 사용: 프로젝트 루트에서 <code>scripts/build_and_serve.sh</code> 실행 후 서버 재시작.</p>",
+                "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Z-Image AI</title></head><body>"
+                "<h1>Z-Image AI</h1><p>API 문서: <a href='/docs'>/docs</a></p>"
+                "<p><strong>프론트 화면이 안 뜨면:</strong> 배포용 빌드를 사용해야 합니다.</p>"
+                "<ul><li>프로젝트 루트에서 <code>./scripts/build_and_serve.sh</code> 실행</li>"
+                "<li>그 다음 백엔드 서버 재시작</li>"
+                "<li>또는 <code>frontend/dist</code> 폴더 <strong>안의 내용만</strong> <code>backend/static_frontend</code> 에 복사 (frontend 폴더 전체가 아님)</li></ul>"
+                "</body></html>",
                 status_code=200,
             )
-        logger.warning("Frontend not found at %s — run scripts/build_and_serve.sh then restart", frontend_resolved)
+        if not frontend_resolved.exists():
+            logger.warning("Frontend dir not found: %s — run scripts/build_and_serve.sh", frontend_resolved)
 
     return app
 

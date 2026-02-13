@@ -51,7 +51,11 @@ export function getErrorMessage(error: unknown): string {
     const detail = error.response?.data?.detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
-      return detail.map((d) => (typeof d === "object" && d?.msg ? d.msg : String(d))).join(", ");
+      return (detail as Array<{ msg?: string } | string>)
+        .map((d: { msg?: string } | string) =>
+          typeof d === "object" && d && "msg" in d ? d.msg : String(d)
+        )
+        .join(", ");
     }
   }
   if (error instanceof Error) return error.message;
