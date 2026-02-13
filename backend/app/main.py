@@ -13,7 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import router
@@ -142,15 +142,20 @@ def create_app() -> FastAPI:
         if not frontend_resolved.exists():
             logger.warning("Frontend dir not found: %s — run scripts/build_and_serve.sh", frontend_resolved)
 
-    # 404 시 프론트가 있으면 GET 요청에 index.html (SPA 라우팅)
+    # SPA fallback: 404 시에만 index.html. /assets, /api, /static 은 절대 HTML 로 폴백하지 않음 (MIME 오류 방지)
     index_for_spa = getattr(app.state, "frontend_index_path", None)
+    _NO_SPA_FALLBACK_PREFIXES = ("/assets", "/api", "/static", "/docs", "/openapi.json", "/redoc")
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        if exc.status_code == 404 and request.method == "GET" and index_for_spa is not None:
-            return FileResponse(index_for_spa, media_type="text/html")
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if exc.status_code != 404:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if request.method != "GET" or index_for_spa is None:
+            return JSONResponse(status_code=404, content={"detail": exc.detail})
+        path = request.url.path
+        if any(path.startswith(p) for p in _NO_SPA_FALLBACK_PREFIXES):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return FileResponse(index_for_spa, media_type="text/html")
 
     return app
 

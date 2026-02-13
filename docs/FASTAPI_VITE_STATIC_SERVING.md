@@ -88,19 +88,28 @@ def setup_frontend(app: FastAPI) -> None:
     async def serve_index():
         return FileResponse(index_path, media_type="text/html")
 
-    # SPA 폴백: 404 일 때만 index.html. catch-all 라우트 사용 안 함 → /assets/* 가 HTML 로 안 나감
     app.state._frontend_index_path = index_path
+
+    # SPA 폴백: 404 + GET + 비자산 경로일 때만 index.html. /assets, /api, /static 은 절대 HTML 로 넘기지 않음.
+    NO_SPA_FALLBACK_PREFIXES = ("/assets", "/api", "/static", "/docs", "/openapi.json", "/redoc")
 
     @app.exception_handler(StarletteHTTPException)
     async def spa_fallback(request: Request, exc: StarletteHTTPException):
-        if exc.status_code == 404 and request.method == "GET":
-            path = getattr(app.state, "_frontend_index_path", None)
-            if path is not None:
-                return FileResponse(path, media_type="text/html")
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if exc.status_code != 404:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if request.method != "GET":
+            return JSONResponse(status_code=404, content={"detail": exc.detail})
+        path = request.url.path
+        if any(path.startswith(p) for p in NO_SPA_FALLBACK_PREFIXES):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        idx = getattr(app.state, "_frontend_index_path", None)
+        if idx is not None:
+            return FileResponse(idx, media_type="text/html")
+        return JSONResponse(status_code=404, content={"detail": exc.detail})
 ```
 
-- **API, /health, /static** 등은 `setup_frontend` **이전에** 이미 등록되어 있다고 가정.
+- **API, /health, /static** 등은 `setup_frontend` **이전에** 이미 등록.
+- **StaticFiles(html=True) 사용 금지** — html=True 는 “파일 없을 때 index.html” 로 동작해, `/assets/xxx` 404 도 HTML 이 되어 MIME 오류가 난다.
 - **등록 순서:** API → /health → /static → **setup_frontend()** (여기서 `/assets` 마운트 → `GET /` → 404 핸들러).
 
 ---
@@ -133,3 +142,12 @@ export default defineConfig({
 | `GET /any-other-path` | 매칭 없음 → 404 | 404 핸들러 → index.html (SPA 라우팅) |
 
 **JS/CSS 요청이 절대 index.html 로 폴백되지 않으므로** MIME 오류가 나지 않는다.
+
+---
+
+## Bulletproof 규칙 요약
+
+1. **`StaticFiles(html=True)` 사용하지 않기** — 파일 없을 때 index.html 을 주므로 `/assets/xxx` 404 도 HTML 이 됨.
+2. **Catch-all 라우트 `GET /{path:path}` 사용하지 않기** — `/assets/xxx` 가 이 라우트에 걸려 HTML 이 반환될 수 있음.
+3. **404 핸들러에서 경로 검사** — `request.url.path.startswith("/assets")` (및 `/api`, `/static` 등) 이면 **절대** index.html 을 주지 않고 JSON 404 만 반환. 이렇게 해야 누락된 asset 요청에도 HTML 이 안 나감.
+4. **마운트 순서** — API → /static → **/assets** → GET / → 404 핸들러. `/assets` 는 StaticFiles 전용.
