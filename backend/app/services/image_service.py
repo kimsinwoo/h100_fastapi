@@ -124,17 +124,18 @@ async def get_pipeline() -> Any:
 
 
 def _tensor_to_pil_safe(tensor: Any) -> "Image.Image":
-    """텐서 → NaN 제거 → [0,1] 또는 [-1,1] 처리 → PIL (검은 화면 방지)."""
+    """텐서 → NaN 제거 → [0,1] 스케일 → PIL. VAE 출력은 보통 [-1,1]이므로 먼저 정규화."""
     import numpy as np
     from PIL import Image
     t = tensor.cpu().float()
     if t.dim() == 4:
         t = t[0]
-    arr = np.nan_to_num(t.numpy(), nan=0.0, posinf=1.0, neginf=0.0)
+    arr = np.nan_to_num(t.numpy(), nan=0.0, posinf=1.0, neginf=-1.0)
+    # diffusion VAE 출력은 [-1,1]. 음수 있으면 [-1,1]→[0,1] 변환
+    if arr.size > 0 and np.any(arr < -0.01):
+        arr = (arr + 1.0) / 2.0
+    arr = np.nan_to_num(arr, nan=0.5, posinf=1.0, neginf=0.0)
     arr = np.clip(arr, 0.0, 1.0)
-    if arr.size > 0 and arr.max() <= 0.01:
-        arr = np.nan_to_num((t.numpy() + 1.0) / 2.0, nan=0.5, posinf=1.0, neginf=0.0)
-        arr = np.clip(arr, 0.0, 1.0)
     arr = (arr * 255.0).round().astype(np.uint8)
     arr = np.transpose(arr, (1, 2, 0))
     return Image.fromarray(arr)
