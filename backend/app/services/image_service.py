@@ -22,7 +22,9 @@ _lock = asyncio.Lock()
 _device: Any = None
 
 # ===== Z-Image-Turbo 권장값 =====
+# guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0
+PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
 DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
@@ -230,7 +232,7 @@ async def run_image_to_image(
     strength = max(0.0, min(STRENGTH_GLOBAL_MAX, min(1.0, strength), max_st))
 
     num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
-    guidance_scale = DEFAULT_GUIDANCE_SCALE
+    guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
 
     max_side = size or MODEL_RESOLUTION
     from PIL import Image

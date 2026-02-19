@@ -14,14 +14,12 @@ class ImagePromptExpert:
     # 스타일 앵커(맨 앞) + 고유 키워드로 카테고리 구분
     STYLE_POS_DB: dict[str, str] = {
         "pixel art": (
-            "FLAT 2D PIXEL ART ONLY. NOT voxel NOT 3D NOT blocks NOT Minecraft. "
-            "((Drawn on a single flat plane like a PNG sprite sheet)), {subject}, "
-            "strictly 2D, zero depth zero volume zero thickness, front view or side view only, "
-            "square pixels on flat grid, hard aliased edges, no sub-pixels, no rounding, "
-            "bold black outline on every shape, limited palette 8-16 colors, "
-            "retro 16-bit SNES GBA sprite, side-scroller character, flat solid background, "
-            "no isometric, no perspective, no shadow volume, no 3D lighting, "
-            "no anti-aliasing, no gradient, no soft shading, pixel-perfect"
+            "2D pixel art only, flat image like a PNG sprite from a 2D game. "
+            "Single flat plane, like Celeste or Stardew Valley character sprite, not 3D. "
+            "NOT voxel, NOT Minecraft, NOT 3D blocks, NOT isometric, NOT lego style. "
+            "(({subject})), drawn with square pixels on a flat grid, hard edges, "
+            "limited palette, bold outlines, flat solid background, front or side view only, "
+            "zero depth zero volume, no rounded blocks, no sculpted look, pixel-perfect 2D sprite"
         ),
         "realistic": (
             "REAL PHOTOGRAPH. Not drawn not painted. "
