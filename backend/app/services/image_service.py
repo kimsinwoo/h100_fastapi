@@ -26,21 +26,27 @@ DEFAULT_GUIDANCE_SCALE = 0.0
 DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
-# 스타일별 strength: 높으면 3D블록/어색한 변형 발생 → 상한·기본값 제한
+# 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel art": (0.44, 0.50),      # 기본 0.44, 최대 0.50 (0.55 이상 시 3D 블록화)
-    "anime": (0.50, 0.58),
-    "realistic": (0.48, 0.58),
-    "watercolor": (0.50, 0.58),
-    "cyberpunk": (0.50, 0.58),
-    "oil painting": (0.50, 0.58),
-    "sketch": (0.50, 0.58),
-    "cinematic": (0.48, 0.56),
-    "fantasy art": (0.50, 0.58),
-    "3d render": (0.52, 0.60),
+    "pixel art": (0.36, 0.46),      # 매우 낮게 유지해야 순수 2D 스프라이트만 나옴
+    "anime": (0.48, 0.56),
+    "realistic": (0.46, 0.56),
+    "watercolor": (0.48, 0.56),
+    "cyberpunk": (0.48, 0.56),
+    "oil painting": (0.48, 0.56),
+    "sketch": (0.48, 0.56),
+    "cinematic": (0.46, 0.54),
+    "fantasy art": (0.48, 0.56),
+    "3d render": (0.50, 0.58),
 }
-DEFAULT_STRENGTH_FALLBACK = 0.52
-STRENGTH_GLOBAL_MAX = 0.60
+DEFAULT_STRENGTH_FALLBACK = 0.50
+STRENGTH_GLOBAL_MAX = 0.58
+
+# 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
+PIXEL_ART_NEGATIVE_SUFFIX = (
+    ", voxel art, 3D pixel art, blocky 3D, Minecraft style, lego style, "
+    "sweater made of blocks, dog made of cubes, volumetric blocks, 2.5D"
+)
 
 # 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
 # ============================================================
@@ -204,17 +210,19 @@ async def run_image_to_image(
         raise RuntimeError("Model not available")
 
     settings = get_settings()
+    style_lower = style_key.lower().strip()
 
-    # ImagePromptExpert + 구성 유지 문구 (복잡한 사진도 레이아웃/포즈 유지)
+    # ImagePromptExpert + 구성 유지 (복잡한 사진도 레이아웃 유지)
     compiled = ImagePromptExpert.compile(
         style_key, custom_prompt or "", aspect_ratio="1:1"
     )
     prompt = compiled["final_prompt"]
     prompt += ", preserve original composition, same layout and pose, keep subject arrangement"
     negative_prompt = compiled["negative_prompt"]
+    if "pixel" in style_lower:
+        negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX
 
-    # 스타일별 strength 상한·기본값 (0.55 이상 시 픽셀아트 3D 블록화, 전반 어색함)
-    style_lower = style_key.lower().strip()
+    # 스타일별 strength 상한·기본값
     default_st, max_st = STRENGTH_BY_STYLE.get(
         style_lower, (DEFAULT_STRENGTH_FALLBACK, STRENGTH_GLOBAL_MAX)
     )
