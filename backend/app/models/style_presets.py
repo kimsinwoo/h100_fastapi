@@ -1,122 +1,158 @@
 """
-Expert Image Prompt Engineer — style-specific Positive/Negative for Z-Image-Turbo.
-Synced with .cursor/rules/image-prompt-engineer.mdc
+Expert Image Prompt Engineer — 최대 강화 스타일별 Positive/Negative.
 """
 
 from __future__ import annotations
 
-# Style-specific Positive (Final Prompt = User Content + these)
+# ========== Positive: 최대 강화, 중복 강조 포함 ==========
 STYLE_PROMPTS: dict[str, str] = {
     "anime": (
-        "high-quality 2D anime, flat cel shading, clean line art, vibrant colors, "
-        "expressive eyes, hand-drawn look, Makoto Shinkai or Studio Ghibli aesthetic, "
-        "4k resolution, crisp edges"
+        "masterpiece best quality 2D anime only, flat cel shading absolutely no gradients on skin or hair, "
+        "clean crisp black outline line art, vibrant saturated colors, large expressive anime eyes with multiple highlights and sparkle, "
+        "hand-drawn traditional anime look, Makoto Shinkai or Studio Ghibli or Kyoto Animation aesthetic, "
+        "4k 8k resolution, sharp crisp edges, 2D flat only, no 3D ever, no CGI, no photorealistic, no western cartoon, "
+        "detailed hair strands, soft cel shadows, professional anime key visual"
     ),
     "realistic": (
-        "photorealistic, 8k UHD, shot on 35mm lens, f/1.8, RAW photo, Fujifilm, "
-        "highly detailed skin texture, pores, fine hair, natural lighting, "
-        "sharp focus, masterpiece"
+        "masterpiece best quality photorealistic photograph, 8k UHD ultra detailed, shot on 35mm lens f/1.8 aperture bokeh, "
+        "RAW uncompressed format, Fujifilm or Canon color science, visible skin pores texture wrinkles fine detail, "
+        "individual hair strands eyelashes, natural daylight or soft studio lighting, tack sharp focus, "
+        "professional photography, National Geographic quality, absolutely no painting no drawing no cartoon no illustration no 3D render"
     ),
     "watercolor": (
-        "authentic watercolor painting, wet-on-wet technique, visible paper texture, "
-        "soft bleeding edges, paint drips, hand-painted, delicate layers, artistic strokes"
+        "masterpiece authentic traditional watercolor painting on cold-press or rough paper, wet-on-wet technique, "
+        "visible paper texture and fiber, soft bleeding color edges and blooms, paint drip runs and backruns, "
+        "hand-painted brush strokes visible, transparent layered washes, organic irregular edges, "
+        "delicate pigment granulation, no digital art, no sharp vector lines, no solid flat fills, no photograph, no 3D"
     ),
     "cyberpunk": (
-        "high-contrast cyberpunk aesthetic, neon blue and magenta lighting, "
-        "futuristic atmosphere, rainy streets, volumetric fog, cinematic lighting, "
-        "sharp details, high-tech vibe"
+        "masterpiece high-contrast cyberpunk neon aesthetic, electric blue cyan and hot magenta pink lighting, "
+        "night city scene, wet asphalt pavement reflections, rain droplets, volumetric light beams and fog, "
+        "smog smoke haze, deep shadows and bright neon, sharp focus, holographic displays, high-tech machinery, "
+        "Blade Runner or Ghost in the Shell atmosphere, absolutely no daylight no sun no nature no vintage no pastel no rustic"
     ),
     "oil painting": (
-        "impasto oil painting, thick brushstrokes, visible canvas texture, "
-        "heavy paint layers, Chiaroscuro lighting, classical art style, "
-        "rich pigments, museum quality"
+        "masterpiece classical oil painting on canvas, heavy impasto thick visible brushstrokes, "
+        "visible canvas weave texture, built-up paint layers, Chiaroscuro dramatic light and shadow, "
+        "Renaissance or Baroque or Rembrandt influence, rich oil pigments, museum gallery masterpiece quality, "
+        "traditional fine art, absolutely no flat digital no thin wash no photograph no anime no vector no cel shading"
     ),
     "sketch": (
-        "graphite pencil sketch, charcoal drawing, hand-drawn on textured paper, "
-        "cross-hatching, rough artistic lines, high contrast, minimalist, "
-        "HB/2B pencil texture"
+        "masterpiece graphite pencil or charcoal drawing on white textured drawing paper, hand-drawn only, "
+        "cross-hatching stippling and contour lines for shading, rough unfinished artistic sketch lines, "
+        "high contrast black and white only, minimalist composition, HB 2B 4B pencil grain texture visible, "
+        "figure study or concept sketch style, absolutely no color no paint no 3D no photograph no digital no vector"
     ),
     "cinematic": (
-        "cinematic film still, anamorphic lens, 2.35:1 aspect ratio, "
-        "professional color grading, depth of field, dramatic lighting, "
-        "epic composition, film grain, Hollywood look"
+        "masterpiece single frame extracted from Hollywood movie, anamorphic lens flare and bokeh, "
+        "2.35:1 or 2.39:1 widescreen cinema aspect ratio, teal and orange professional color grading, "
+        "shallow depth of field, dramatic key light and rim light, film grain texture, blockbuster still, "
+        "Roger Deakins or Emmanuel Lubezki cinematography style, absolutely no cartoon no anime no flat lighting no phone photo no 2D art"
     ),
     "fantasy art": (
-        "epic fantasy illustration, intricate details, magical atmosphere, "
-        "glowing particles, digital painting, Greg Rutkowski style, "
-        "heroic composition, high-res"
+        "masterpiece epic fantasy digital illustration, extremely intricate detailed armor fabric jewelry and weapons, "
+        "magical glow, floating particles, luminous ethereal atmosphere, dragons castles knights wizards, "
+        "Greg Rutkowski or Artgerm or WLOP style, heroic dynamic pose, dramatic composition, 8k high resolution, "
+        "concept art quality, absolutely no modern technology no sci-fi no photograph no pixel art no 3D voxel no low detail"
     ),
     "pixel art": (
-        "Strictly 2D, flat, 16-bit, SNES style, clean pixels, aliased, "
-        "sprite, non-isometric, no depth, side-scroller character, "
-        "limited palette, bold black outlines"
+        "masterpiece strictly 2D pixel art only, completely flat single plane, zero depth zero perspective zero volume, "
+        "16-bit SNES Sega Genesis era sprite style, square blocky pixels only, no anti-aliasing, hard aliased jagged edges, "
+        "single character or object sprite, non-isometric, side view or front view only never isometric, "
+        "maximum 8 to 16 colors limited palette, bold thick black outline around every shape, "
+        "retro video game character sprite sheet, absolutely no Minecraft no voxel no 3D blocks no lego no isometric no round no sculpted no depth no volume no 3D render no CGI"
     ),
     "3d render": (
-        "Octane render, Ray tracing, Unreal Engine 5, 8k, volumetric lighting, "
-        "subsurface scattering, PBR materials, high-poly model, "
-        "smooth surfaces, hyper-detailed"
+        "masterpiece Octane Render or Unreal Engine 5 or V-Ray, path-traced ray tracing, 8k resolution output, "
+        "volumetric god rays and light scattering, subsurface scattering on skin, PBR physically based materials, "
+        "high-polygon smooth subdivision surface, hyper-realistic detailed, studio HDRI environment lighting, "
+        "photorealistic CGI, absolutely no 2D no flat illustration no sketch no painting no pixel art no hand-drawn no cartoon"
     ),
 }
 
-# Style-specific Negative
+# ========== Negative: 최대 강화, 배제 항목 대폭 확대 ==========
 STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
     "anime": (
-        "3D, render, CGI, realistic, photographic, blurry, grainy, "
-        "messy lines, 3D model look, gradient hair (unless specified), low resolution"
+        "3D render, CGI, photorealistic, photograph, realistic, blurry, grainy, noisy, lowres, low resolution, "
+        "messy lines, sketchy, 3D model, plastic look, gradient hair, western cartoon, realistic eyes, realistic skin, "
+        "clay render, voxel, Minecraft, isometric 3D, depth map, normal map, PBR, ray tracing, "
+        "oil painting, watercolor, pixel art, vector art, ugly, duplicate, morbid, mutilated, extra limbs"
     ),
     "realistic": (
-        "drawing, painting, cartoon, anime, 3d render, CGI, plastic skin, "
-        "airbrushed, unnatural eyes, distorted limbs, over-saturated, smooth texture"
+        "drawing, painting, cartoon, anime, illustration, 3D render, CGI, stylized, artistic, "
+        "plastic skin, airbrushed, doll eyes, deformed anatomy, distorted limbs, oversaturated, "
+        "painted texture, cartoon outline, cel shading, watercolor, oil painting, sketch, pixel art, "
+        "lowres, blurry, ugly, duplicate, morbid, mutilated, extra limbs, bad anatomy"
     ),
     "watercolor": (
-        "sharp digital lines, solid fills, 3d, realistic photo, oil painting, "
-        "plastic texture, clean edges, neon colors, digital gradient"
+        "sharp digital lines, vector, solid flat fills, 3D, photograph, photorealistic, "
+        "oil painting, acrylic, plastic surface, neon colors, digital gradient, clean cut edges, "
+        "pixel art, anime, cel shading, ray tracing, CGI, lowres, blurry, ugly, "
+        "thick paint, impasto, canvas texture"
     ),
     "cyberpunk": (
-        "bright daylight, natural scenery, rustic, vintage, pastel colors, "
-        "soft lighting, low contrast, simplistic"
+        "bright daylight, sunny, sun, natural light, forest, countryside, nature, trees, grass, "
+        "rustic, vintage, retro, pastel colors, soft lighting, low contrast, flat lighting, "
+        "simplistic, minimal, daytime, golden hour, warm tone, peaceful, pastoral, "
+        "watercolor, oil painting, anime, cartoon, pixel art, lowres, blurry"
     ),
     "oil painting": (
-        "flat, smooth, digital art, anime, vector, 2d illustration, "
-        "clean lines, thin paint, photographic"
+        "flat color, smooth gradient, digital art, anime, vector, 2D illustration, clean lines, "
+        "thin wash, photograph, photo, cel shading, pixel art, sketch, watercolor, "
+        "3D render, CGI, plastic, neon, lowres, blurry, ugly, duplicate, "
+        "modern art, minimalist, abstract"
     ),
     "sketch": (
-        "color, digital paint, 3d, render, smooth gradients, "
-        "clean vector lines, photographic, blurry"
+        "full color, colored, painted, digital paint, 3D render, smooth gradient, "
+        "clean vector lines, photograph, photo, blurry, polished, finished painting, "
+        "ink, watercolor, oil, neon, saturated, cel shading, pixel art, "
+        "lowres, ugly, duplicate, anime, cartoon, realistic"
     ),
     "cinematic": (
-        "cartoon, anime, flat lighting, amateur photo, phone camera, "
-        "bright and cheerful, low contrast, 2d"
+        "cartoon, anime, flat lighting, amateur, snapshot, phone camera, smartphone, "
+        "bright cheerful, low contrast, 2D illustration, drawing, painting, "
+        "overexposed, underexposed, no depth of field, flat depth, "
+        "pixel art, watercolor, oil painting, sketch, lowres, blurry, ugly"
     ),
     "fantasy art": (
-        "modern, realistic photo, sci-fi, pixel art, low detail, "
-        "simple background, 3d voxel"
+        "modern clothing, modern setting, photograph, photo, sci-fi, technology, spaceship, "
+        "pixel art, low detail, simple background, empty background, 3D voxel, Minecraft, "
+        "realistic portrait, minimalist, cartoon, anime, lowres, blurry, ugly, "
+        "flat colors, vector, cel shading"
     ),
     "pixel art": (
-        "Minecraft, voxel, 3D blocks, lego, isometric 3D, depth, volume, "
-        "smooth, anti-aliased, gradients, soft shading, realistic, render"
+        "Minecraft, voxel, 3D blocks, lego, blocks, cubes, isometric 3D, isometric view, "
+        "depth, volume, perspective, round, sculpted, curved, smooth shading, anti-aliased, "
+        "gradient, soft shadow, photorealistic, 3D render, CGI, ray tracing, PBR, "
+        "realistic, photograph, smooth edges, blur, depth of field, bokeh, "
+        "oil painting, watercolor, anime, cartoon, lowres, ugly, duplicate"
     ),
     "3d render": (
-        "2d, flat, sketch, painting, pixel, low-poly, grainy, "
-        "cartoon lines, hand-drawn"
+        "2D, flat illustration, sketch, painting, pixel art, hand-drawn, "
+        "low-poly, low poly, faceted, grainy, cartoon outline, cel shading, "
+        "watercolor, oil painting, photograph, photo, anime, "
+        "lowres, blurry, ugly, duplicate, bad geometry"
     ),
 }
 
-BASE_NEGATIVE = "blurry, low quality, distorted, watermark, text"
+BASE_NEGATIVE = (
+    "blurry, low quality, distorted, watermark, text, signature, logo, "
+    "ugly, duplicate, morbid, mutilated, poorly drawn, bad anatomy, wrong anatomy, extra limbs"
+)
 
 DEFAULT_STYLE = "realistic"
 
 STYLE_PRESETS: dict[str, str] = {
-    "anime": "Anime (2D Cel-Shaded, Makoto Shinkai / Ghibli)",
-    "realistic": "Realistic (Photographic, 8k UHD)",
+    "anime": "Anime (2D Cel-Shaded)",
+    "realistic": "Realistic (Photographic)",
     "watercolor": "Watercolor (Traditional)",
     "cyberpunk": "Cyberpunk (Futuristic)",
     "oil painting": "Oil Painting (Classical)",
     "sketch": "Sketch (Hand-drawn)",
     "cinematic": "Cinematic (Movie Scene)",
     "fantasy art": "Fantasy Art (Digital Illustration)",
-    "pixel art": "Pixel Art (2D flat, SNES, non-isometric)",
-    "3d render": "3D Render (High-End CGI)",
+    "pixel art": "Pixel Art (2D Flat Sprite)",
+    "3d render": "3D Render (CGI)",
 }
 
 
