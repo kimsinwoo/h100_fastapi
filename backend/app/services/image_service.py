@@ -88,6 +88,12 @@ def _load_pipeline_sync() -> Any:
             except Exception:
                 pass
             pipe = pipe.to(_device)
+            # Half/BFloat16 불일치 방지: transformer 내부 x_pad_token을 파이프라인 dtype과 동일하게 맞춤 (H100 등)
+            if hasattr(pipe, "transformer") and pipe.transformer is not None:
+                t = pipe.transformer
+                if hasattr(t, "x_pad_token") and isinstance(getattr(t, "x_pad_token"), torch.Tensor):
+                    t.x_pad_token = t.x_pad_token.to(dtype).to(_device)
+                    logger.info("Z-Image transformer x_pad_token cast to %s", dtype)
         except Exception as e:
             logger.exception("Failed to load Z-Image-Turbo: %s", e)
             return None
