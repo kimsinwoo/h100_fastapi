@@ -1,5 +1,5 @@
 """
-Z-Image-Turbo img2img service. Singleton pipeline (float16 on CUDA), PIL output.
+Z-Image-Turbo img2img service. CUDA: bfloat16 (float16 시 latent NaN → 검은 화면).
 """
 
 from __future__ import annotations
@@ -88,7 +88,12 @@ def _load_pipeline_sync() -> Any:
     _device = _resolve_device()
     if _device.type == "mps" and "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
         os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
-    dtype = torch.float16 if _device.type == "cuda" else torch.float32
+    if _device.type == "cuda" and getattr(torch, "bfloat16", None) is not None:
+        dtype = torch.bfloat16
+    elif _device.type == "cuda":
+        dtype = torch.float32
+    else:
+        dtype = torch.float32
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="torch.amp.autocast_mode")
         try:
@@ -111,7 +116,7 @@ def _load_pipeline_sync() -> Any:
             logger.exception("Failed to load Z-Image-Turbo: %s", e)
             return None
     _pipeline = pipe
-    logger.info("Z-Image-Turbo loaded on device=%s", _device)
+    logger.info("Z-Image-Turbo loaded on device=%s (dtype=%s)", _device, dtype)
     return _pipeline
 
 
@@ -189,9 +194,8 @@ def _run_inference_sync(
     generator = torch.Generator(device=_device)
     if seed is not None:
         generator.manual_seed(seed)
-    _ensure_x_pad_token_dtype(
-        _pipeline, _device, torch.float16 if _device.type == "cuda" else torch.float32
-    )
+    pipe_dtype = torch.bfloat16 if (_device.type == "cuda" and getattr(torch, "bfloat16", None)) else torch.float32
+    _ensure_x_pad_token_dtype(_pipeline, _device, pipe_dtype)
     nan_callback = _make_nan_callback(_device)
     call_kw: dict = {
         "prompt": prompt,
