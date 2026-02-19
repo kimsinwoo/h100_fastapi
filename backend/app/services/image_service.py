@@ -1,5 +1,5 @@
 """
-Z-Image-Turbo img2img service. Singleton pipeline, float16 + VAE float32, PIL output.
+Z-Image-Turbo img2img service. Singleton pipeline (float16 on CUDA), PIL output.
 """
 
 from __future__ import annotations
@@ -106,8 +106,6 @@ def _load_pipeline_sync() -> Any:
                     except Exception:
                         pass
             pipe = pipe.to(_device)
-            if _device.type == "cuda":
-                pipe.vae.to(torch.float32)
             _ensure_x_pad_token_dtype(pipe, _device, dtype)
         except Exception as e:
             logger.exception("Failed to load Z-Image-Turbo: %s", e)
