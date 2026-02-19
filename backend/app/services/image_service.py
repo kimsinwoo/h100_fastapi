@@ -23,6 +23,19 @@ _device: Any = None
 _use_autocast: bool = True
 
 
+def _ensure_x_pad_token_dtype(module: Any, device: Any, target_dtype: Any) -> None:
+    """파이프라인/transformer 내부 모든 x_pad_token을 target_dtype으로 맞춤 (Half/BFloat16 불일치 방지)."""
+    import torch
+    if module is None:
+        return
+    if hasattr(module, "x_pad_token") and isinstance(getattr(module, "x_pad_token"), torch.Tensor):
+        token = getattr(module, "x_pad_token")
+        if token.dtype != target_dtype:
+            setattr(module, "x_pad_token", token.to(target_dtype).to(device))
+    for _, child in getattr(module, "named_children", lambda: [])():
+        _ensure_x_pad_token_dtype(child, device, target_dtype)
+
+
 def _resolve_device() -> Any:
     import torch
     settings = get_settings()
@@ -88,12 +101,9 @@ def _load_pipeline_sync() -> Any:
             except Exception:
                 pass
             pipe = pipe.to(_device)
-            # Half/BFloat16 불일치 방지: transformer 내부 x_pad_token을 파이프라인 dtype과 동일하게 맞춤 (H100 등)
-            if hasattr(pipe, "transformer") and pipe.transformer is not None:
-                t = pipe.transformer
-                if hasattr(t, "x_pad_token") and isinstance(getattr(t, "x_pad_token"), torch.Tensor):
-                    t.x_pad_token = t.x_pad_token.to(dtype).to(_device)
-                    logger.info("Z-Image transformer x_pad_token cast to %s", dtype)
+            # Half/BFloat16 불일치 방지: transformer 포함 전체 모듈에서 x_pad_token dtype 통일 (H100 등)
+            _ensure_x_pad_token_dtype(pipe, _device, dtype)
+            logger.info("Z-Image x_pad_token(s) cast to %s (load)", dtype)
         except Exception as e:
             logger.exception("Failed to load Z-Image-Turbo: %s", e)
             return None
@@ -165,6 +175,10 @@ def _run_inference_sync(
     gen = torch.Generator(device=_device)
     if seed is not None:
         gen.manual_seed(seed)
+    # 추론 직전에 x_pad_token dtype 재정렬 (로드 시 bfloat16이어도/서버 코드 불일치여도 Half 오류 방지)
+    _ensure_x_pad_token_dtype(
+        _pipeline, _device, torch.float16 if _device.type == "cuda" else torch.float32
+    )
     kwargs = dict(
         prompt=prompt,
         image=img,
