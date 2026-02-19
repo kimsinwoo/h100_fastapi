@@ -21,30 +21,28 @@ _pipeline: Any = None
 _lock = asyncio.Lock()
 _device: Any = None
 
-# ===== Z-Image-Turbo 권장값 (스케줄러는 기본 FlowMatchEulerDiscrete 사용) =====
-DEFAULT_STRENGTH = 0.65
+# ===== Z-Image-Turbo 권장값 =====
 DEFAULT_GUIDANCE_SCALE = 0.0
 DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
+# 스타일별 strength: 높으면 3D블록/어색한 변형 발생 → 상한·기본값 제한
+STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
+    "pixel art": (0.44, 0.50),      # 기본 0.44, 최대 0.50 (0.55 이상 시 3D 블록화)
+    "anime": (0.50, 0.58),
+    "realistic": (0.48, 0.58),
+    "watercolor": (0.50, 0.58),
+    "cyberpunk": (0.50, 0.58),
+    "oil painting": (0.50, 0.58),
+    "sketch": (0.50, 0.58),
+    "cinematic": (0.48, 0.56),
+    "fantasy art": (0.50, 0.58),
+    "3d render": (0.52, 0.60),
+}
+DEFAULT_STRENGTH_FALLBACK = 0.52
+STRENGTH_GLOBAL_MAX = 0.60
+
 # 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
-PIXEL_POSITIVE_ADD = (
-    "pure 2D only, completely flat, no 3D no depth no volume no perspective, "
-    "flat 2D pixel sprite like classic NES SNES game, flat on flat background, "
-    "preserve same pose and shape as reference, bold black outlines, "
-    "maximum 8 colors, flat color fill, no gradients no shadows no shading, "
-    "sprite sheet character, single flat layer, 2D illustration only"
-)
-
-PIXEL_NEGATIVE_ADD = (
-    "Minecraft, voxel, 3D blocks, lego, cube, blocks, isometric 3D, "
-    "3D, volume, depth, perspective, dimension, round, sculpted, "
-    "ray tracing, render, realism, photorealistic, "
-    "anti-aliasing, soft edges, gradients, smooth shading, blur, "
-    "depth of field, volumetric, more than 8 colors, complex palette"
-)
-
-
 # ============================================================
 # Device
 # ============================================================
@@ -119,6 +117,18 @@ async def get_pipeline():
 # Inference
 # ============================================================
 
+def _resize_keep_ratio(in_w: int, in_h: int, max_side: int) -> tuple[int, int]:
+    """입력 비율 유지하며 긴 변이 max_side 이하, 8의 배수로 (out_w, out_h) 계산."""
+    if in_w <= 0 or in_h <= 0:
+        return (max_side, max_side)
+    scale = max_side / max(in_w, in_h)
+    out_w = max(64, min(max_side, round(in_w * scale)))
+    out_h = max(64, min(max_side, round(in_h * scale)))
+    out_w = (out_w // 8) * 8
+    out_h = (out_h // 8) * 8
+    return (max(64, out_w), max(64, out_h))
+
+
 def _run_inference_sync(
     image_bytes: bytes,
     prompt: str,
@@ -126,7 +136,8 @@ def _run_inference_sync(
     strength: float,
     num_steps: int,
     guidance_scale: float,
-    size: int,
+    width: int,
+    height: int,
     seed: int | None,
 ) -> bytes:
 
@@ -138,9 +149,10 @@ def _run_inference_sync(
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
-    # Load image
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = img.resize((size, size), Image.Resampling.LANCZOS)
+    target_w, target_h = width, height
+    if img.width != target_w or img.height != target_h:
+        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
     # Deterministic seed
     generator = torch.Generator(device=_device)
@@ -193,20 +205,31 @@ async def run_image_to_image(
 
     settings = get_settings()
 
-    # ImagePromptExpert: 사용자 입력 강조 + 스타일별 기술 사양 + BASE_NEGATIVE
-    compiled = ImagePromptExpert.compile(style_key, custom_prompt or "")
+    # ImagePromptExpert + 구성 유지 문구 (복잡한 사진도 레이아웃/포즈 유지)
+    compiled = ImagePromptExpert.compile(
+        style_key, custom_prompt or "", aspect_ratio="1:1"
+    )
     prompt = compiled["final_prompt"]
+    prompt += ", preserve original composition, same layout and pose, keep subject arrangement"
     negative_prompt = compiled["negative_prompt"]
 
-    if "pixel" in style_key.lower():
-        strength = strength or 0.72  # Slightly higher to convert 3D→2D while keeping pose
-    else:
-        strength = strength or DEFAULT_STRENGTH
-    strength = max(0.0, min(1.0, strength))
+    # 스타일별 strength 상한·기본값 (0.55 이상 시 픽셀아트 3D 블록화, 전반 어색함)
+    style_lower = style_key.lower().strip()
+    default_st, max_st = STRENGTH_BY_STYLE.get(
+        style_lower, (DEFAULT_STRENGTH_FALLBACK, STRENGTH_GLOBAL_MAX)
+    )
+    strength = strength if strength is not None else default_st
+    strength = max(0.0, min(STRENGTH_GLOBAL_MAX, min(1.0, strength), max_st))
+
     num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
     guidance_scale = DEFAULT_GUIDANCE_SCALE
 
-    resolution = size or MODEL_RESOLUTION
+    max_side = size or MODEL_RESOLUTION
+    from PIL import Image
+    with Image.open(io.BytesIO(image_bytes)) as tmp:
+        tmp.load()
+        in_w, in_h = tmp.width, tmp.height
+    target_w, target_h = _resize_keep_ratio(in_w, in_h, max_side)
 
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
@@ -220,7 +243,8 @@ async def run_image_to_image(
             strength,
             num_steps,
             guidance_scale,
-            resolution,
+            target_w,
+            target_h,
             seed,
         ),
     )
