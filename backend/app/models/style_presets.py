@@ -1,43 +1,50 @@
 """
-Expert Image Prompt Engineer — style-specific positive/negative prompts for Z-Image-Turbo.
-Pixel Art: strictly 2D, flat, non-isometric to avoid Minecraft/voxel.
+Expert Image Prompt Engineer — style-specific Positive/Negative for Z-Image-Turbo.
+Synced with .cursor/rules/image-prompt-engineer.mdc
 """
 
 from __future__ import annotations
 
-# Style-specific positive keywords (auto-merged when style selected)
+# Style-specific Positive (Final Prompt = User Content + these)
 STYLE_PROMPTS: dict[str, str] = {
     "anime": (
-        "Makoto Shinkai style, cel shaded, high-res line art, vibrant, "
-        "detailed eyes, 2D only"
+        "high-quality 2D anime, flat cel shading, clean line art, vibrant colors, "
+        "expressive eyes, hand-drawn look, Makoto Shinkai or Studio Ghibli aesthetic, "
+        "4k resolution, crisp edges"
     ),
     "realistic": (
-        "Photorealistic, 8k UHD, RAW photo, Fujifilm, "
-        "highly detailed skin texture, soft lighting"
+        "photorealistic, 8k UHD, shot on 35mm lens, f/1.8, RAW photo, Fujifilm, "
+        "highly detailed skin texture, pores, fine hair, natural lighting, "
+        "sharp focus, masterpiece"
     ),
     "watercolor": (
-        "Traditional watercolor, wet-on-wet, paper texture, paint drips, "
-        "soft edges, ethereal"
+        "authentic watercolor painting, wet-on-wet technique, visible paper texture, "
+        "soft bleeding edges, paint drips, hand-painted, delicate layers, artistic strokes"
     ),
     "cyberpunk": (
-        "Neon glow, synthwave palette, rain-slicked streets, "
-        "high contrast, futuristic, cinematic fog"
+        "high-contrast cyberpunk aesthetic, neon blue and magenta lighting, "
+        "futuristic atmosphere, rainy streets, volumetric fog, cinematic lighting, "
+        "sharp details, high-tech vibe"
     ),
     "oil painting": (
-        "Impasto, thick brushstrokes, canvas texture, oil on canvas, "
-        "classical art style"
+        "impasto oil painting, thick brushstrokes, visible canvas texture, "
+        "heavy paint layers, Chiaroscuro lighting, classical art style, "
+        "rich pigments, museum quality"
     ),
     "sketch": (
-        "Graphite pencil, hand-drawn, charcoal, rough sketch, "
-        "white paper, high contrast"
+        "graphite pencil sketch, charcoal drawing, hand-drawn on textured paper, "
+        "cross-hatching, rough artistic lines, high contrast, minimalist, "
+        "HB/2B pencil texture"
     ),
     "cinematic": (
-        "Anamorphic lens, film grain, 35mm film, color graded, "
-        "dramatic lighting, depth of field"
+        "cinematic film still, anamorphic lens, 2.35:1 aspect ratio, "
+        "professional color grading, depth of field, dramatic lighting, "
+        "epic composition, film grain, Hollywood look"
     ),
     "fantasy art": (
-        "Ethereal, intricate detail, epic composition, "
-        "digital illustration, magical atmosphere"
+        "epic fantasy illustration, intricate details, magical atmosphere, "
+        "glowing particles, digital painting, Greg Rutkowski style, "
+        "heroic composition, high-res"
     ),
     "pixel art": (
         "Strictly 2D, flat, 16-bit, SNES style, clean pixels, aliased, "
@@ -45,64 +52,88 @@ STYLE_PROMPTS: dict[str, str] = {
         "limited palette, bold black outlines"
     ),
     "3d render": (
-        "Octane render, Ray tracing, Unreal Engine 5, 4K, "
-        "volumetric lighting, high-poly"
+        "Octane render, Ray tracing, Unreal Engine 5, 8k, volumetric lighting, "
+        "subsurface scattering, PBR materials, high-poly model, "
+        "smooth surfaces, hyper-detailed"
     ),
 }
 
-# Style-specific negative keywords (exclude what doesn't fit each style)
+# Style-specific Negative
 STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
-    "anime": "3D render, realistic photo, western cartoon, blurry, low quality",
-    "realistic": "anime, cartoon, painting, drawing, illustration, stylized",
-    "watercolor": "digital art, sharp edges, oil painting, photograph",
-    "cyberpunk": "pastel, vintage, natural lighting, daytime, rustic",
-    "oil painting": "digital, photo, flat color, minimalist, sketch",
-    "sketch": "full color, painted, 3D, photorealistic, polished",
-    "cinematic": "flat lighting, amateur, snapshot, overexposed",
-    "fantasy art": "realistic, mundane, modern, minimalist",
+    "anime": (
+        "3D, render, CGI, realistic, photographic, blurry, grainy, "
+        "messy lines, 3D model look, gradient hair (unless specified), low resolution"
+    ),
+    "realistic": (
+        "drawing, painting, cartoon, anime, 3d render, CGI, plastic skin, "
+        "airbrushed, unnatural eyes, distorted limbs, over-saturated, smooth texture"
+    ),
+    "watercolor": (
+        "sharp digital lines, solid fills, 3d, realistic photo, oil painting, "
+        "plastic texture, clean edges, neon colors, digital gradient"
+    ),
+    "cyberpunk": (
+        "bright daylight, natural scenery, rustic, vintage, pastel colors, "
+        "soft lighting, low contrast, simplistic"
+    ),
+    "oil painting": (
+        "flat, smooth, digital art, anime, vector, 2d illustration, "
+        "clean lines, thin paint, photographic"
+    ),
+    "sketch": (
+        "color, digital paint, 3d, render, smooth gradients, "
+        "clean vector lines, photographic, blurry"
+    ),
+    "cinematic": (
+        "cartoon, anime, flat lighting, amateur photo, phone camera, "
+        "bright and cheerful, low contrast, 2d"
+    ),
+    "fantasy art": (
+        "modern, realistic photo, sci-fi, pixel art, low detail, "
+        "simple background, 3d voxel"
+    ),
     "pixel art": (
         "Minecraft, voxel, 3D blocks, lego, isometric 3D, depth, volume, "
         "smooth, anti-aliased, gradients, soft shading, realistic, render"
     ),
-    "3d render": "2D, flat, pixel art, painting, drawing, sketch",
+    "3d render": (
+        "2d, flat, sketch, painting, pixel, low-poly, grainy, "
+        "cartoon lines, hand-drawn"
+    ),
 }
 
-# Base negative (always applied)
 BASE_NEGATIVE = "blurry, low quality, distorted, watermark, text"
 
 DEFAULT_STYLE = "realistic"
 
-# For API /styles: short labels (key -> description)
 STYLE_PRESETS: dict[str, str] = {
-    "anime": "Anime (Makoto Shinkai, cel shaded, 2D)",
-    "realistic": "Realistic (8k UHD, photorealistic)",
-    "watercolor": "Watercolor (traditional, soft edges)",
-    "cyberpunk": "Cyberpunk (neon, synthwave)",
-    "oil painting": "Oil Painting (impasto, classical)",
-    "sketch": "Sketch (pencil, charcoal)",
-    "cinematic": "Cinematic (35mm, film grain)",
-    "fantasy art": "Fantasy Art (ethereal, magical)",
-    "pixel art": "Pixel Art (2D flat, SNES style, non-isometric)",
-    "3d render": "3D Render (Octane, Unreal Engine 5)",
+    "anime": "Anime (2D Cel-Shaded, Makoto Shinkai / Ghibli)",
+    "realistic": "Realistic (Photographic, 8k UHD)",
+    "watercolor": "Watercolor (Traditional)",
+    "cyberpunk": "Cyberpunk (Futuristic)",
+    "oil painting": "Oil Painting (Classical)",
+    "sketch": "Sketch (Hand-drawn)",
+    "cinematic": "Cinematic (Movie Scene)",
+    "fantasy art": "Fantasy Art (Digital Illustration)",
+    "pixel art": "Pixel Art (2D flat, SNES, non-isometric)",
+    "3d render": "3D Render (High-End CGI)",
 }
 
 
 def get_style_prompt(style_key: str) -> str:
-    """Return positive prompt template for style."""
     key = style_key.strip().lower()
     return STYLE_PROMPTS.get(key, STYLE_PROMPTS[DEFAULT_STYLE])
 
 
 def get_style_negative_prompt(style_key: str) -> str:
-    """Return negative prompt for style."""
     key = style_key.strip().lower()
     neg = STYLE_NEGATIVE_PROMPTS.get(key, STYLE_NEGATIVE_PROMPTS[DEFAULT_STYLE])
     return f"{BASE_NEGATIVE}, {neg}"
 
 
 def merge_prompt(style_key: str, custom_prompt: str | None) -> str:
-    """Final Prompt = style keywords + user option content."""
+    """Final Prompt = (User Content first), (Style Positive)."""
     style_text = get_style_prompt(style_key)
     if not (custom_prompt and custom_prompt.strip()):
         return style_text
-    return f"{style_text}, {custom_prompt.strip()}"
+    return f"{custom_prompt.strip()}, {style_text}"
