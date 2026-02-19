@@ -102,12 +102,13 @@ def _load_pipeline_sync() -> Any:
             except Exception:
                 logger.warning("Could not set UniPCMultistepScheduler, using default")
             pipe.set_progress_bar_config(disable=False)
-            try:
-                pipe.enable_attention_slicing()
-            except Exception:
-                pass
-            pipe.enable_vae_slicing()
-            pipe.enable_vae_tiling()
+            for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
+                method = getattr(pipe, method_name, None)
+                if callable(method):
+                    try:
+                        method()
+                    except Exception:
+                        pass
             pipe = pipe.to(_device)
             if _device.type == "cuda":
                 pipe.vae.to(torch.float32)
