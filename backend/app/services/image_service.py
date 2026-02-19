@@ -27,14 +27,20 @@ DEFAULT_GUIDANCE_SCALE = 0.0
 DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
+# Pure 2D pixel art: preserve pose, convert 3D→2D, 8 colors, black outlines, no AA
 PIXEL_POSITIVE_ADD = (
-    "strictly 2D, flat shading, hard pixel edges, "
-    "limited color palette, no gradients, orthographic view"
+    "strictly 2D only, flat 2D pixels, orthographic view, "
+    "preserve exact same shape and pose, convert voxel to flat pixel sprite, "
+    "maximum 8 colors, limited palette, bold black outlines, "
+    "pixel-perfect, sharp edges, no anti-aliasing, no gradients, no soft shading, "
+    "retro 8-bit 16-bit sprite, blocky, clean, minimal shading"
 )
 
 PIXEL_NEGATIVE_ADD = (
-    "3D, voxel, lego, render, ray tracing, "
-    "depth of field, volumetric lighting"
+    "3D, voxel, lego, cube, volume, depth, perspective, "
+    "ray tracing, render, realism, photorealistic, "
+    "anti-aliasing, soft edges, gradients, smooth shading, blur, "
+    "depth of field, volumetric lighting, more than 8 colors, complex palette"
 )
 
 
@@ -192,12 +198,16 @@ async def run_image_to_image(
         "blurry, low quality, distorted, watermark, text"
     )
 
-    # Pixel preset
+    # Pixel preset: enforce 2D sprite, preserve pose, 8 colors, black outlines
     if "pixel" in style_key.lower():
         prompt = f"{prompt}, {PIXEL_POSITIVE_ADD}"
         negative_prompt = f"{negative_prompt}, {PIXEL_NEGATIVE_ADD}"
+        # Slightly higher strength to convert 3D voxel → 2D pixel while keeping pose
+        strength = strength or 0.72
+    else:
+        strength = strength or DEFAULT_STRENGTH
 
-    strength = max(0.0, min(1.0, strength or DEFAULT_STRENGTH))
+    strength = max(0.0, min(1.0, strength))
     num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
     guidance_scale = DEFAULT_GUIDANCE_SCALE
 

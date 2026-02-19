@@ -13,7 +13,12 @@ STYLE_PRESETS: dict[str, str] = {
     "sketch": "detailed pencil sketch, hand drawn, artistic sketch, clean lines, hatching, professional illustration",
     "cinematic": "cinematic lighting, movie still, dramatic composition, anamorphic lens, film grain, blockbuster",
     "fantasy art": "fantasy art, magical, ethereal, detailed illustration, epic, otherworldly, dreamlike",
-    "pixel art": "pixel art, retro 16-bit style, crisp pixels, nostalgic, video game aesthetic, clean pixel edges",
+    "pixel art": (
+        "pure 2D pixel art sprite, convert all 3D voxel to flat 2D pixels, "
+        "retro 8-bit 16-bit video game style, pixel-perfect, simple clean blocky shapes, "
+        "minimal shading, flat colors, sharp black outlines around character, "
+        "limited color palette maximum 8 colors, classic pixel art, no anti-aliasing, no soft edges"
+    ),
     "3d render": "3D render, octane render, unreal engine, photorealistic 3D, studio lighting, clean render",
 }
 
