@@ -21,10 +21,10 @@ _pipeline: Any = None
 _lock = asyncio.Lock()
 _device: Any = None
 
-# ===== High Quality Defaults =====
+# ===== Z-Image-Turbo 권장값 (스케줄러는 기본 FlowMatchEulerDiscrete 사용) =====
 DEFAULT_STRENGTH = 0.65
-DEFAULT_GUIDANCE_SCALE = 7.5
-DEFAULT_NUM_INFERENCE_STEPS = 35
+DEFAULT_GUIDANCE_SCALE = 0.0
+DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
 PIXEL_POSITIVE_ADD = (
@@ -59,12 +59,12 @@ def _load_pipeline_sync():
     global _pipeline, _device
 
     import torch
-    from diffusers import ZImageImg2ImgPipeline, UniPCMultistepScheduler
+    from diffusers import ZImageImg2ImgPipeline
 
     settings = get_settings()
     _device = _resolve_device()
 
-    dtype = torch.bfloat16 if _device.type == "cuda" else torch.float32
+    dtype = torch.bfloat16 if (_device.type == "cuda" and getattr(torch, "bfloat16", None)) else torch.float32
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -74,28 +74,21 @@ def _load_pipeline_sync():
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
+        # Z-Image 전용 스케줄러 유지 (UniPCMultistepScheduler 교체 시 set_timesteps AssertionError 발생)
 
-        # 🔥 Replace scheduler (huge quality boost)
-        pipe.scheduler = UniPCMultistepScheduler.from_config(
-            pipe.scheduler.config
-        )
-
-        # Memory optimizations
-        if hasattr(pipe, "enable_attention_slicing"):
-            pipe.enable_attention_slicing()
-        if hasattr(pipe, "enable_vae_slicing"):
-            pipe.enable_vae_slicing()
-        if hasattr(pipe, "enable_vae_tiling"):
-            pipe.enable_vae_tiling()
+        for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
+            method = getattr(pipe, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception:
+                    pass
 
         pipe = pipe.to(_device)
-
-        # 🔥 Critical: Keep VAE in float32 for stability
-        if hasattr(pipe, "vae"):
-            pipe.vae.to(dtype=torch.float32)
+        # VAE는 파이프라인과 동일 dtype 유지 (float32로 바꾸면 Half/float 불일치로 오류)
 
     logger.info(
-        "Pipeline loaded on %s (main dtype=%s, VAE=float32)",
+        "Pipeline loaded on %s (dtype=%s)",
         _device,
         dtype,
     )
@@ -205,7 +198,7 @@ async def run_image_to_image(
         negative_prompt = f"{negative_prompt}, {PIXEL_NEGATIVE_ADD}"
 
     strength = max(0.0, min(1.0, strength or DEFAULT_STRENGTH))
-    num_steps = max(10, min(60, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
+    num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
     guidance_scale = DEFAULT_GUIDANCE_SCALE
 
     resolution = size or MODEL_RESOLUTION
