@@ -13,7 +13,7 @@ import warnings
 from typing import Any
 
 from app.core.config import get_settings
-from app.models.style_presets import merge_prompt
+from app.models.style_presets import get_style_negative_prompt, merge_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -28,23 +28,6 @@ DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
 # 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
-PIXEL_POSITIVE_ADD = (
-    "pure 2D only, completely flat, no 3D no depth no volume no perspective, "
-    "flat 2D pixel sprite like classic NES SNES game, flat on flat background, "
-    "preserve same pose and shape as reference, bold black outlines, "
-    "maximum 8 colors, flat color fill, no gradients no shadows no shading, "
-    "sprite sheet character, single flat layer, 2D illustration only"
-)
-
-PIXEL_NEGATIVE_ADD = (
-    "Minecraft, voxel, 3D blocks, lego, cube, blocks, isometric 3D, "
-    "3D, volume, depth, perspective, dimension, round, sculpted, "
-    "ray tracing, render, realism, photorealistic, "
-    "anti-aliasing, soft edges, gradients, smooth shading, blur, "
-    "depth of field, volumetric, more than 8 colors, complex palette"
-)
-
-
 # ============================================================
 # Device
 # ============================================================
@@ -193,21 +176,14 @@ async def run_image_to_image(
 
     settings = get_settings()
 
+    # Final Prompt = style keywords + user option; Negative = style-specific
     prompt = merge_prompt(style_key, custom_prompt)
+    negative_prompt = get_style_negative_prompt(style_key)
 
-    negative_prompt = (
-        "blurry, low quality, distorted, watermark, text"
-    )
-
-    # Pixel preset: enforce 2D sprite, preserve pose, 8 colors, black outlines
     if "pixel" in style_key.lower():
-        prompt = f"{prompt}, {PIXEL_POSITIVE_ADD}"
-        negative_prompt = f"{negative_prompt}, {PIXEL_NEGATIVE_ADD}"
-        # Slightly higher strength to convert 3D voxel → 2D pixel while keeping pose
-        strength = strength or 0.72
+        strength = strength or 0.72  # Slightly higher to convert 3D→2D while keeping pose
     else:
         strength = strength or DEFAULT_STRENGTH
-
     strength = max(0.0, min(1.0, strength))
     num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
     guidance_scale = DEFAULT_GUIDANCE_SCALE
