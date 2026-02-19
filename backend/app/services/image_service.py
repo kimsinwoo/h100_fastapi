@@ -59,9 +59,8 @@ def _load_pipeline_sync() -> Any:
         os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
         logger.info("MPS: PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 set to reduce OOM (override with env if needed)")
     _use_autocast = settings.use_autocast and _device.type in ("cuda", "mps")
+    # CUDA: float16 고정. bfloat16 사용 시 diffusers 내부에서 Half/BFloat16 불일치로 Index put 오류 발생 가능 (H100 등).
     dtype = torch.float16
-    if _device.type == "cuda" and hasattr(torch, "bfloat16"):
-        dtype = torch.bfloat16
     if _device.type == "cpu":
         dtype = torch.float32
     if _device.type == "mps":

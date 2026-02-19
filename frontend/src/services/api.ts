@@ -2,7 +2,7 @@ import axios, { AxiosError } from "axios";
 import type { GenerateResponse, ErrorDetail, StylesResponse } from "../types/api";
 
 const api = axios.create({
-  baseURL: "",
+  baseURL: "http://210.91.154.131:20443/95ce287337c3ad9f",
   timeout: 120_000,
   headers: { "Content-Type": "application/json" },
 });

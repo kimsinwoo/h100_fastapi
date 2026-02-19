@@ -1,8 +1,47 @@
-backend/static_frontend/
+# ========================
+# Python
+# ========================
+venv/
+.venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ========================
+# Environment
+# ========================
+.env
 backend/.env
-backend/__pycache__/
-backend/**/__pycache__/
+
+# ========================
+# Node
+# ========================
 frontend/node_modules/
 frontend/dist/
-.env
-*.pyc
+node_modules/
+dist/
+
+# ========================
+# macOS
+# ========================
+.DS_Store
+
+# ========================
+# Logs
+# ========================
+*.log
+
+# ========================
+# IDE
+# ========================
+.vscode/
+.idea/
+
+# ========================
+# Build / Static
+# ========================
+backend/static_frontend/

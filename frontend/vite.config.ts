@@ -7,9 +7,9 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      "/api": { target: "http://localhost:8000", changeOrigin: true },
-      "/static": { target: "http://localhost:8000", changeOrigin: true },
-      "/health": { target: "http://localhost:8000", changeOrigin: true },
+      "/api": { target: "http://210.91.154.131:20443/95ce287337c3ad9f", changeOrigin: true },
+      "/static": { target: "http://210.91.154.131:20443/95ce287337c3ad9f", changeOrigin: true },
+      "/health": { target: "http://210.91.154.131:20443/95ce287337c3ad9f", changeOrigin: true },
     },
   },
 });
