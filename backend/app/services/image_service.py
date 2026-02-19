@@ -21,8 +21,8 @@ _lock = asyncio.Lock()
 _device: Any = None
 
 DEFAULT_STRENGTH = 0.65
-DEFAULT_GUIDANCE_SCALE = 7.5
-DEFAULT_NUM_INFERENCE_STEPS = 35
+DEFAULT_GUIDANCE_SCALE = 0.0
+DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 512
 
 PIXEL_POSITIVE_ADD = "strictly 2D, flat shading, hard pixel edges, no gradients"
@@ -141,9 +141,8 @@ def _make_nan_callback(device: Any) -> Callable[..., dict]:
     import torch
     def _callback(pipe: Any, step: int, timestep: Any, callback_kwargs: dict) -> dict:
         latents = callback_kwargs.get("latents")
-        if latents is not None:
-            if torch.isnan(latents).any().item():
-                raise ValueError("NaN detected in latents before decode")
+        if latents is not None and torch.isnan(latents).any().item():
+            logger.warning("NaN detected in latents at step %d (continuing; output may be corrupt)", step)
         return callback_kwargs
     return _callback
 
