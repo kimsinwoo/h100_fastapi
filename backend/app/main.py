@@ -6,6 +6,15 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
+
+# Mac 등 CUDA 미지원 환경에서 torch.amp가 'cuda' 사용 시 나는 경고 억제
+warnings.filterwarnings(
+    "ignore",
+    message=".*device_type of 'cuda'.*CUDA is not available.*",
+    category=UserWarning,
+    module="torch.amp.autocast_mode",
+)
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import router
 from app.core.config import get_settings
-from app.services.image_service import get_pipeline, is_gpu_available
+from app.services.image_service import get_pipeline, is_gpu_available, is_pipeline_loaded
 from app.utils.file_handler import ensure_generated_dir
 
 # Configure logging
@@ -83,6 +92,16 @@ def create_app() -> FastAPI:
         return {
             "status": "ok",
             "gpu_available": is_gpu_available(),
+            "model_loaded": is_pipeline_loaded(),
+        }
+
+    @app.get("/api/info")
+    async def api_info() -> dict[str, str | bool]:
+        """이미지 생성 모델이 Hugging Face에서 다운로드 후 이 컴퓨터에서만 실행되는지 확인."""
+        return {
+            "image_model_source": "Hugging Face (Tongyi-MAI/Z-Image-Turbo)",
+            "runs_locally": True,
+            "model_loaded": is_pipeline_loaded(),
         }
 
     # 생성 이미지용 static (API 이미지 URL이 /static/generated/... 로 오므로 먼저 마운트)

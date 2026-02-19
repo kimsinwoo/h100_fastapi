@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         env_ignore_empty=True,
+        protected_namespaces=("settings_",),  # model_id 등 model_ 접두어 필드명 허용
     )
 
     # App
@@ -40,8 +41,11 @@ class Settings(BaseSettings):
     model_id: str = Field(default="Tongyi-MAI/Z-Image-Turbo")
     device_preference: Literal["cuda", "cpu", "auto"] = Field(default="auto")
     default_strength: float = Field(default=0.6, ge=0.0, le=1.0)
-    default_steps: int = Field(default=9, ge=1, le=50)
+    # FlowMatchEulerDiscreteScheduler: 9 steps 시 sigmas[10] 접근으로 IndexError 나는 이슈 있음 → 8로 설정
+    default_steps: int = Field(default=8, ge=1, le=50)
     default_size: int = Field(default=1024, ge=512, le=2048)
+    # MPS 메모리 부족 시 해상도 상한 (0이면 미적용). 768 권장.
+    mps_max_size: int = Field(default=768, ge=0, le=2048, description="MPS 사용 시 최대 해상도 (0=제한 없음)")
     use_autocast: bool = Field(default=True)
 
     # CORS

@@ -5,6 +5,7 @@ Image generation API routes.
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -12,7 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
 from app.schemas.image_schema import GenerateResponse
-from app.services.image_service import run_image_to_image
+from app.services.image_service import is_pipeline_loaded, run_image_to_image
 from app.utils.file_handler import get_generated_url, save_upload_async
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,11 @@ async def generate(
     Returns URLs to original and generated images plus processing time.
     """
     _check_rate_limit(request)
+    if not is_pipeline_loaded():
+        raise HTTPException(
+            status_code=503,
+            detail="Image model is still loading. Please wait a moment and try again.",
+        )
     settings = get_settings()
     style_lower = style.strip().lower()
     if style_lower not in STYLE_PRESETS:
@@ -85,6 +91,7 @@ async def generate(
         logger.exception("Failed to save upload: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save uploaded image")
     original_url = get_generated_url(original_filename)
+    print("[Z-Image] 로컬에서 이미지 생성 중...", file=sys.stderr, flush=True)
     try:
         out_bytes, processing_time = await run_image_to_image(
             image_bytes=content,
@@ -98,6 +105,7 @@ async def generate(
     except RuntimeError as e:
         logger.exception("Model inference failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
+    print("[Z-Image] 로컬 생성 완료 (%.1f초)" % processing_time, file=sys.stderr, flush=True)
     try:
         generated_filename = await save_upload_async(out_bytes, suffix=".png")
     except Exception as e:

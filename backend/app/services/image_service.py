@@ -9,6 +9,7 @@ import asyncio
 import io
 import logging
 import time
+import warnings
 from typing import Any
 
 from app.core.config import get_settings
@@ -41,6 +42,7 @@ def _load_pipeline_sync() -> Any:
     """Load Z-Image-Turbo pipeline once. Called at startup."""
     global _pipeline, _device, _use_autocast
     try:
+        import os
         import torch
     except ImportError as e:
         logger.error("torch not installed: %s", e)
@@ -52,34 +54,47 @@ def _load_pipeline_sync() -> Any:
         return None
     settings = get_settings()
     _device = _resolve_device()
+    # MPS 메모리 한도 완화 (기본 상한 42GB 넘어서 OOM 나는 경우 대비)
+    if _device.type == "mps" and "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
+        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+        logger.info("MPS: PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 set to reduce OOM (override with env if needed)")
     _use_autocast = settings.use_autocast and _device.type in ("cuda", "mps")
     dtype = torch.float16
     if _device.type == "cuda" and hasattr(torch, "bfloat16"):
         dtype = torch.bfloat16
     if _device.type == "cpu":
         dtype = torch.float32
-    try:
-        pipe = ZImageImg2ImgPipeline.from_pretrained(
-            settings.model_id,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-        )
-        pipe.set_progress_bar_config(disable=True)
+    if _device.type == "mps":
+        dtype = torch.float32
+        _use_autocast = False
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="torch.amp.autocast_mode")
         try:
-            pipe.enable_attention_slicing()
-        except Exception:
-            pass
-        try:
-            pipe.enable_vae_slicing()
-        except Exception:
-            pass
-        pipe = pipe.to(_device)
-        _pipeline = pipe
-        logger.info("Z-Image-Turbo loaded on device=%s", _device)
-        return _pipeline
-    except Exception as e:
-        logger.exception("Failed to load Z-Image-Turbo: %s", e)
-        return None
+            pipe = ZImageImg2ImgPipeline.from_pretrained(
+                settings.model_id,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+            )
+            pipe.set_progress_bar_config(disable=False)
+            try:
+                pipe.enable_attention_slicing()
+            except Exception:
+                pass
+            try:
+                pipe.enable_vae_slicing()
+            except Exception:
+                pass
+            try:
+                pipe.enable_vae_tiling()
+            except Exception:
+                pass
+            pipe = pipe.to(_device)
+        except Exception as e:
+            logger.exception("Failed to load Z-Image-Turbo: %s", e)
+            return None
+    _pipeline = pipe
+    logger.info("Z-Image-Turbo loaded on device=%s (Hugging Face, 로컬 추론)", _device)
+    return _pipeline
 
 
 async def get_pipeline() -> Any:
@@ -91,6 +106,36 @@ async def get_pipeline() -> Any:
         loop = asyncio.get_event_loop()
         _pipeline = await loop.run_in_executor(None, _load_pipeline_sync)
         return _pipeline
+
+
+def _tensor_to_pil_safe(tensor: Any) -> "Image.Image":
+    """텐서 → NaN 제거 → [0,1] 또는 [-1,1] 처리 → PIL (검은 화면 방지)."""
+    import numpy as np
+    from PIL import Image
+    t = tensor.cpu().float()
+    if t.dim() == 4:
+        t = t[0]
+    arr = np.nan_to_num(t.numpy(), nan=0.0, posinf=1.0, neginf=0.0)
+    arr = np.clip(arr, 0.0, 1.0)
+    if arr.size > 0 and arr.max() <= 0.01:
+        arr = np.nan_to_num((t.numpy() + 1.0) / 2.0, nan=0.5, posinf=1.0, neginf=0.0)
+        arr = np.clip(arr, 0.0, 1.0)
+    arr = (arr * 255.0).round().astype(np.uint8)
+    arr = np.transpose(arr, (1, 2, 0))
+    return Image.fromarray(arr)
+
+
+def is_pipeline_loaded() -> bool:
+    global _pipeline
+    return _pipeline is not None
+
+
+def get_device_type() -> str:
+    """Current device type: 'cuda', 'mps', or 'cpu'."""
+    global _device
+    if _device is None:
+        return "cpu"
+    return getattr(_device, "type", "cpu")
 
 
 def _run_inference_sync(
@@ -108,6 +153,7 @@ def _run_inference_sync(
     global _pipeline, _device, _use_autocast
     if _pipeline is None:
         raise RuntimeError("Model not loaded")
+    logger.info("Image generation started (local, %d steps, size=%d)", num_steps, size)
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     if img.width != size or img.height != size:
         img = img.resize((size, size), Image.Resampling.LANCZOS)
@@ -121,19 +167,28 @@ def _run_inference_sync(
         num_inference_steps=num_steps,
         guidance_scale=0.0,
         generator=gen,
-        output_type="pil",
+        output_type="pt",
         negative_prompt=negative_prompt or None,
     )
-    if _use_autocast and _device.type in ("cuda", "mps"):
-        with torch.amp.autocast(device_type=_device.type):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        if _use_autocast and _device.type in ("cuda", "mps"):
+            with torch.amp.autocast(device_type=_device.type):
+                out = _pipeline(**kwargs)
+        else:
             out = _pipeline(**kwargs)
+    # output_type="pt" → out.images is a tensor; do not use "if not images" (Tensor bool error)
+    if hasattr(out, "images"):
+        raw = out.images
     else:
-        out = _pipeline(**kwargs)
-    images = out.images if hasattr(out, "images") else [out[0]]
-    if not images:
+        raw = out[0] if isinstance(out, (list, tuple)) else out
+    if raw is None:
         raise RuntimeError("No output image")
+    first_img = raw[0] if isinstance(raw, torch.Tensor) and raw.dim() == 4 else raw
+    out_pil = _tensor_to_pil_safe(first_img)
     buf = io.BytesIO()
-    images[0].save(buf, format="PNG")
+    out_pil.save(buf, format="PNG")
+    logger.info("Image generation done (output %d bytes)", len(buf.getvalue()))
     return buf.getvalue()
 
 
@@ -157,8 +212,14 @@ async def run_image_to_image(
     prompt = merge_prompt(style_key, custom_prompt)
     negative_prompt = "blurry, low quality, distorted, watermark, text"
     strength = strength if strength is not None else settings.default_strength
-    num_steps = num_steps if num_steps is not None else settings.default_steps
+    raw_steps = num_steps if num_steps is not None else settings.default_steps
+    # FlowMatchEulerDiscreteScheduler 오류 방지: 9 이상이면 sigmas 인덱스 초과 가능 → 최대 8
+    num_steps = min(raw_steps, 8)
     size = size if size is not None else settings.default_size
+    # MPS 메모리 절약: 해상도 상한 적용
+    if get_device_type() == "mps" and settings.mps_max_size > 0:
+        size = min(size, settings.mps_max_size)
+        logger.info("MPS: using max size %d to reduce memory", size)
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
     result = await loop.run_in_executor(
