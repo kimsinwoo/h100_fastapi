@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
 from app.schemas.image_schema import GenerateResponse
-from app.services.image_service import is_pipeline_loaded, run_image_to_image
+from app.services.image_service import run_image_to_image
 from app.utils.file_handler import get_generated_url, save_upload_async
 
 logger = logging.getLogger(__name__)
@@ -62,11 +62,6 @@ async def generate(
     Returns URLs to original and generated images plus processing time.
     """
     _check_rate_limit(request)
-    if not is_pipeline_loaded():
-        raise HTTPException(
-            status_code=503,
-            detail="Image model is still loading. Please wait a moment and try again.",
-        )
     settings = get_settings()
     style_lower = style.strip().lower()
     if style_lower not in STYLE_PRESETS:
