@@ -1,6 +1,5 @@
 """
-Z-Image-Turbo image-to-image service. Singleton pipeline, loaded once at startup.
-GPU if available with autocast, fallback to CPU. Memory optimized.
+Z-Image-Turbo img2img service. Singleton pipeline, float16 + VAE float32, PIL output.
 """
 
 from __future__ import annotations
@@ -10,7 +9,7 @@ import io
 import logging
 import time
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 from app.core.config import get_settings
 from app.models.style_presets import merge_prompt
@@ -20,11 +19,17 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _lock = asyncio.Lock()
 _device: Any = None
-_use_autocast: bool = True
+
+DEFAULT_STRENGTH = 0.65
+DEFAULT_GUIDANCE_SCALE = 7.5
+DEFAULT_NUM_INFERENCE_STEPS = 35
+MODEL_RESOLUTION = 512
+
+PIXEL_POSITIVE_ADD = "strictly 2D, flat shading, hard pixel edges, no gradients"
+PIXEL_NEGATIVE_ADD = "3D, voxel, lego, render, ray tracing, depth of field"
 
 
 def _ensure_x_pad_token_dtype(module: Any, device: Any, target_dtype: Any) -> None:
-    """파이프라인/transformer 내부 모든 x_pad_token을 target_dtype으로 맞춤 (Half/BFloat16 불일치 방지)."""
     import torch
     if module is None:
         return
@@ -51,9 +56,23 @@ def _resolve_device() -> Any:
     return torch.device("cpu")
 
 
+def _get_model_resolution(pipe: Any) -> int:
+    try:
+        if hasattr(pipe, "transformer") and getattr(pipe.transformer, "config", None) is not None:
+            sample_size = getattr(pipe.transformer.config, "sample_size", None)
+            if sample_size is not None:
+                return int(sample_size) * 8
+        if hasattr(pipe, "unet") and getattr(pipe.unet, "config", None) is not None:
+            sample_size = getattr(pipe.unet.config, "sample_size", None)
+            if sample_size is not None:
+                return int(sample_size) * 8
+    except Exception:
+        pass
+    return MODEL_RESOLUTION
+
+
 def _load_pipeline_sync() -> Any:
-    """Load Z-Image-Turbo pipeline once. Called at startup."""
-    global _pipeline, _device, _use_autocast
+    global _pipeline, _device
     try:
         import os
         import torch
@@ -61,24 +80,15 @@ def _load_pipeline_sync() -> Any:
         logger.error("torch not installed: %s", e)
         return None
     try:
-        from diffusers import ZImageImg2ImgPipeline
+        from diffusers import UniPCMultistepScheduler, ZImageImg2ImgPipeline
     except ImportError as e:
-        logger.error("ZImageImg2ImgPipeline not available (diffusers>=0.36): %s", e)
+        logger.error("diffusers import failed: %s", e)
         return None
     settings = get_settings()
     _device = _resolve_device()
-    # MPS 메모리 한도 완화 (기본 상한 42GB 넘어서 OOM 나는 경우 대비)
     if _device.type == "mps" and "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in os.environ:
         os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
-        logger.info("MPS: PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 set to reduce OOM (override with env if needed)")
-    _use_autocast = settings.use_autocast and _device.type in ("cuda", "mps")
-    # CUDA: float16 고정. bfloat16 사용 시 diffusers 내부에서 Half/BFloat16 불일치로 Index put 오류 발생 가능 (H100 등).
-    dtype = torch.float16
-    if _device.type == "cpu":
-        dtype = torch.float32
-    if _device.type == "mps":
-        dtype = torch.float32
-        _use_autocast = False
+    dtype = torch.float16 if _device.type == "cuda" else torch.float32
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="torch.amp.autocast_mode")
         try:
@@ -87,33 +97,30 @@ def _load_pipeline_sync() -> Any:
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
             )
+            try:
+                pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+            except Exception:
+                logger.warning("Could not set UniPCMultistepScheduler, using default")
             pipe.set_progress_bar_config(disable=False)
             try:
                 pipe.enable_attention_slicing()
             except Exception:
                 pass
-            try:
-                pipe.enable_vae_slicing()
-            except Exception:
-                pass
-            try:
-                pipe.enable_vae_tiling()
-            except Exception:
-                pass
+            pipe.enable_vae_slicing()
+            pipe.enable_vae_tiling()
             pipe = pipe.to(_device)
-            # Half/BFloat16 불일치 방지: transformer 포함 전체 모듈에서 x_pad_token dtype 통일 (H100 등)
+            if _device.type == "cuda":
+                pipe.vae.to(torch.float32)
             _ensure_x_pad_token_dtype(pipe, _device, dtype)
-            logger.info("Z-Image x_pad_token(s) cast to %s (load)", dtype)
         except Exception as e:
             logger.exception("Failed to load Z-Image-Turbo: %s", e)
             return None
     _pipeline = pipe
-    logger.info("Z-Image-Turbo loaded on device=%s (Hugging Face, 로컬 추론)", _device)
+    logger.info("Z-Image-Turbo loaded on device=%s", _device)
     return _pipeline
 
 
 async def get_pipeline() -> Any:
-    """Async access to singleton pipeline; init on first use."""
     global _pipeline
     async with _lock:
         if _pipeline is not None:
@@ -123,35 +130,27 @@ async def get_pipeline() -> Any:
         return _pipeline
 
 
-def _tensor_to_pil_safe(tensor: Any) -> "Image.Image":
-    """텐서 → NaN 제거 → [0,1] 스케일 → PIL. VAE 출력은 보통 [-1,1]이므로 먼저 정규화."""
-    import numpy as np
-    from PIL import Image
-    t = tensor.cpu().float()
-    if t.dim() == 4:
-        t = t[0]
-    arr = np.nan_to_num(t.numpy(), nan=0.0, posinf=1.0, neginf=-1.0)
-    # diffusion VAE 출력은 [-1,1]. 음수 있으면 [-1,1]→[0,1] 변환
-    if arr.size > 0 and np.any(arr < -0.01):
-        arr = (arr + 1.0) / 2.0
-    arr = np.nan_to_num(arr, nan=0.5, posinf=1.0, neginf=0.0)
-    arr = np.clip(arr, 0.0, 1.0)
-    arr = (arr * 255.0).round().astype(np.uint8)
-    arr = np.transpose(arr, (1, 2, 0))
-    return Image.fromarray(arr)
-
-
 def is_pipeline_loaded() -> bool:
     global _pipeline
     return _pipeline is not None
 
 
 def get_device_type() -> str:
-    """Current device type: 'cuda', 'mps', or 'cpu'."""
     global _device
     if _device is None:
         return "cpu"
     return getattr(_device, "type", "cpu")
+
+
+def _make_nan_callback(device: Any) -> Callable[..., dict]:
+    import torch
+    def _callback(pipe: Any, step: int, timestep: Any, callback_kwargs: dict) -> dict:
+        latents = callback_kwargs.get("latents")
+        if latents is not None:
+            if torch.isnan(latents).any().item():
+                raise ValueError("NaN detected in latents before decode")
+        return callback_kwargs
+    return _callback
 
 
 def _run_inference_sync(
@@ -160,54 +159,50 @@ def _run_inference_sync(
     negative_prompt: str,
     strength: float,
     num_steps: int,
+    guidance_scale: float,
     size: int,
     seed: int | None,
 ) -> bytes:
-    """Blocking inference run in executor."""
     import torch
     from PIL import Image
-    global _pipeline, _device, _use_autocast
+    global _pipeline, _device
     if _pipeline is None:
         raise RuntimeError("Model not loaded")
     logger.info("Image generation started (local, %d steps, size=%d)", num_steps, size)
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     if img.width != size or img.height != size:
         img = img.resize((size, size), Image.Resampling.LANCZOS)
-    gen = torch.Generator(device=_device)
+    generator = torch.Generator(device=_device)
     if seed is not None:
-        gen.manual_seed(seed)
-    # 추론 직전에 x_pad_token dtype 재정렬 (로드 시 bfloat16이어도/서버 코드 불일치여도 Half 오류 방지)
+        generator.manual_seed(seed)
     _ensure_x_pad_token_dtype(
         _pipeline, _device, torch.float16 if _device.type == "cuda" else torch.float32
     )
-    kwargs = dict(
-        prompt=prompt,
-        image=img,
-        strength=strength,
-        num_inference_steps=num_steps,
-        guidance_scale=0.0,
-        generator=gen,
-        output_type="pt",
-        negative_prompt=negative_prompt or None,
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        if _use_autocast and _device.type in ("cuda", "mps"):
-            with torch.amp.autocast(device_type=_device.type):
-                out = _pipeline(**kwargs)
-        else:
-            out = _pipeline(**kwargs)
-    # output_type="pt" → out.images is a tensor; do not use "if not images" (Tensor bool error)
-    if hasattr(out, "images"):
-        raw = out.images
-    else:
-        raw = out[0] if isinstance(out, (list, tuple)) else out
-    if raw is None:
-        raise RuntimeError("No output image")
-    first_img = raw[0] if isinstance(raw, torch.Tensor) and raw.dim() == 4 else raw
-    out_pil = _tensor_to_pil_safe(first_img)
+    nan_callback = _make_nan_callback(_device)
+    call_kw: dict = {
+        "prompt": prompt,
+        "image": img,
+        "strength": strength,
+        "num_inference_steps": num_steps,
+        "guidance_scale": guidance_scale,
+        "generator": generator,
+        "output_type": "pil",
+        "negative_prompt": negative_prompt or None,
+    }
+    with torch.inference_mode():
+        try:
+            out = _pipeline(
+                **call_kw,
+                callback_on_step_end=nan_callback,
+                callback_on_step_end_tensor_inputs=["latents"],
+            )
+        except TypeError:
+            out = _pipeline(**call_kw)
+    if not getattr(out, "images", None) or len(out.images) == 0:
+        raise RuntimeError("No output image from pipeline")
+    pil_image = out.images[0]
     buf = io.BytesIO()
-    out_pil.save(buf, format="PNG")
+    pil_image.save(buf, format="PNG")
     logger.info("Image generation done (output %d bytes)", len(buf.getvalue()))
     return buf.getvalue()
 
@@ -221,25 +216,23 @@ async def run_image_to_image(
     size: int | None = None,
     seed: int | None = None,
 ) -> tuple[bytes, float]:
-    """
-    Run Z-Image-Turbo img2img. Returns (png_bytes, processing_time_seconds).
-    Raises ValueError for invalid input, RuntimeError for model failure.
-    """
     pipeline = await get_pipeline()
     if pipeline is None:
-        raise RuntimeError("Image model not available. Install torch and diffusers>=0.36 with GPU/CUDA or CPU.")
+        raise RuntimeError("Image model not available. Install torch and diffusers with GPU/CUDA or CPU.")
     settings = get_settings()
     prompt = merge_prompt(style_key, custom_prompt)
     negative_prompt = "blurry, low quality, distorted, watermark, text"
-    strength = strength if strength is not None else settings.default_strength
-    raw_steps = num_steps if num_steps is not None else settings.default_steps
-    # FlowMatchEulerDiscreteScheduler 오류 방지: 9 이상이면 sigmas 인덱스 초과 가능 → 최대 8
-    num_steps = min(raw_steps, 8)
-    size = size if size is not None else settings.default_size
-    # MPS 메모리 절약: 해상도 상한 적용
-    if get_device_type() == "mps" and settings.mps_max_size > 0:
-        size = min(size, settings.mps_max_size)
-        logger.info("MPS: using max size %d to reduce memory", size)
+    if style_key.strip().lower().startswith("pixel") or "pixel" in style_key.strip().lower():
+        prompt = f"{prompt}, {PIXEL_POSITIVE_ADD}"
+        negative_prompt = f"{negative_prompt}, {PIXEL_NEGATIVE_ADD}"
+    strength = strength if strength is not None else DEFAULT_STRENGTH
+    strength = max(0.0, min(1.0, strength))
+    num_steps = num_steps if num_steps is not None else DEFAULT_NUM_INFERENCE_STEPS
+    num_steps = max(1, min(50, num_steps))
+    guidance_scale = DEFAULT_GUIDANCE_SCALE
+    resolution = _get_model_resolution(pipeline) if size is None else size
+    if get_device_type() == "mps" and getattr(settings, "mps_max_size", 0) > 0:
+        resolution = min(resolution, settings.mps_max_size)
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
     result = await loop.run_in_executor(
@@ -250,7 +243,8 @@ async def run_image_to_image(
             negative_prompt,
             strength,
             num_steps,
-            size,
+            guidance_scale,
+            resolution,
             seed,
         ),
     )
@@ -259,7 +253,6 @@ async def run_image_to_image(
 
 
 def is_gpu_available() -> bool:
-    """Return True if running on GPU (CUDA or MPS)."""
     try:
         import torch
         if torch.cuda.is_available():
