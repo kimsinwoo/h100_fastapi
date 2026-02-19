@@ -80,7 +80,7 @@ def _load_pipeline_sync() -> Any:
         logger.error("torch not installed: %s", e)
         return None
     try:
-        from diffusers import UniPCMultistepScheduler, ZImageImg2ImgPipeline
+        from diffusers import ZImageImg2ImgPipeline
     except ImportError as e:
         logger.error("diffusers import failed: %s", e)
         return None
@@ -97,10 +97,6 @@ def _load_pipeline_sync() -> Any:
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
             )
-            try:
-                pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
-            except Exception:
-                logger.warning("Could not set UniPCMultistepScheduler, using default")
             pipe.set_progress_bar_config(disable=False)
             for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
                 method = getattr(pipe, method_name, None)
