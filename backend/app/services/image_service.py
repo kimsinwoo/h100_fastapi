@@ -147,6 +147,26 @@ def _make_nan_callback(device: Any) -> Callable[..., dict]:
     return _callback
 
 
+def _tensor_to_pil(tensor: Any) -> "Image.Image":
+    """VAE 출력 텐서를 [0,1] 또는 [-1,1] 범위로 정규화 후 PIL RGB로 변환."""
+    import numpy as np
+    from PIL import Image
+    t = tensor.cpu().float()
+    if t.dim() == 4:
+        t = t[0]
+    arr = np.nan_to_num(t.numpy(), nan=0.0, posinf=1.0, neginf=-1.0)
+    if arr.size == 0:
+        raise RuntimeError("Empty output tensor")
+    min_val, max_val = float(arr.min()), float(arr.max())
+    if min_val < -0.5 or max_val > 1.5:
+        arr = (arr + 1.0) / 2.0
+    arr = np.clip(arr, 0.0, 1.0)
+    arr = (arr * 255.0).round().astype(np.uint8)
+    if arr.shape[0] == 3:
+        arr = np.transpose(arr, (1, 2, 0))
+    return Image.fromarray(arr, mode="RGB")
+
+
 def _run_inference_sync(
     image_bytes: bytes,
     prompt: str,
@@ -180,7 +200,7 @@ def _run_inference_sync(
         "num_inference_steps": num_steps,
         "guidance_scale": guidance_scale,
         "generator": generator,
-        "output_type": "pil",
+        "output_type": "pt",
         "negative_prompt": negative_prompt or None,
     }
     with torch.inference_mode():
@@ -192,11 +212,15 @@ def _run_inference_sync(
             )
         except TypeError:
             out = _pipeline(**call_kw)
-    if not getattr(out, "images", None) or len(out.images) == 0:
+    raw = getattr(out, "images", None)
+    if raw is None and isinstance(out, (list, tuple)):
+        raw = out[0]
+    if raw is None:
+        raw = out
+    if raw is None:
         raise RuntimeError("No output image from pipeline")
-    pil_image = out.images[0]
-    if pil_image.mode != "RGB":
-        pil_image = pil_image.convert("RGB")
+    tensor_out = raw[0] if isinstance(raw, torch.Tensor) and raw.dim() == 4 else raw
+    pil_image = _tensor_to_pil(tensor_out)
     buf = io.BytesIO()
     pil_image.save(buf, format="PNG")
     logger.info("Image generation done (output %d bytes)", len(buf.getvalue()))
