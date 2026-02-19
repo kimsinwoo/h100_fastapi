@@ -23,7 +23,7 @@ _device: Any = None
 DEFAULT_STRENGTH = 0.65
 DEFAULT_GUIDANCE_SCALE = 0.0
 DEFAULT_NUM_INFERENCE_STEPS = 8
-MODEL_RESOLUTION = 512
+MODEL_RESOLUTION = 1024
 
 PIXEL_POSITIVE_ADD = "strictly 2D, flat shading, hard pixel edges, no gradients"
 PIXEL_NEGATIVE_ADD = "3D, voxel, lego, render, ray tracing, depth of field"
@@ -195,6 +195,8 @@ def _run_inference_sync(
     if not getattr(out, "images", None) or len(out.images) == 0:
         raise RuntimeError("No output image from pipeline")
     pil_image = out.images[0]
+    if pil_image.mode != "RGB":
+        pil_image = pil_image.convert("RGB")
     buf = io.BytesIO()
     pil_image.save(buf, format="PNG")
     logger.info("Image generation done (output %d bytes)", len(buf.getvalue()))
