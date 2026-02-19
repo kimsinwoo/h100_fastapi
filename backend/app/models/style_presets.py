@@ -14,10 +14,10 @@ STYLE_PRESETS: dict[str, str] = {
     "cinematic": "cinematic lighting, movie still, dramatic composition, anamorphic lens, film grain, blockbuster",
     "fantasy art": "fantasy art, magical, ethereal, detailed illustration, epic, otherworldly, dreamlike",
     "pixel art": (
-        "pure 2D pixel art sprite, convert all 3D voxel to flat 2D pixels, "
-        "retro 8-bit 16-bit video game style, pixel-perfect, simple clean blocky shapes, "
-        "minimal shading, flat colors, sharp black outlines around character, "
-        "limited color palette maximum 8 colors, classic pixel art, no anti-aliasing, no soft edges"
+        "pure 2D pixel art only, flat like a paper drawing, no 3D no depth no volume, "
+        "retro 2D game sprite like NES SNES, flat colored pixels on flat background, "
+        "sharp black outlines, 8 colors or less, no gradients, no shadows, no anti-aliasing, "
+        "sprite sheet style, single flat layer, 2D character art"
     ),
     "3d render": "3D render, octane render, unreal engine, photorealistic 3D, studio lighting, clean render",
 }

@@ -27,20 +27,21 @@ DEFAULT_GUIDANCE_SCALE = 0.0
 DEFAULT_NUM_INFERENCE_STEPS = 8
 MODEL_RESOLUTION = 1024
 
-# Pure 2D pixel art: preserve pose, convert 3D→2D, 8 colors, black outlines, no AA
+# 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
 PIXEL_POSITIVE_ADD = (
-    "strictly 2D only, flat 2D pixels, orthographic view, "
-    "preserve exact same shape and pose, convert voxel to flat pixel sprite, "
-    "maximum 8 colors, limited palette, bold black outlines, "
-    "pixel-perfect, sharp edges, no anti-aliasing, no gradients, no soft shading, "
-    "retro 8-bit 16-bit sprite, blocky, clean, minimal shading"
+    "pure 2D only, completely flat, no 3D no depth no volume no perspective, "
+    "flat 2D pixel sprite like classic NES SNES game, flat on flat background, "
+    "preserve same pose and shape as reference, bold black outlines, "
+    "maximum 8 colors, flat color fill, no gradients no shadows no shading, "
+    "sprite sheet character, single flat layer, 2D illustration only"
 )
 
 PIXEL_NEGATIVE_ADD = (
-    "3D, voxel, lego, cube, volume, depth, perspective, "
+    "Minecraft, voxel, 3D blocks, lego, cube, blocks, isometric 3D, "
+    "3D, volume, depth, perspective, dimension, round, sculpted, "
     "ray tracing, render, realism, photorealistic, "
     "anti-aliasing, soft edges, gradients, smooth shading, blur, "
-    "depth of field, volumetric lighting, more than 8 colors, complex palette"
+    "depth of field, volumetric, more than 8 colors, complex palette"
 )
 
 
