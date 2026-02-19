@@ -219,7 +219,10 @@ async def run_image_to_image(
         style_key, custom_prompt or "", aspect_ratio="1:1"
     )
     prompt = compiled["final_prompt"]
-    prompt += ", preserve original composition, same layout and pose, keep subject arrangement"
+    prompt += (
+        ", preserve original composition, same layout and pose, keep subject arrangement, "
+        "same subject(s) as reference image, same number of figures or animals, do not change to human or one character"
+    )
     negative_prompt = compiled["negative_prompt"]
     if "pixel" in style_lower:
         negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX

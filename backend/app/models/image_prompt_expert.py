@@ -126,7 +126,8 @@ class ImagePromptExpert:
     BASE_NEGATIVE = (
         "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, "
         "cropped, worst quality, low quality, jpeg artifacts, signature, watermark, "
-        "blurry, distorted, deformed, extra limbs, duplicate, mutilated"
+        "blurry, distorted, deformed, extra limbs, duplicate, mutilated, "
+        "replacing pet with human, replacing animal with person, single figure when reference has multiple subjects, merging two into one"
     )
 
     DEFAULT_STYLE = "realistic"
@@ -156,7 +157,16 @@ class ImagePromptExpert:
         )
 
         user = (user_content or "").strip()
-        content_emphasized = f"((({user})))" if user else "((detailed subject, high quality))"
+        if user:
+            content_emphasized = f"((({user})))"
+        else:
+            # 사용자 입력 없을 때: 원본 이미지와 동일한 주제·동일 인원 유지 (고양이→사람 등으로 바뀌지 않게)
+            content_emphasized = (
+                "((same subject as in the reference image: keep exactly what is shown, "
+                "e.g. cats stay cats, dogs stay dogs, pets stay pets; "
+                "same number of subjects, do not replace with human character or single figure, "
+                "preserve subject identity and count))"
+            )
 
         final_positive = pos_template.format(subject=content_emphasized)
         final_positive += f", masterpiece, 8k, aspect ratio {aspect_ratio}"
