@@ -75,7 +75,18 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-oss-20b", description="API 사용 시 모델 이름.")
     llm_api_key: str = Field(default="", description="외부 API 사용 시에만 필요")
     llm_timeout_seconds: int = Field(default=120, ge=10, le=600)
-    llm_max_concurrent: int = Field(default=20, ge=1, le=100, description="동시 LLM 요청 상한")
+    llm_max_concurrent: int = Field(
+        default=2,
+        ge=1,
+        le=100,
+        description="동시 LLM 요청 수. 로컬 1GPU면 1~2 권장. 동시에 초과 시 대기 후 llm_queue_wait_seconds 초과하면 503.",
+    )
+    llm_queue_wait_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="LLM 대기열에서 슬롯 확보 대기 시간(초). 초과 시 503 반환.",
+    )
     # H100 등에서 추론 속도 향상: flash_attention_2 > sdpa > eager. True면 시도 후 없으면 sdpa/eager
     llm_use_flash_attention: bool = Field(default=True, description="True면 Flash Attention 2 또는 SDPA 사용 시도")
     # LLM 로드 후 기동 시 한국어 LoRA 파인튜닝 백그라운드 실행 여부 (기본 끔: 채팅과 리소스 경쟁 방지)

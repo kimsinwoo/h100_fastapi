@@ -16,6 +16,11 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
+class LLMQueueTimeoutError(Exception):
+    """LLM 대기열 대기 시간 초과(동시 사용자 많음)."""
+    pass
+
 _llm_semaphore: asyncio.Semaphore | None = None
 _local_model: Any = None
 _local_tokenizer: Any = None
@@ -130,7 +135,7 @@ _GEN_TEMPERATURE = 0.6
 _GEN_TOP_P = 0.85
 _GEN_REPETITION_PENALTY = 1.2
 _GEN_NO_REPEAT_NGRAM_SIZE = 5
-_GEN_MIN_NEW_TOKENS = 80
+_GEN_MIN_NEW_TOKENS = 50
 _GEN_MAX_NEW_TOKENS = 512
 
 # 응답 시작 검증: 한글/숫자로 시작, 경고문으로 시작 금지
@@ -473,14 +478,24 @@ async def complete(
 ) -> str | None:
     """
     채팅 완성: 로컬 모델 또는 외부 API.
-    사용 언어(한국어/영어)에 맞춰 자연스럽게 응답하도록 시스템 프롬프트에서 유도.
+    동시 요청은 semaphore로 제한. 대기 시간 초과 시 None 반환(호출 측에서 503 처리).
     """
     if not is_llm_available():
         return None
     settings = get_settings()
     sem = _get_llm_semaphore()
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=settings.llm_queue_wait_seconds)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "LLM queue full: wait timeout (%ss). 다른 사용자 사용 중.",
+            settings.llm_queue_wait_seconds,
+        )
+        raise LLMQueueTimeoutError(
+            f"다른 사용자가 사용 중입니다. {settings.llm_queue_wait_seconds}초 후 다시 시도해 주세요."
+        )
 
-    async with sem:
+    try:
         if settings.llm_use_local:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
@@ -492,6 +507,8 @@ async def complete(
         except Exception as e:
             logger.warning("LLM API request failed: %s", e)
             return None
+    finally:
+        sem.release()
 
 
 # ---------- 자연어 처리: 자연스러운 채팅·프롬프트 추천 ----------

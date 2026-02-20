@@ -233,7 +233,7 @@ async def llm_chat(
 ) -> dict:
     """건강 질문 도우미 채팅. 응답에 1~5분 걸릴 수 있음. body: { messages, max_tokens?, temperature? }"""
     _check_rate_limit(request)
-    from app.services.llm_service import is_llm_available, complete_health_chat
+    from app.services.llm_service import is_llm_available, complete_health_chat, LLMQueueTimeoutError
 
     if not is_llm_available():
         raise HTTPException(status_code=503, detail="LLM not available")
@@ -245,6 +245,8 @@ async def llm_chat(
     logger.info("LLM chat request: %s messages, max_tokens=%s", len(messages), max_tokens)
     try:
         text = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
+    except LLMQueueTimeoutError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.exception("LLM chat error: %s", e)
         raise HTTPException(status_code=503, detail="LLM request failed") from e
