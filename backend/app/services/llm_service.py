@@ -202,6 +202,19 @@ PROMPT_SUGGEST_SYSTEM = (
     "No explanation, no quotes, no extra text."
 )
 
+# 건강 질문 도우미 AI (healthAiService와 동일 규칙)
+HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미 AI입니다. 사용자가 자신의 증상이나 애완동물(강아지/고양이 포함)의 상황을 말하면, 참고할 수 있는 정보만 제공합니다.
+
+필수 규칙:
+1. 진단·확정 표현을 절대 쓰지 마세요. 금지 예: "진단", "확진", "~질병입니다", "~증상으로 보입니다", "~병입니다", "~로 판단됩니다", "이것은 OO입니다(병명)". 대신 "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만 하세요.
+2. 답변 형식: 소제목은 **굵게**만 사용하세요. 목록은 반드시 한 줄에 한 항목씩 "• 항목 내용" 형태로만 작성하세요(별표 * 마크다운 사용 금지). 중첩 목록은 "  • 하위 항목"처럼 들여쓰기로만 구분하세요.
+3. 답변은 끊기지 않도록 핵심만 간결하게, 단 문장 끝까지 완성해서 주세요. "~할 수 있습니다." 등으로 문장을 끝내세요.
+4. 반드시 "정확한 판단은 의료·수의 전문가에게 확인하세요" 문구를 포함하세요.
+5. 전문용어는 쉬운 말로 풀어서 설명합니다.
+6. 사람·반려동물 모두 동일하게 적용합니다.
+7. 너무 길지 않게 답변을 하도록합니다.
+8. 반려동물 건강 관련 질문 이외에는 답변을 하지 않도록 합니다."""
+
 
 async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, temperature: float = 0.7) -> str | None:
     """
@@ -210,6 +223,24 @@ async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, t
     """
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
         messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + list(messages)
+    return await complete(messages, max_tokens=max_tokens, temperature=temperature)
+
+
+async def complete_health_chat(
+    messages: list[dict[str, str]],
+    max_tokens: int = 1024,
+    temperature: float = 0.4,
+) -> str | None:
+    """
+    건강 질문 도우미: healthAiService와 동일한 시스템 프롬프트 적용.
+    진단·확정 금지, 목록 형식(•), 전문가 확인 문구 포함 등 규칙 준수.
+    """
+    if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
+        messages = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + list(messages)
+    else:
+        messages = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + [
+            m for m in messages if (m.get("role") or "").lower() != "system"
+        ]
     return await complete(messages, max_tokens=max_tokens, temperature=temperature)
 
 

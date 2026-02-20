@@ -34,7 +34,7 @@ export default function ChatPage() {
     setLoading(true);
     try {
       const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
-      const content = await llmChat(history, 512, 0.7);
+      const content = await llmChat(history, 1024, 0.4);
       setMessages((prev) => [...prev, { role: "assistant", content }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: "assistant", content: `오류: ${getErrorMessage(err)}` }]);
@@ -48,9 +48,11 @@ export default function ChatPage() {
       <div className="mx-auto max-w-3xl px-4">
         <header className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">LLM 채팅 (gpt-oss-20b)</h1>
+            <h1 className="text-2xl font-bold text-gray-900">건강 질문 도우미</h1>
             <p className="mt-1 text-sm text-gray-500">
-              {available ? `모델: ${model ?? "gpt-oss-20b"}` : "LLM 서버를 사용할 수 없습니다."}
+              {available
+                ? "증상·반려동물 상황을 적어 주세요. 참고 정보만 제공하며, 정확한 판단은 의료·수의 전문가에게 확인하세요."
+                : "LLM을 사용할 수 없습니다."}
             </p>
           </div>
           <Link
@@ -64,7 +66,9 @@ export default function ChatPage() {
         <div className="rounded-xl bg-white shadow">
           <div className="flex h-[60vh] flex-col overflow-y-auto p-4">
             {messages.length === 0 && !loading && (
-              <p className="text-center text-sm text-gray-500">메시지를 입력하고 전송하세요.</p>
+              <p className="text-center text-sm text-gray-500">
+                증상이나 반려동물 상황을 간단히 적어 주세요. (참고 정보만 제공합니다)
+              </p>
             )}
             {messages.map((m, i) => (
               <div

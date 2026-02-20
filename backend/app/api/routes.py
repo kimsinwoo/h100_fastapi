@@ -147,7 +147,7 @@ async def llm_chat(
     request: Request,
     body: Annotated[dict, Body()],
 ) -> dict:
-    """OpenAI 호환 채팅. body: { messages: [{role, content}], max_tokens?, temperature? }"""
+    """건강 질문 도우미 채팅 (진단 금지·목록 형식 등 규칙 필수 적용). body: { messages, max_tokens?, temperature? }"""
     _check_rate_limit(request)
     from app.services.llm_service import complete, is_llm_available
 
@@ -156,11 +156,11 @@ async def llm_chat(
     messages = body.get("messages") or []
     if not messages:
         raise HTTPException(status_code=400, detail="messages required")
-    max_tokens = body.get("max_tokens", 256)
-    temperature = body.get("temperature", 0.7)
-    from app.services.llm_service import complete_chat
+    max_tokens = body.get("max_tokens", 1024)
+    temperature = body.get("temperature", 0.4)
+    from app.services.llm_service import complete_health_chat
 
-    text = await complete_chat(messages, max_tokens=max_tokens, temperature=temperature)
+    text = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
     if text is None:
         raise HTTPException(status_code=503, detail="LLM request failed")
     return {"content": text}
