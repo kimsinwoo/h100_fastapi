@@ -37,6 +37,19 @@ def is_llm_available() -> bool:
     return bool(s.llm_api_base and s.llm_api_base.strip())
 
 
+async def preload_local_model() -> None:
+    """서버 기동 시 로컬 LLM 미리 로드. llm_use_local일 때만 실행(블로킹이므로 executor에서 실행)."""
+    s = get_settings()
+    if not s.llm_enabled or not s.llm_use_local:
+        return
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, load_local_model_sync)
+        logger.info("Local LLM preloaded at startup: %s", s.llm_local_model_id)
+    except Exception as e:
+        logger.warning("Local LLM preload at startup failed (will load on first request): %s", e)
+
+
 def _get_hf_token() -> str | None:
     """Hugging Face 토큰 (게이트 모델용). 설정 또는 HF_TOKEN 환경변수."""
     import os
@@ -44,6 +57,11 @@ def _get_hf_token() -> str | None:
     if s.llm_hf_token and s.llm_hf_token.strip():
         return s.llm_hf_token.strip()
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or None
+
+
+def load_local_model_sync() -> tuple[Any, Any]:
+    """로컬 모델·토크나이저 로드 (한 번만, 동기). 서버 기동 시 또는 첫 요청 시 호출."""
+    return _load_local_model_sync()
 
 
 def _load_local_model_sync() -> tuple[Any, Any]:

@@ -4,6 +4,22 @@ import { getLlmStatus, llmChat, getErrorMessage } from "../services/api";
 
 type Message = { role: "user" | "assistant"; content: string };
 
+/** 건강 도우미 응답: **굵게** 처리 + 줄바꿈·• 목록 유지 */
+function renderAssistantContent(content: string) {
+  const parts = content.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <span className="whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        part.startsWith("**") && part.endsWith("**") ? (
+          <strong key={i}>{part.slice(2, -2)}</strong>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -82,7 +98,7 @@ export default function ChatPage() {
                       : "bg-gray-100 text-gray-800"
                   }`}
                 >
-                  {m.content}
+                  {m.role === "assistant" ? renderAssistantContent(m.content) : m.content}
                 </div>
               </div>
             ))}

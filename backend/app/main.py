@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import router
 from app.core.config import get_settings
 from app.services.image_service import get_pipeline, is_gpu_available, is_pipeline_loaded
+from app.services.llm_service import preload_local_model
 from app.utils.file_handler import ensure_generated_dir
 
 # Configure logging
@@ -45,12 +46,17 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     ensure_generated_dir()
     logger.info("Static directory ready: %s", settings.generated_dir)
-    # Load model once at startup
+    # Load image model once at startup
     try:
         await get_pipeline()
         logger.info("GPU available: %s", is_gpu_available())
     except Exception as e:
         logger.warning("Model not loaded at startup (will fail on first request): %s", e)
+    # LLM 로컬 사용 시 기동 시 미리 로드 (첫 채팅 요청 대기 없음)
+    try:
+        await preload_local_model()
+    except Exception as e:
+        logger.warning("LLM preload at startup failed: %s", e)
     yield
     logger.info("Shutting down")
 
