@@ -8,12 +8,20 @@ import logging
 import sys
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
 from app.schemas.image_schema import GenerateResponse
 from app.services.image_service import run_image_to_image
+from app.services.training_store import (
+    add_item as training_add_item,
+    delete_item as training_delete_item,
+    get_image_path as training_get_image_path,
+    list_items as training_list_items,
+    update_caption as training_update_caption,
+)
 from app.utils.file_handler import get_generated_url, save_upload_async
 
 logger = logging.getLogger(__name__)
@@ -118,3 +126,79 @@ async def generate(
 async def list_styles() -> dict[str, str]:
     """Return available style presets (key -> description)."""
     return {k: v for k, v in STYLE_PRESETS.items()}
+
+
+# ---------- LoRA 학습 데이터 API ----------
+
+
+def _training_item_with_url(item: dict) -> dict:
+    """항목에 image_url 추가."""
+    base = "/api/training/images"
+    return {**item, "image_url": f"{base}/{item['image_filename']}"}
+
+
+@router.get("/training/items")
+async def training_list() -> list[dict]:
+    """학습용 데이터 목록 (이미지 URL 포함)."""
+    items = training_list_items()
+    return [_training_item_with_url(it) for it in items]
+
+
+@router.post("/training/items")
+async def training_add(
+    request: Request,
+    file: Annotated[UploadFile, File(description="학습용 이미지")],
+    caption: Annotated[str, Form(description="프롬프트 라벨")] = "",
+) -> dict:
+    """학습 데이터 1건 추가 (이미지 + 캡션)."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Image file required")
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    settings = get_settings()
+    if len(content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    item = training_add_item(content, caption)
+    return _training_item_with_url(item)
+
+
+@router.patch("/training/items/{item_id}")
+async def training_update_caption_route(
+    item_id: str,
+    body: Annotated[dict, Body()] = None,
+) -> dict | None:
+    """학습 항목의 캡션(프롬프트)만 수정. body: { \"caption\": \"...\" }"""
+    caption = (body or {}).get("caption", "")
+    updated = training_update_caption(item_id, caption)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return _training_item_with_url(updated)
+
+
+@router.delete("/training/items/{item_id}")
+async def training_delete(item_id: str) -> dict:
+    """학습 데이터 1건 삭제."""
+    if not training_delete_item(item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"ok": True}
+
+
+@router.get("/training/images/{filename:path}")
+async def training_serve_image(filename: str) -> FileResponse:
+    """학습용 이미지 파일 서빙."""
+    path = training_get_image_path(filename)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@router.post("/training/start")
+async def training_start() -> dict:
+    """LoRA 학습 시작 (백그라운드). 데이터가 없으면 400."""
+    from app.services.training_runner import start_lora_training
+
+    result = start_lora_training()
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result

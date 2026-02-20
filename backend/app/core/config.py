@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     generated_dir_name: str = Field(default="generated")
     frontend_dir: Path | None = Field(default=Path("static_frontend"), description="빌드된 프론트엔드 폴더; 있으면 / 에서 서빙")
     upload_max_size_mb: int = Field(default=20, ge=1, le=100)
+    # LoRA 학습용 데이터 저장 경로 (프로젝트 루트 기준 data/training)
+    training_dir_name: str = Field(default="data/training", description="학습 이미지·메타데이터 저장 디렉터리")
 
     # Z-Image model
     model_id: str = Field(default="Tongyi-MAI/Z-Image-Turbo")
@@ -59,6 +61,13 @@ class Settings(BaseSettings):
     @property
     def generated_dir(self) -> Path:
         return self.static_dir / self.generated_dir_name
+
+    @property
+    def training_dir(self) -> Path:
+        """LoRA 학습용 데이터 디렉터리 (backend 기준 상대 경로)."""
+        from pathlib import Path as P
+        backend_dir = P(__file__).resolve().parent.parent.parent
+        return backend_dir / self.training_dir_name
 
     @property
     def upload_max_bytes(self) -> int:
