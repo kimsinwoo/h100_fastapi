@@ -236,6 +236,8 @@ PROMPT_SUGGEST_SYSTEM = (
 )
 
 # 건강 질문 도우미 AI — 한 번만 생성, 한글만 출력
+HEALTH_DISCLAIMER = "정확한 판단은 의료·수의 전문가에게 확인하세요."
+
 HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
 
 [최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어(analysis 등) 금지. 답변은 바로 본문으로 시작한다.
@@ -293,6 +295,43 @@ def _strip_leading_junk(text: str) -> str:
     return merged.strip()
 
 
+def _dedupe_and_fix_disclaimer(text: str) -> str:
+    """반복 문구·disclaimer 남발 제거. disclaimer는 맨 끝에 한 번만."""
+    if not text or not text.strip():
+        return text
+    raw = text.strip()
+    # disclaimer만 있는 줄 제거 후, 맨 끝에 한 번만 붙임
+    pattern = re.escape(HEALTH_DISCLAIMER.rstrip("."))
+    disclaimer_only = re.compile(r"^\s*" + pattern + r"\.?\s*$")
+    lines = raw.split("\n")
+    kept = []
+    prev = None
+    hangul = re.compile(r"[가-힣]")
+    for line in lines:
+        s = line.strip()
+        if not s:
+            if kept:
+                kept.append(line)
+            continue
+        if disclaimer_only.match(s):
+            continue
+        # 한글 거의 없고 구두점·따옴표만 많은 줄 제거 (한글 2글자 미만)
+        if len(hangul.findall(s)) < 2 and not s.startswith("**") and "•" not in s:
+            continue
+        # 같은 줄 연속 반복 제거
+        if s == prev:
+            continue
+        prev = s
+        kept.append(line)
+    if not kept:
+        return HEALTH_DISCLAIMER
+    merged = "\n".join(kept).strip()
+    base = HEALTH_DISCLAIMER.rstrip(".")
+    if merged.endswith(HEALTH_DISCLAIMER) or merged.rstrip().endswith(base):
+        return merged
+    return merged.rstrip() + "\n\n" + HEALTH_DISCLAIMER
+
+
 def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
     """마지막 user 메시지에 한글이 있으면 True."""
     for m in reversed(messages):
@@ -318,6 +357,8 @@ async def complete_health_chat(
         return result
     if _last_user_content_has_hangul(msgs):
         result = _strip_alphabet(result)
+        if result:
+            result = _dedupe_and_fix_disclaimer(result)
     return result
 
 
