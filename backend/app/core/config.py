@@ -97,6 +97,13 @@ class Settings(BaseSettings):
         return self.training_dir / "korean_lora"
 
     @property
+    def chat_rooms_dir(self) -> Path:
+        """채팅방 저장 디렉터리 (backend/data/chats)."""
+        from pathlib import Path as P
+        backend_dir = P(__file__).resolve().parent.parent.parent
+        return backend_dir / "data" / "chats"
+
+    @property
     def upload_max_bytes(self) -> int:
         return self.upload_max_size_mb * 1024 * 1024
 

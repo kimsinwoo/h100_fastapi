@@ -142,6 +142,59 @@ async def llm_status() -> dict:
     }
 
 
+# ---------- 채팅방 저장 ----------
+
+
+@router.get("/chat/rooms")
+async def chat_list_rooms() -> list[dict]:
+    """저장된 채팅방 목록 (최신순)."""
+    from app.services.chat_store import list_rooms
+    return list_rooms()
+
+
+@router.get("/chat/rooms/{room_id}")
+async def chat_get_room(room_id: str) -> dict:
+    """채팅방 한 건 조회 (메시지 포함)."""
+    from app.services.chat_store import get_room
+    room = get_room(room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return room
+
+
+@router.post("/chat/rooms")
+async def chat_create_room(body: Annotated[dict, Body()] = None) -> dict:
+    """채팅방 생성. body: { title?: string }."""
+    from app.services.chat_store import create_room
+    title = (body or {}).get("title") if body else None
+    if isinstance(title, str):
+        title = title.strip() or None
+    return create_room(title=title)
+
+
+@router.post("/chat/rooms/{room_id}/messages")
+async def chat_add_message(room_id: str, body: Annotated[dict, Body()]) -> dict:
+    """채팅방에 메시지 추가. body: { role: "user"|"assistant", content: string }."""
+    from app.services.chat_store import add_message, get_room
+    role = (body or {}).get("role", "user")
+    content = (body or {}).get("content", "")
+    if role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="role must be user or assistant")
+    updated = add_message(room_id, role, str(content))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return updated
+
+
+@router.delete("/chat/rooms/{room_id}")
+async def chat_delete_room(room_id: str) -> dict:
+    """채팅방 삭제."""
+    from app.services.chat_store import delete_room
+    if not delete_room(room_id):
+        raise HTTPException(status_code=404, detail="Room not found")
+    return {"ok": True}
+
+
 @router.post("/llm/chat")
 async def llm_chat(
     request: Request,

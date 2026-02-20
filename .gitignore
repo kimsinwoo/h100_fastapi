@@ -45,3 +45,8 @@ dist/
 # Build / Static
 # ========================
 backend/static_frontend/
+
+# ========================
+# Runtime data (채팅방 저장 등)
+# ========================
+backend/data/

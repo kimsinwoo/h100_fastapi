@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
@@ -92,6 +93,15 @@ def _load_local_model_sync() -> tuple[Any, Any]:
     )
     if device == "cpu":
         model = model.to(device)
+    # 파인튜닝된 한국어 LoRA가 있으면 적용 (채팅 품질 향상)
+    lora_dir = Path(get_settings().korean_lora_output_dir)
+    if (lora_dir / "adapter_config.json").exists():
+        try:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, str(lora_dir))
+            logger.info("한국어 LoRA 어댑터 로드 완료: %s", lora_dir)
+        except Exception as e:
+            logger.warning("LoRA 어댑터 로드 실패(베이스 모델만 사용): %s", e)
     _local_tokenizer = tokenizer
     _local_model = model
     return model, tokenizer

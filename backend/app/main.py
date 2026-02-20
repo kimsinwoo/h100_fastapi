@@ -56,19 +56,19 @@ def _start_lora_finetune_background(settings) -> None:
     if not train_script.exists():
         logger.warning("LoRA 학습 스크립트 없음: %s — 파인튜닝 생략", train_script)
         return
-    if not data_file.exists() and build_script.exists():
+    # 학습 데이터 없으면 생성; 있으면 최신 예시 반영을 위해 매번 재생성 (건강 도우미 예시 포함)
+    if build_script.exists():
         try:
             subprocess.run(
                 [sys.executable, str(build_script)],
                 cwd=str(scripts_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=90,
                 check=True,
             )
-            logger.info("한국어 SFT 데이터 생성 완료: %s", data_file)
+            logger.info("한국어 SFT 데이터 준비 완료: %s", data_file)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            logger.warning("SFT 데이터 생성 실패, 파인튜닝 생략: %s", e)
-            return
+            logger.warning("SFT 데이터 생성 실패: %s", e)
     if not data_file.exists():
         logger.warning("학습 데이터 없음: %s — 파인튜닝 생략", data_file)
         return
@@ -79,7 +79,7 @@ def _start_lora_finetune_background(settings) -> None:
         "--model_name_or_path", settings.llm_local_model_id,
         "--output_dir", str(out_dir),
         "--data_file", str(data_file),
-        "--num_epochs", "2",
+        "--num_epochs", "5",
         "--per_device_train_batch_size", "2",
     ]
     if settings.llm_hf_token and settings.llm_hf_token.strip():

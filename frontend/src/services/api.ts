@@ -49,6 +49,37 @@ export async function getLlmStatus(): Promise<{ available: boolean; model: strin
   return data;
 }
 
+// ---------- 채팅방 저장 ----------
+
+export type ChatRoomSummary = { id: string; title: string; updated_at: string };
+export type ChatRoom = { id: string; title: string; messages: Array<{ role: string; content: string }>; created_at: string; updated_at: string };
+
+export async function getChatRooms(): Promise<ChatRoomSummary[]> {
+  const { data } = await api.get<ChatRoomSummary[]>("/api/chat/rooms");
+  return data;
+}
+
+export async function getChatRoom(roomId: string): Promise<ChatRoom> {
+  const { data } = await api.get<ChatRoom>(`/api/chat/rooms/${roomId}`);
+  return data;
+}
+
+export async function createChatRoom(title?: string): Promise<ChatRoom> {
+  const { data } = await api.post<ChatRoom>("/api/chat/rooms", { title: title || undefined });
+  return data;
+}
+
+export async function addChatMessage(roomId: string, role: "user" | "assistant", content: string): Promise<ChatRoom> {
+  const { data } = await api.post<ChatRoom>(`/api/chat/rooms/${roomId}/messages`, { role, content });
+  return data;
+}
+
+export async function deleteChatRoom(roomId: string): Promise<void> {
+  await api.delete(`/api/chat/rooms/${roomId}`);
+}
+
+// ---------- LLM ----------
+
 /** LLM 채팅 (건강 도우미). 첫 응답·재생성 시 100초 이상 걸릴 수 있으므로 타임아웃 4분. */
 const LLM_CHAT_TIMEOUT_MS = 240_000;
 
