@@ -84,13 +84,31 @@ def _load_local_model_sync() -> tuple[Any, Any]:
     dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
     logger.info("Loading local LLM: %s on %s", model_id, device)
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, token=token)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=dtype,
-        device_map="auto" if device == "cuda" else None,
-        trust_remote_code=True,
-        token=token,
-    )
+    model = None
+    if device == "cuda" and getattr(settings, "llm_use_flash_attention", True):
+        for candidate in ("flash_attention_2", "sdpa"):
+            try:
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
+                    device_map="auto",
+                    trust_remote_code=True,
+                    token=token,
+                    attn_implementation=candidate,
+                )
+                logger.info("LLM attention: %s (H100 등에서 추론 가속)", candidate)
+                break
+            except Exception as e:
+                logger.debug("LLM attn %s not available: %s", candidate, e)
+                model = None
+    if model is None:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            device_map="auto" if device == "cuda" else None,
+            trust_remote_code=True,
+            token=token,
+        )
     if device == "cpu":
         model = model.to(device)
     # 파인튜닝된 한국어 LoRA가 있으면 적용 (채팅 품질 향상)
@@ -107,16 +125,52 @@ def _load_local_model_sync() -> tuple[Any, Any]:
     return model, tokenizer
 
 
-# 디코딩 안정화: 구두점/따옴표 연속 시작 억제
-_GEN_TEMPERATURE = 0.65
+# 디코딩 안정화 (BOS 이후 토큰 분포 붕괴 완화)
+_GEN_TEMPERATURE = 0.6
 _GEN_TOP_P = 0.85
 _GEN_REPETITION_PENALTY = 1.2
 _GEN_NO_REPEAT_NGRAM_SIZE = 5
-_GEN_MIN_NEW_TOKENS = 50
+_GEN_MIN_NEW_TOKENS = 80
 _GEN_MAX_NEW_TOKENS = 512
 
-# 응답 첫 토큰/첫 줄 검사용: 구두점·특수기호
+# 응답 시작 검증: 한글/숫자로 시작, 경고문으로 시작 금지
+_INVALID_FIRST_CHARS = set(".,;:!?\"'•·-* \t\n")
 _PUNCT_AND_SYMBOLS = set(".,;:!?\"'•·-~()[]{}*#@ \t\n")
+
+
+def is_valid_start(text: str) -> bool:
+    """시작이 한글/숫자이고 '정확한 판단은'으로 시작하지 않으면 True."""
+    if not text or not text.strip():
+        return False
+    first_char = text.strip()[0]
+    if first_char in _INVALID_FIRST_CHARS:
+        return False
+    if text.strip().startswith("정확한 판단은"):
+        return False
+    return True
+
+
+def _response_start_cleanup(text: str) -> str:
+    """응답 시작 강제 정제: 첫 글자 한글/숫자까지 제거, 첫 줄 15자 미만 삭제."""
+    if not text or not text.strip():
+        return text
+    s = text.strip()
+    # 첫 글자가 한글/숫자가 아니면 제거 (나올 때까지)
+    for i, c in enumerate(s):
+        if "\uac00" <= c <= "\ud7a3" or c.isdigit():
+            s = s[i:].strip()
+            break
+    else:
+        return ""
+    # 첫 줄이 15자 미만이면 삭제 (유효한 첫 줄 나올 때까지)
+    lines = s.split("\n")
+    start = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if len(stripped) >= 15 and re.search(r"[\uac00-\ud7a3\d]", stripped):
+            start = i
+            break
+    return "\n".join(lines[start:]).strip()
 
 
 def _get_bad_words_ids(tokenizer: Any) -> list[list[int]]:
@@ -130,41 +184,12 @@ def _get_bad_words_ids(tokenizer: Any) -> list[list[int]]:
     return bad
 
 
-def _is_abnormal_start(text: str, tokenizer: Any) -> bool:
-    """첫 줄이 특수문자로 시작하거나, 최소 첫 5토큰이 한글/숫자가 아니면 True."""
-    if not text or not text.strip():
-        return True
-    first_line = text.lstrip().split("\n")[0].strip()
-    if not first_line:
-        return True
-    first_char = first_line[0]
-    if first_char in _PUNCT_AND_SYMBOLS:
-        return True
-    # 첫 5토큰이 한글 또는 숫자로 시작하는지 (디코딩 기준)
-    try:
-        ids = tokenizer.encode(text.strip(), add_special_tokens=False)
-        decoded_5 = tokenizer.decode(ids[:5], skip_special_tokens=True).strip()
-        if not decoded_5:
-            return True
-        for c in decoded_5[:3]:
-            if c in _PUNCT_AND_SYMBOLS and c not in " ":
-                return True
-            if "\uac00" <= c <= "\ud7a3" or c.isdigit():
-                break
-        else:
-            if not re.search(r"[\uac00-\ud7a3\d]", decoded_5[:10]):
-                return True
-    except Exception:
-        pass
-    return False
-
-
 def _run_local_inference_sync(
     messages: list[dict[str, str]],
     max_tokens: int = 256,
     temperature: float = 0.7,
 ) -> str | None:
-    """동기 로컬 추론. retry_generate: 첫 줄/첫 토큰 비정상 시 최대 3회 재생성."""
+    """generate_with_retry: clean_output → response_start_cleanup → is_valid_start 검증, 최대 3회 재생성."""
     try:
         model, tokenizer = _load_local_model_sync()
     except Exception as e:
@@ -183,12 +208,14 @@ def _run_local_inference_sync(
     else:
         text = _messages_to_plain(messages)
 
-    max_attempts = 3
+    max_retry = 3
     bad_words_ids = _get_bad_words_ids(tokenizer)
     max_new = min(max(max_tokens, _GEN_MIN_NEW_TOKENS), _GEN_MAX_NEW_TOKENS)
     last_out: str | None = None
+    eos_id = tokenizer.eos_token_id
+    pad_id = tokenizer.pad_token_id or eos_id
 
-    for attempt in range(max_attempts):
+    for attempt in range(max_retry):
         try:
             inputs = tokenizer(text, return_tensors="pt").to(model.device)
             gen = model.generate(
@@ -200,18 +227,19 @@ def _run_local_inference_sync(
                 top_p=_GEN_TOP_P,
                 repetition_penalty=_GEN_REPETITION_PENALTY,
                 no_repeat_ngram_size=_GEN_NO_REPEAT_NGRAM_SIZE,
-                pad_token_id=tokenizer.eos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=pad_id,
+                eos_token_id=eos_id,
                 bad_words_ids=bad_words_ids if bad_words_ids else None,
             )
-            out = tokenizer.decode(gen[0][inputs.input_ids.shape[1] :], skip_special_tokens=True)
-            out = clean_output(out.strip() or "")
-            last_out = out
-            if not out:
+            raw = tokenizer.decode(gen[0][inputs.input_ids.shape[1] :], skip_special_tokens=True)
+            cleaned = clean_output(raw.strip() or "")
+            cleaned = _response_start_cleanup(cleaned)
+            last_out = cleaned
+            if not cleaned:
                 continue
-            if not _is_abnormal_start(out, tokenizer):
-                return out
-            logger.debug("Retry generate attempt %s: abnormal start", attempt + 1)
+            if is_valid_start(cleaned):
+                return cleaned
+            logger.debug("Retry generate attempt %s: invalid start", attempt + 1)
         except Exception as e:
             logger.warning("Local LLM inference failed (attempt %s): %s", attempt + 1, e)
     return clean_output(last_out) if last_out else None
@@ -262,12 +290,26 @@ def _punctuation_density(s: str) -> float:
 
 def clean_output(text: str) -> str:
     """
-    추론 출력 정화: 첫 줄 특수문자 제거, 연속 특수문자·따옴표 제거,
-    동일 문장 2회 이상 → 1회, 고정 문구 1회만, 구두점 밀도 15% 초과 시 정규화.
+    추론 출력 정화: 연속 구두점/줄 시작 특수문자/경고문 중복 제거,
+    첫 줄 정제, 동일 문장 2회 이상 → 1회, 구두점 밀도 정규화.
     """
     if not text or not text.strip():
         return text
     s = text.strip()
+    # 연속 구두점 제거 (2회 이상 → 제거)
+    s = re.sub(r"[.,:;\"'\-]{2,}", " ", s)
+    # 전체/줄 시작 특수문자 제거
+    s = re.sub(r"^[\s.,:;\"'\-•*]+", "", s)
+    s = re.sub(r"\n[\s.,:;\"'\-•*]+", "\n", s)
+    # 고정 경고문 2회 이상 → 1회
+    s = re.sub(
+        r"(정확한 판단은 의료·수의 전문가에게 확인하세요\.?){2,}",
+        r"정확한 판단은 의료·수의 전문가에게 확인하세요.",
+        s,
+    )
+    # 빈 줄 3개 이상 → 2줄
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    s = s.strip()
     # 응답 첫 줄이 특수문자로 시작하면 제거 (한글/숫자 나올 때까지)
     lines = s.split("\n")
     start = 0

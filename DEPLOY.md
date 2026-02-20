@@ -28,7 +28,7 @@ cd backend && ./run.sh
   **없는 경로**일 때만 `index.html` 로 넘겨야 합니다.  
   그래야 JS 요청에 HTML이 안 가서 MIME 오류가 나지 않습니다.
 
-nginx 예시 (백엔드 8000 포트로 API 프록시). **이미지 생성이 오래 걸리므로** 타임아웃을 넉넉히 두어야 "invalid response from upstream" 오류가 나지 않습니다:
+nginx 예시 (백엔드 8000 포트로 API 프록시). **이미지 생성·LLM 채팅**이 오래 걸리므로 타임아웃을 넉넉히 두어야 "invalid response from upstream" / "Network Error" 가 나지 않습니다. **LLM 채팅**은 1~5분 걸릴 수 있으므로 `/api/llm/` 은 600초(10분) 권장.
 
 ```nginx
 server {

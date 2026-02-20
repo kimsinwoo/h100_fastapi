@@ -187,6 +187,8 @@ export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     if (error.code === "ECONNABORTED" || (error.message && /timeout/i.test(error.message)))
       return "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+    if (error.code === "ERR_NETWORK" || (error.message && /network error/i.test(error.message)))
+      return "연결이 끊겼습니다. LLM 응답에 1~2분 이상 걸릴 수 있어 중간에 끊겼을 수 있습니다. 다시 시도해 주세요.";
     if (error.response?.data !== undefined) {
       const detail = error.response.data?.detail;
       if (typeof detail === "string") return detail;

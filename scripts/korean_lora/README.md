@@ -71,6 +71,57 @@ tokenizer = AutoTokenizer.from_pretrained("output/korean_lora")
 - **한국어 외 언어 사용 금지**.
 - 12개 카테고리 모두 포함, **최소 100개 이상**, **중복 없음**, 다양한 문장 구조.
 
+## 응답 시작 패턴 붕괴 후 재학습 (근본 해결)
+
+BOS 이후 토큰 분포가 깨져 구두점/경고문이 먼저 나올 때, 데이터 리밸런스 + 재미세조정으로 해결합니다.
+
+1. **경고문 비율 5% 이하**: `data/rebalance_warning_ratio.py` 로 기존 정제 데이터에서 "정확한 판단은" 등 포함 샘플을 전체의 5% 이하로 축소.
+2. **경고문 없는 정상 데이터 3000건**: `data/build_no_warning_sft.py` 로 경고문 없이 한글 문장으로만 시작하는 SFT 추가.
+3. **노이즈→정상 교정 데이터**: `data/build_correction_sft.py` 로 잘못된 시작 패턴 → 올바른 문장 학습.
+4. **5e-5, 1 epoch 재미세조정**: 위 데이터를 병합한 뒤 `train_lora.py --learning_rate 5e-5 --num_epochs 1` 로 학습.
+
+한 번에 실행:
+
+```bash
+cd zimage_webapp/scripts/korean_lora
+chmod +x run_relearn.sh
+./run_relearn.sh
+```
+
+### H100 서버에서 실행
+
+H100에서는 Flash Attention·bf16·배치 크기를 키워서 더 빠르게 돌릴 수 있습니다.
+
+**1) 한 번만 설정 (권장)**
+
+```bash
+pip install flash-attn --no-build-isolation   # H100에서 추론·학습 속도 향상
+```
+
+설치가 어려우면 생략해도 됩니다. 이 경우 스크립트가 SDPA로 학습합니다.
+
+**2) 재학습 파이프라인 실행**
+
+```bash
+cd zimage_webapp/scripts/korean_lora
+chmod +x run_relearn_h100.sh
+./run_relearn_h100.sh
+```
+
+- `run_relearn_h100.sh`: 데이터 단계는 동일, 학습만 **per_device_train_batch_size=4**, **gradient_accumulation_steps=2**, Flash Attention 사용 시도(기본), 4bit 미사용.
+- GPU 메모리 부족 시 `run_relearn.sh`를 쓰거나, `train_lora.py`에 `--per_device_train_batch_size 2 --use_4bit` 등을 넘겨 조정하세요.
+
+수동 순서:
+
+```bash
+python data/clean_dataset.py data/korean_sft_train.jsonl -o data/korean_sft_train_cleaned.jsonl
+python data/rebalance_warning_ratio.py data/korean_sft_train_cleaned.jsonl -o data/korean_sft_rebalanced.jsonl --max-ratio 0.05
+python data/build_no_warning_sft.py -n 3000 -o data/korean_sft_no_warning.jsonl
+python data/build_correction_sft.py -n 3500 -o data/korean_sft_correction.jsonl
+python data/merge_for_relearn.py -o data/korean_sft_final.jsonl
+python train_lora.py --data_file data/korean_sft_final.jsonl --learning_rate 5e-5 --num_epochs 1
+```
+
 ## 주의
 
 - GPU 메모리가 부족하면 `--use_4bit`, `--per_device_train_batch_size 1`, `--gradient_accumulation_steps 8` 등으로 조정하세요.
