@@ -260,14 +260,18 @@ def create_app() -> FastAPI:
 
 
 def _get_app() -> FastAPI:
-    """base_path 설정 시 해당 경로 아래로 앱 마운트 (리버스 프록시 대응)."""
+    """
+    base_path 설정 시 해당 경로 아래로 앱 마운트.
+    - 프록시가 경로를 그대로 넘기면 (예: /95ce287337c3ad9f/api/...) → BASE_PATH=95ce287337c3ad9f 설정.
+    - 프록시가 접두사를 제거하고 넘기면 (요청이 /api/... 로 옴) → BASE_PATH 비우기.
+    """
     _app = create_app()
     base = (get_settings().base_path or "").strip().strip("/")
     if not base:
         return _app
     root = FastAPI(title="Z-Image AI (root)")
     root.mount(f"/{base}", _app)
-    logger.info("App mounted at /%s", base)
+    logger.info("App mounted at /%s (requests must start with /%s/)", base, base)
     return root
 
 
