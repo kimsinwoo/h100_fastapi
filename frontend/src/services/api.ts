@@ -7,6 +7,29 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+const USER_ID_KEY = "user_id";
+
+/** 로그인 없이 브라우저 단위 격리용. 최초 접속 시 UUID 생성 후 localStorage에 저장. */
+export function getOrCreateUserId(): string {
+  let id = localStorage.getItem(USER_ID_KEY);
+  if (!id || !id.trim()) {
+    id = crypto.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+    localStorage.setItem(USER_ID_KEY, id);
+  }
+  return id;
+}
+
+api.interceptors.request.use((config) => {
+  if (config.url?.includes("/api/chat")) {
+    config.headers.set("X-User-Id", getOrCreateUserId());
+  }
+  return config;
+});
+
 export async function generateImage(
   file: File,
   style: string,
@@ -55,27 +78,41 @@ export type ChatRoomSummary = { id: string; title: string; updated_at: string };
 export type ChatRoom = { id: string; title: string; messages: Array<{ role: string; content: string }>; created_at: string; updated_at: string };
 
 export async function getChatRooms(): Promise<ChatRoomSummary[]> {
-  const { data } = await api.get<ChatRoomSummary[]>("/api/chat/rooms");
+  const { data } = await api.get<ChatRoomSummary[]>("/api/chat/rooms", {
+    headers: { "X-User-Id": getOrCreateUserId() },
+  });
   return data;
 }
 
 export async function getChatRoom(roomId: string): Promise<ChatRoom> {
-  const { data } = await api.get<ChatRoom>(`/api/chat/rooms/${roomId}`);
+  const { data } = await api.get<ChatRoom>(`/api/chat/rooms/${roomId}`, {
+    headers: { "X-User-Id": getOrCreateUserId() },
+  });
   return data;
 }
 
 export async function createChatRoom(title?: string): Promise<ChatRoom> {
-  const { data } = await api.post<ChatRoom>("/api/chat/rooms", { title: title || undefined });
+  const { data } = await api.post<ChatRoom>(
+    "/api/chat/rooms",
+    { title: title || undefined },
+    { headers: { "X-User-Id": getOrCreateUserId() } }
+  );
   return data;
 }
 
 export async function addChatMessage(roomId: string, role: "user" | "assistant", content: string): Promise<ChatRoom> {
-  const { data } = await api.post<ChatRoom>(`/api/chat/rooms/${roomId}/messages`, { role, content });
+  const { data } = await api.post<ChatRoom>(
+    `/api/chat/rooms/${roomId}/messages`,
+    { role, content },
+    { headers: { "X-User-Id": getOrCreateUserId() } }
+  );
   return data;
 }
 
 export async function deleteChatRoom(roomId: string): Promise<void> {
-  await api.delete(`/api/chat/rooms/${roomId}`);
+  await api.delete(`/api/chat/rooms/${roomId}`, {
+    headers: { "X-User-Id": getOrCreateUserId() },
+  });
 }
 
 // ---------- LLM ----------

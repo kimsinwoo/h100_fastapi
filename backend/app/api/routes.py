@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Annotated
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
@@ -145,52 +145,83 @@ async def llm_status() -> dict:
 # ---------- 채팅방 저장 ----------
 
 
+def _get_chat_user_id(
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+    body: dict | None = None,
+) -> str:
+    """채팅 API용 user_id. 헤더 X-User-Id 또는 body user_id. 없으면 400."""
+    user_id = (x_user_id or "").strip() or ((body or {}).get("user_id") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header or user_id in body required")
+    return user_id
+
+
 @router.get("/chat/rooms")
-async def chat_list_rooms() -> list[dict]:
-    """저장된 채팅방 목록 (최신순)."""
+async def chat_list_rooms(
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+) -> list[dict]:
+    """저장된 채팅방 목록 (user_id 기준, 최신순)."""
     from app.services.chat_store import list_rooms
-    return list_rooms()
+    user_id = _get_chat_user_id(x_user_id=x_user_id)
+    return list_rooms(user_id)
 
 
 @router.get("/chat/rooms/{room_id}")
-async def chat_get_room(room_id: str) -> dict:
-    """채팅방 한 건 조회 (메시지 포함)."""
+async def chat_get_room(
+    room_id: str,
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+) -> dict:
+    """채팅방 한 건 조회 (user_id 소유만)."""
     from app.services.chat_store import get_room
-    room = get_room(room_id)
+    user_id = _get_chat_user_id(x_user_id=x_user_id)
+    room = get_room(room_id, user_id)
     if room is None:
         raise HTTPException(status_code=404, detail="Room not found")
     return room
 
 
 @router.post("/chat/rooms")
-async def chat_create_room(body: Annotated[dict, Body()] = None) -> dict:
-    """채팅방 생성. body: { title?: string }."""
+async def chat_create_room(
+    body: Annotated[dict, Body()] = None,
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+) -> dict:
+    """채팅방 생성. body: { title?: string, user_id?: string }. user_id 없으면 X-User-Id 헤더 필수."""
     from app.services.chat_store import create_room
+    user_id = _get_chat_user_id(x_user_id=x_user_id, body=body or {})
     title = (body or {}).get("title") if body else None
     if isinstance(title, str):
         title = title.strip() or None
-    return create_room(title=title)
+    return create_room(user_id, title=title)
 
 
 @router.post("/chat/rooms/{room_id}/messages")
-async def chat_add_message(room_id: str, body: Annotated[dict, Body()]) -> dict:
-    """채팅방에 메시지 추가. body: { role: "user"|"assistant", content: string }."""
-    from app.services.chat_store import add_message, get_room
+async def chat_add_message(
+    room_id: str,
+    body: Annotated[dict, Body()],
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+) -> dict:
+    """채팅방에 메시지 추가. body: { role, content [, user_id] }."""
+    from app.services.chat_store import add_message
+    user_id = _get_chat_user_id(x_user_id=x_user_id, body=body or {})
     role = (body or {}).get("role", "user")
     content = (body or {}).get("content", "")
     if role not in ("user", "assistant"):
         raise HTTPException(status_code=400, detail="role must be user or assistant")
-    updated = add_message(room_id, role, str(content))
+    updated = add_message(room_id, user_id, role, str(content))
     if updated is None:
         raise HTTPException(status_code=404, detail="Room not found")
     return updated
 
 
 @router.delete("/chat/rooms/{room_id}")
-async def chat_delete_room(room_id: str) -> dict:
-    """채팅방 삭제."""
+async def chat_delete_room(
+    room_id: str,
+    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+) -> dict:
+    """채팅방 삭제 (user_id 소유만)."""
     from app.services.chat_store import delete_room
-    if not delete_room(room_id):
+    user_id = _get_chat_user_id(x_user_id=x_user_id)
+    if not delete_room(room_id, user_id):
         raise HTTPException(status_code=404, detail="Room not found")
     return {"ok": True}
 
