@@ -37,25 +37,39 @@ def is_llm_available() -> bool:
     return bool(s.llm_api_base and s.llm_api_base.strip())
 
 
+def _get_hf_token() -> str | None:
+    """Hugging Face 토큰 (게이트 모델용). 설정 또는 HF_TOKEN 환경변수."""
+    import os
+    s = get_settings()
+    if s.llm_hf_token and s.llm_hf_token.strip():
+        return s.llm_hf_token.strip()
+    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or None
+
+
 def _load_local_model_sync() -> tuple[Any, Any]:
-    """로컬 모델·토크나이저 로드 (한 번만, 동기)."""
+    """로컬 모델·토크나이저 로드 (한 번만, 동기). 게이트 모델은 HF 토큰 필요."""
     global _local_model, _local_tokenizer
     if _local_model is not None:
         return _local_model, _local_tokenizer
+    import os
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     settings = get_settings()
     model_id = settings.llm_local_model_id
+    token = _get_hf_token()
+    if token:
+        os.environ["HF_TOKEN"] = token  # huggingface_hub가 읽도록
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
     logger.info("Loading local LLM: %s on %s", model_id, device)
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, token=token)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=dtype,
         device_map="auto" if device == "cuda" else None,
         trust_remote_code=True,
+        token=token,
     )
     if device == "cpu":
         model = model.to(device)
