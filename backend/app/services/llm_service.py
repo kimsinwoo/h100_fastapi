@@ -136,17 +136,57 @@ def _run_local_inference_sync(
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
         gen = model.generate(
             **inputs,
-            max_new_tokens=max_tokens,
-            do_sample=temperature > 0,
-            temperature=temperature if temperature > 0 else 1.0,
+            max_new_tokens=min(max_tokens, 2048),
+            do_sample=True,
+            temperature=0.7,
             top_p=0.9,
+            repetition_penalty=1.15,
+            no_repeat_ngram_size=4,
             pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
         )
         out = tokenizer.decode(gen[0][inputs.input_ids.shape[1] :], skip_special_tokens=True)
-        return out.strip() or None
+        out = clean_output(out.strip() or "")
+        return out or None
     except Exception as e:
         logger.warning("Local LLM inference failed: %s", e)
         return None
+
+
+def clean_output(text: str) -> str:
+    """
+    추론 출력 후처리: 동일 문장 2회 이상 제거, 연속 구두점 정규화,
+    따옴표 중복 제거, 빈 줄 3줄 이상 제거, JSON 구조·비정상 문자 제거.
+    """
+    if not text or not text.strip():
+        return text
+    s = text.strip()
+    # 연속 구두점 2회 이상 → 1회
+    s = re.sub(r"([.,;:!?\-~])\s*\1+", r"\1", s)
+    # 공백 3회 이상 → 1회
+    s = re.sub(r" {3,}", " ", s)
+    # 따옴표 중복 (" "" " 등) → 하나로
+    s = re.sub(r'"\s*"+', '"', s)
+    # 빈 줄 3줄 이상 → 2줄
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    # 동일 문장 2회 이상 제거 (줄 단위)
+    lines = s.split("\n")
+    seen: set[str] = set()
+    out = []
+    for line in lines:
+        key = line.strip()[:80] if line.strip() else ""
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(line)
+    s = "\n".join(out)
+    # JSON 조각 제거 (키:값 블록)
+    s = re.sub(r'\s*\{\s*"[^"]+"\s*:\s*[^}]*\}\s*', " ", s)
+    s = re.sub(r"\s*\[\s*[^\]]*\]\s*", " ", s)
+    # 비정상 문자 제거
+    s = "".join(c for c in s if c in "\n\t" or (ord(c) >= 32 and ord(c) != 127))
+    return s.strip()
 
 
 def _messages_to_plain(messages: list[dict[str, str]]) -> str:
@@ -197,7 +237,8 @@ async def _complete_via_api(
         return None
     content = choices[0].get("message") or {}
     text = content.get("content")
-    return (text.strip() if isinstance(text, str) and text.strip() else None) or None
+    raw = (text.strip() if isinstance(text, str) and text.strip() else None) or None
+    return clean_output(raw) if raw else None
 
 
 async def complete(
