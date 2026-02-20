@@ -69,7 +69,26 @@ def main():
     from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
     from peft import LoraConfig, TaskType
     from trl import SFTConfig, SFTTrainer
-    from trl import DataCollatorForCompletionOnlyLM
+
+    DataCollatorForCompletionOnlyLM = None
+    for import_path in (
+        "trl",
+        "trl.trainer.utils",
+        "trl.extras",
+    ):
+        try:
+            if import_path == "trl":
+                from trl import DataCollatorForCompletionOnlyLM as _Collator
+            else:
+                import importlib
+                mod = importlib.import_module(import_path)
+                _Collator = getattr(mod, "DataCollatorForCompletionOnlyLM", None)
+            if _Collator is not None:
+                DataCollatorForCompletionOnlyLM = _Collator
+                print(f"DataCollatorForCompletionOnlyLM 로드: {import_path}", file=sys.stderr)
+                break
+        except (ImportError, AttributeError):
+            continue
 
     print("토크나이저 로드:", args.model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained(
@@ -82,11 +101,50 @@ def main():
     response_template = _get_response_template(tokenizer)
     print("response_template (completion-only loss):", repr(response_template))
 
-    data_collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-        mlm=False,
-    )
+    if DataCollatorForCompletionOnlyLM is not None:
+        data_collator = DataCollatorForCompletionOnlyLM(
+            response_template=response_template,
+            tokenizer=tokenizer,
+            mlm=False,
+        )
+    else:
+        # TRL 버전에 없으면 라벨 마스킹 수동 적용 (assistant 구간만 loss)
+        class _CompletionOnlyCollator:
+            def __init__(self, tokenizer, response_template):
+                self.tokenizer = tokenizer
+                self.rids = tokenizer.encode(response_template, add_special_tokens=False)
+                self.pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+            def __call__(self, features):
+                import torch
+                if not features:
+                    return {}
+                input_ids = []
+                for f in features:
+                    ids = f["input_ids"]
+                    input_ids.append(ids.tolist() if hasattr(ids, "tolist") else list(ids))
+                max_len = max(len(x) for x in input_ids)
+                padded = []
+                attention_mask = []
+                for ids in input_ids:
+                    pad_len = max_len - len(ids)
+                    padded.append(ids + [self.pad_id] * pad_len)
+                    attention_mask.append([1] * len(ids) + [0] * pad_len)
+                batch = {
+                    "input_ids": torch.tensor(padded, dtype=torch.long),
+                    "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+                    "labels": torch.tensor(padded, dtype=torch.long).clone(),
+                }
+                rids = self.rids
+                for i in range(batch["input_ids"].size(0)):
+                    ids = batch["input_ids"][i].tolist()
+                    for j in range(len(ids) - len(rids) + 1):
+                        if ids[j : j + len(rids)] == rids:
+                            batch["labels"][i, :j] = -100
+                            break
+                return batch
+        data_collator = _CompletionOnlyCollator(tokenizer, response_template)
+        print("DataCollatorForCompletionOnlyLM 미제공 → fallback collator 사용", file=sys.stderr)
 
     print("데이터셋 로드:", args.data_file)
     dataset = load_dataset("json", data_files=args.data_file, split="train")
