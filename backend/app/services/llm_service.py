@@ -478,7 +478,7 @@ async def complete(
 ) -> str | None:
     """
     채팅 완성: 로컬 모델 또는 외부 API.
-    동시 요청은 semaphore로 제한. 대기 시간 초과 시 None 반환(호출 측에서 503 처리).
+    로컬 모델은 한 번에 하나만 실행(_local_lock). 대기 초과 시 LLMQueueTimeoutError → 503.
     """
     if not is_llm_available():
         return None
@@ -497,11 +497,28 @@ async def complete(
 
     try:
         if settings.llm_use_local:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None,
-                lambda: _run_local_inference_sync(messages, max_tokens, temperature),
-            )
+            # 로컬 모델은 동시에 한 추론만 허용 (GPU/스레드 충돌 방지)
+            try:
+                await asyncio.wait_for(
+                    _local_lock.acquire(), timeout=settings.llm_queue_wait_seconds
+                )
+            except asyncio.TimeoutError:
+                sem.release()
+                logger.warning(
+                    "로컬 LLM 대기 시간 초과 (%ss). 다른 사용자 사용 중.",
+                    settings.llm_queue_wait_seconds,
+                )
+                raise LLMQueueTimeoutError(
+                    f"다른 사용자가 사용 중입니다. {settings.llm_queue_wait_seconds}초 후 다시 시도해 주세요."
+                )
+            try:
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None,
+                    lambda: _run_local_inference_sync(messages, max_tokens, temperature),
+                )
+            finally:
+                _local_lock.release()
         try:
             return await _complete_via_api(messages, max_tokens, temperature)
         except Exception as e:

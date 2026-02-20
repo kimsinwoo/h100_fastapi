@@ -1,0 +1,11 @@
+# vLLM gateway + optional embedded engine. Python 3.10+
+# Install in addition to or instead of transformers-based stack for production LLM serving.
+
+fastapi>=0.109.0,<0.115.0
+uvicorn[standard]>=0.27.0,<0.32.0
+pydantic>=2.6.0,<2.10.0
+pydantic-settings>=2.2.0,<2.6.0
+httpx>=0.27.0,<0.28.0
+
+# vLLM: use version compatible with your CUDA (e.g. 0.6.x or 0.10+)
+vllm>=0.6.0
