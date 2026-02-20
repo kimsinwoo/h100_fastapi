@@ -54,9 +54,25 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="*")
     cors_allow_credentials: bool = Field(default=True)
 
-    # Rate limiting
-    rate_limit_requests: int = Field(default=30, ge=1, le=200)
+    # Rate limiting (동시 100명 사용 시 rate_limit_requests 100~200 권장)
+    rate_limit_requests: int = Field(default=60, ge=1, le=500)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+
+    # LLM: 로컬 모델(transformers) 또는 외부 API
+    llm_enabled: bool = Field(default=True, description="LLM 사용 여부")
+    llm_use_local: bool = Field(
+        default=True,
+        description="True면 API 대신 로컬에서 모델 로드·추론. False면 llm_api_base 호출.",
+    )
+    llm_local_model_id: str = Field(
+        default="google/gemma-2-2b-it",
+        description="로컬 사용 시 Hugging Face 모델 ID (한국어·다국어 지원 추천: beomi/gemma-2-2b-it, Qwen/Qwen2-1.5B-Instruct 등)",
+    )
+    llm_api_base: str = Field(default="", description="로컬 미사용 시 OpenAI 호환 API 베이스 URL")
+    llm_model: str = Field(default="gpt-oss-20b", description="외부 API 사용 시 모델 이름")
+    llm_api_key: str = Field(default="", description="외부 API 사용 시에만 필요")
+    llm_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    llm_max_concurrent: int = Field(default=20, ge=1, le=100, description="동시 LLM 요청 상한")
 
     @property
     def generated_dir(self) -> Path:

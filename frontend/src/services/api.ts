@@ -42,6 +42,34 @@ export async function getHealth(): Promise<{ status: string; gpu_available: bool
   return data;
 }
 
+// ---------- LLM (gpt-oss-20b) ----------
+
+export async function getLlmStatus(): Promise<{ available: boolean; model: string | null }> {
+  const { data } = await api.get<{ available: boolean; model: string | null }>("/api/llm/status");
+  return data;
+}
+
+export async function llmChat(
+  messages: Array<{ role: string; content: string }>,
+  maxTokens = 256,
+  temperature = 0.7
+): Promise<string> {
+  const { data } = await api.post<{ content: string }>("/api/llm/chat", {
+    messages,
+    max_tokens: maxTokens,
+    temperature,
+  });
+  return data.content;
+}
+
+export async function suggestPrompt(style: string, userHint?: string | null): Promise<string> {
+  const { data } = await api.post<{ prompt: string }>("/api/llm/suggest-prompt", {
+    style,
+    user_hint: userHint || undefined,
+  });
+  return data.prompt;
+}
+
 // ---------- LoRA 학습 데이터 ----------
 
 export async function getTrainingItems(): Promise<TrainingItem[]> {

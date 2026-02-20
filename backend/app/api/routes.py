@@ -128,6 +128,63 @@ async def list_styles() -> dict[str, str]:
     return {k: v for k, v in STYLE_PRESETS.items()}
 
 
+# ---------- LLM (gpt-oss-20b) API ----------
+
+
+@router.get("/llm/status")
+async def llm_status() -> dict:
+    """LLM 사용 가능 여부 및 모델명 (로컬이면 모델 ID, 외부 API면 모델 이름)."""
+    from app.services.llm_service import get_llm_model_display_name, is_llm_available
+
+    return {
+        "available": is_llm_available(),
+        "model": get_llm_model_display_name() if is_llm_available() else None,
+    }
+
+
+@router.post("/llm/chat")
+async def llm_chat(
+    request: Request,
+    body: Annotated[dict, Body()],
+) -> dict:
+    """OpenAI 호환 채팅. body: { messages: [{role, content}], max_tokens?, temperature? }"""
+    _check_rate_limit(request)
+    from app.services.llm_service import complete, is_llm_available
+
+    if not is_llm_available():
+        raise HTTPException(status_code=503, detail="LLM not available")
+    messages = body.get("messages") or []
+    if not messages:
+        raise HTTPException(status_code=400, detail="messages required")
+    max_tokens = body.get("max_tokens", 256)
+    temperature = body.get("temperature", 0.7)
+    from app.services.llm_service import complete_chat
+
+    text = await complete_chat(messages, max_tokens=max_tokens, temperature=temperature)
+    if text is None:
+        raise HTTPException(status_code=503, detail="LLM request failed")
+    return {"content": text}
+
+
+@router.post("/llm/suggest-prompt")
+async def llm_suggest_prompt(
+    request: Request,
+    body: Annotated[dict, Body()],
+) -> dict:
+    """이미지 생성용 프롬프트 추천. body: { style: string, user_hint?: string }"""
+    _check_rate_limit(request)
+    from app.services.llm_service import is_llm_available, suggest_prompt_for_style
+
+    if not is_llm_available():
+        raise HTTPException(status_code=503, detail="LLM not available")
+    style = (body.get("style") or "").strip() or "realistic"
+    user_hint = (body.get("user_hint") or "").strip() or None
+    prompt = await suggest_prompt_for_style(style, user_hint)
+    if prompt is None:
+        raise HTTPException(status_code=503, detail="LLM request failed")
+    return {"prompt": prompt}
+
+
 # ---------- LoRA 학습 데이터 API ----------
 
 

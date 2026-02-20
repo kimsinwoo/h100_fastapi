@@ -4,7 +4,7 @@ import { ImageUploader } from "../components/ImageUploader";
 import { LoadingOverlay } from "../components/LoadingSpinner";
 import { ResultViewer } from "../components/ResultViewer";
 import { StyleSelector } from "../components/StyleSelector";
-import { generateImage, getHealth, getErrorMessage } from "../services/api";
+import { generateImage, getHealth, getLlmStatus, getErrorMessage, suggestPrompt } from "../services/api";
 import type { GenerateResponse } from "../types/api";
 
 type AppState =
@@ -19,13 +19,35 @@ export default function GeneratePage() {
   const [customPrompt, setCustomPrompt] = useState<string>("");
   const [strength, setStrength] = useState<number>(0.6);
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
+  const [llmAvailable, setLlmAvailable] = useState<boolean>(false);
+  const [llmModel, setLlmModel] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
   const [state, setState] = useState<AppState>({ phase: "idle" });
 
   useEffect(() => {
     getHealth()
       .then((r) => setGpuAvailable(r.gpu_available))
       .catch(() => setGpuAvailable(null));
+    getLlmStatus()
+      .then((r) => {
+        setLlmAvailable(r.available);
+        setLlmModel(r.model ?? null);
+      })
+      .catch(() => setLlmAvailable(false));
   }, []);
+
+  const handleSuggestPrompt = useCallback(async () => {
+    setSuggesting(true);
+    try {
+      const hint = customPrompt.trim() || undefined;
+      const prompt = await suggestPrompt(style, hint);
+      setCustomPrompt(prompt);
+    } catch {
+      setState({ phase: "error", message: "LLM 프롬프트 추천 실패" });
+    } finally {
+      setSuggesting(false);
+    }
+  }, [style, customPrompt]);
 
   const handleGenerate = useCallback(async () => {
     if (!file) return;
@@ -67,16 +89,26 @@ export default function GeneratePage() {
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-900">Z-Image AI</h1>
             <p className="mt-2 text-gray-600">Transform your images with AI style presets</p>
-            {gpuAvailable !== null && (
-              <p className="mt-1 text-sm text-gray-500">Backend: {gpuAvailable ? "GPU" : "CPU"} mode</p>
-            )}
+            <div className="mt-1 flex flex-wrap justify-center gap-3 text-sm text-gray-500">
+              {gpuAvailable !== null && <span>Backend: {gpuAvailable ? "GPU" : "CPU"}</span>}
+              {llmAvailable && llmModel && <span>LLM: {llmModel}</span>}
+              {!llmAvailable && gpuAvailable !== null && <span>LLM: 사용 불가</span>}
+            </div>
           </div>
-          <Link
-            to="/training"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            LoRA 학습
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              to="/chat"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              LLM 채팅
+            </Link>
+            <Link
+              to="/training"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              LoRA 학습
+            </Link>
+          </div>
         </header>
 
         <div className="space-y-6 rounded-xl bg-white p-6 shadow">
@@ -89,9 +121,21 @@ export default function GeneratePage() {
             <StyleSelector selected={style} onSelect={setStyle} disabled={isProcessing} />
           </section>
           <section>
-            <label htmlFor="custom-prompt" className="mb-2 block text-sm font-semibold text-gray-700">
-              Custom prompt (optional)
-            </label>
+            <div className="mb-2 flex items-center justify-between">
+              <label htmlFor="custom-prompt" className="text-sm font-semibold text-gray-700">
+                Custom prompt (optional)
+              </label>
+              {llmAvailable && (
+                <button
+                  type="button"
+                  onClick={handleSuggestPrompt}
+                  disabled={suggesting || isProcessing}
+                  className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {suggesting ? "추천 중…" : "AI 프롬프트 추천"}
+                </button>
+              )}
+            </div>
             <textarea
               id="custom-prompt"
               value={customPrompt}

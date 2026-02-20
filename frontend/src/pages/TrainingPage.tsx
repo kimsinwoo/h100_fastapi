@@ -110,12 +110,20 @@ export default function TrainingPage() {
             <h1 className="text-3xl font-bold text-gray-900">LoRA 학습</h1>
             <p className="mt-2 text-gray-600">이미지와 프롬프트 라벨을 넣고 학습 데이터를 만든 뒤 학습을 시작하세요.</p>
           </div>
-          <Link
-            to="/"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            이미지 생성
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              to="/"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              이미지 생성
+            </Link>
+            <Link
+              to="/chat"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              LLM 채팅
+            </Link>
+          </div>
         </header>
 
         <div className="space-y-6">
