@@ -32,16 +32,17 @@ def main():
     parser.add_argument("--model_name_or_path", type=str, default="Qwen/Qwen2.5-1.5B")
     parser.add_argument("--output_dir", type=str, default=str(SCRIPT_DIR / "output" / "korean_lora"))
     parser.add_argument("--data_file", type=str, default=str(DEFAULT_DATA_FILE))
-    parser.add_argument("--num_epochs", type=int, default=3)
+    parser.add_argument("--correction_file", type=str, default="", help="교정 SFT JSONL (전체의 20%% 이상 권장)")
+    parser.add_argument("--num_epochs", type=int, default=2, help="미세 조정 시 1~2 권장")
     parser.add_argument("--per_device_train_batch_size", type=int, default=2)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument("--max_seq_length", type=int, default=4096)
     parser.add_argument("--lora_r", type=int, default=32)
     parser.add_argument("--lora_alpha", type=int, default=64)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
     parser.add_argument("--warmup_ratio", type=float, default=0.03)
-    parser.add_argument("--label_smoothing", type=float, default=0.05)
+    parser.add_argument("--label_smoothing", type=float, default=0.0)
     parser.add_argument("--hf_token", type=str, default=os.environ.get("HF_TOKEN", ""))
     parser.add_argument("--use_4bit", action="store_true")
     parser.add_argument("--no_flash_attention", action="store_true", help="flash attention 비활성화")
@@ -89,6 +90,11 @@ def main():
 
     print("데이터셋 로드:", args.data_file)
     dataset = load_dataset("json", data_files=args.data_file, split="train")
+    if getattr(args, "correction_file", "") and Path(args.correction_file).exists():
+        from datasets import concatenate_datasets
+        correction = load_dataset("json", data_files=args.correction_file, split="train")
+        dataset = concatenate_datasets([dataset, correction])
+        print("교정 데이터 병합:", args.correction_file, "-> 총", len(dataset), "건")
 
     lora_config = LoraConfig(
         r=args.lora_r,

@@ -107,19 +107,70 @@ def _load_local_model_sync() -> tuple[Any, Any]:
     return model, tokenizer
 
 
+# 디코딩 안정화: 구두점/따옴표 연속 시작 억제
+_GEN_TEMPERATURE = 0.65
+_GEN_TOP_P = 0.85
+_GEN_REPETITION_PENALTY = 1.2
+_GEN_NO_REPEAT_NGRAM_SIZE = 5
+_GEN_MIN_NEW_TOKENS = 50
+_GEN_MAX_NEW_TOKENS = 512
+
+# 응답 첫 토큰/첫 줄 검사용: 구두점·특수기호
+_PUNCT_AND_SYMBOLS = set(".,;:!?\"'•·-~()[]{}*#@ \t\n")
+
+
+def _get_bad_words_ids(tokenizer: Any) -> list[list[int]]:
+    """연속 구두점/따옴표/기호 시작 억제용. 같은 문자가 2회 연속 나오는 시퀀스 금지."""
+    bad: list[list[int]] = []
+    for char in [".", ",", ":", ";", '"', "•"]:
+        ids = tokenizer.encode(char, add_special_tokens=False)
+        if ids:
+            for tid in ids:
+                bad.append([tid, tid])
+    return bad
+
+
+def _is_abnormal_start(text: str, tokenizer: Any) -> bool:
+    """첫 줄이 특수문자로 시작하거나, 최소 첫 5토큰이 한글/숫자가 아니면 True."""
+    if not text or not text.strip():
+        return True
+    first_line = text.lstrip().split("\n")[0].strip()
+    if not first_line:
+        return True
+    first_char = first_line[0]
+    if first_char in _PUNCT_AND_SYMBOLS:
+        return True
+    # 첫 5토큰이 한글 또는 숫자로 시작하는지 (디코딩 기준)
+    try:
+        ids = tokenizer.encode(text.strip(), add_special_tokens=False)
+        decoded_5 = tokenizer.decode(ids[:5], skip_special_tokens=True).strip()
+        if not decoded_5:
+            return True
+        for c in decoded_5[:3]:
+            if c in _PUNCT_AND_SYMBOLS and c not in " ":
+                return True
+            if "\uac00" <= c <= "\ud7a3" or c.isdigit():
+                break
+        else:
+            if not re.search(r"[\uac00-\ud7a3\d]", decoded_5[:10]):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _run_local_inference_sync(
     messages: list[dict[str, str]],
     max_tokens: int = 256,
     temperature: float = 0.7,
 ) -> str | None:
-    """동기 로컬 추론. 메시지를 채팅 형식으로 넣고 생성."""
+    """동기 로컬 추론. retry_generate: 첫 줄/첫 토큰 비정상 시 최대 3회 재생성."""
     try:
         model, tokenizer = _load_local_model_sync()
     except Exception as e:
         logger.exception("Local LLM load failed: %s", e)
         return None
 
-    # apply_chat_template 지원 시 사용, 아니면 단순 포맷
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
         try:
             text = tokenizer.apply_chat_template(
@@ -132,46 +183,130 @@ def _run_local_inference_sync(
     else:
         text = _messages_to_plain(messages)
 
-    try:
-        inputs = tokenizer(text, return_tensors="pt").to(model.device)
-        gen = model.generate(
-            **inputs,
-            max_new_tokens=min(max_tokens, 2048),
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            repetition_penalty=1.15,
-            no_repeat_ngram_size=4,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-        out = tokenizer.decode(gen[0][inputs.input_ids.shape[1] :], skip_special_tokens=True)
-        out = clean_output(out.strip() or "")
-        return out or None
-    except Exception as e:
-        logger.warning("Local LLM inference failed: %s", e)
-        return None
+    max_attempts = 3
+    bad_words_ids = _get_bad_words_ids(tokenizer)
+    max_new = min(max(max_tokens, _GEN_MIN_NEW_TOKENS), _GEN_MAX_NEW_TOKENS)
+    last_out: str | None = None
+
+    for attempt in range(max_attempts):
+        try:
+            inputs = tokenizer(text, return_tensors="pt").to(model.device)
+            gen = model.generate(
+                **inputs,
+                min_new_tokens=_GEN_MIN_NEW_TOKENS,
+                max_new_tokens=max_new,
+                do_sample=True,
+                temperature=_GEN_TEMPERATURE,
+                top_p=_GEN_TOP_P,
+                repetition_penalty=_GEN_REPETITION_PENALTY,
+                no_repeat_ngram_size=_GEN_NO_REPEAT_NGRAM_SIZE,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                bad_words_ids=bad_words_ids if bad_words_ids else None,
+            )
+            out = tokenizer.decode(gen[0][inputs.input_ids.shape[1] :], skip_special_tokens=True)
+            out = clean_output(out.strip() or "")
+            last_out = out
+            if not out:
+                continue
+            if not _is_abnormal_start(out, tokenizer):
+                return out
+            logger.debug("Retry generate attempt %s: abnormal start", attempt + 1)
+        except Exception as e:
+            logger.warning("Local LLM inference failed (attempt %s): %s", attempt + 1, e)
+    return clean_output(last_out) if last_out else None
+
+
+# 고정 문구 강박 차단: 1회 초과 시 제거, 마지막에 1회만 허용
+_FIXED_PHRASE_BLOCK = (
+    "정확한 판단은",
+    "전문가에게 확인하세요",
+    "수의사와 상담",
+    "의료·수의 전문가",
+)
+
+
+def _strip_fixed_phrase_repeats(text: str) -> str:
+    """고정 경고 문구가 1회 초과면 마지막 1회만 유지."""
+    if not text or not text.strip():
+        return text
+    s = text
+    for phrase in _FIXED_PHRASE_BLOCK:
+        count = s.count(phrase)
+        if count <= 1:
+            continue
+        idx = 0
+        last_start = -1
+        while True:
+            pos = s.find(phrase, idx)
+            if pos == -1:
+                break
+            last_start = pos
+            idx = pos + 1
+        if last_start == -1:
+            continue
+        before = s[:last_start]
+        after = s[last_start:]
+        before_removed = before.replace(phrase, " ").strip()
+        s = (before_removed + "\n\n" + after.strip()).strip() if before_removed else after.strip()
+    return s
+
+
+def _punctuation_density(s: str) -> float:
+    """구두점·특수기호 비율 (0~1)."""
+    if not s or not s.strip():
+        return 0.0
+    punct = sum(1 for c in s if c in ".,;:!?\"'•·-~()[]{}*#@")
+    return punct / max(len(s), 1)
 
 
 def clean_output(text: str) -> str:
     """
-    추론 출력 후처리: 동일 문장 2회 이상 제거, 연속 구두점 정규화,
-    따옴표 중복 제거, 빈 줄 3줄 이상 제거, JSON 구조·비정상 문자 제거.
+    추론 출력 정화: 첫 줄 특수문자 제거, 연속 특수문자·따옴표 제거,
+    동일 문장 2회 이상 → 1회, 고정 문구 1회만, 구두점 밀도 15% 초과 시 정규화.
     """
     if not text or not text.strip():
         return text
     s = text.strip()
+    # 응답 첫 줄이 특수문자로 시작하면 제거 (한글/숫자 나올 때까지)
+    lines = s.split("\n")
+    start = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            start = i + 1
+            continue
+        first = stripped[0]
+        if first in _PUNCT_AND_SYMBOLS or (len(stripped) < 2 and stripped in ".,;:!?\"'•"):
+            start = i + 1
+            continue
+        if re.search(r"[\uac00-\ud7a3\d]", stripped):
+            start = i
+            break
+        start = i + 1
+    s = "\n".join(lines[start:]).strip()
+    # 연속 특수문자 2개 이상 제거 (한 칸으로)
+    s = re.sub(r"([.,;:!?\"'•·\-~()\[\]{}*#@\s])\s*\1+", r"\1", s)
+    # 불필요한 따옴표 전체 제거 (짧은 인용만 있는 경우)
+    s = re.sub(r'"\s*"+', " ", s)
+    s = re.sub(r"^\s*[\"']+\s*", "", s)
+    # 줄 시작이 기호면 해당 줄 삭제
+    out_lines = []
+    for line in s.split("\n"):
+        stripped = line.strip()
+        if stripped and stripped[0] in ".,;:!?\"'•·-*#@•":
+            continue
+        out_lines.append(line)
+    s = "\n".join(out_lines)
     # 연속 구두점 2회 이상 → 1회
     s = re.sub(r"([.,;:!?\-~])\s*\1+", r"\1", s)
     # 공백 3회 이상 → 1회
     s = re.sub(r" {3,}", " ", s)
-    # 따옴표 중복 (" "" " 등) → 하나로
-    s = re.sub(r'"\s*"+', '"', s)
     # 빈 줄 3줄 이상 → 2줄
     s = re.sub(r"\n{3,}", "\n\n", s)
     # 동일 문장 2회 이상 제거 (줄 단위)
     lines = s.split("\n")
-    seen: set[str] = set()
+    seen = set()
     out = []
     for line in lines:
         key = line.strip()[:80] if line.strip() else ""
@@ -181,7 +316,13 @@ def clean_output(text: str) -> str:
             seen.add(key)
         out.append(line)
     s = "\n".join(out)
-    # JSON 조각 제거 (키:값 블록)
+    # 고정 문구 1회 초과 제거 (마지막 1회만 유지)
+    s = _strip_fixed_phrase_repeats(s)
+    # 구두점 밀도 15% 초과 시 정규화: 연속 구두점·줄 앞 구두점 제거
+    if _punctuation_density(s) > 0.15:
+        s = re.sub(r"([.,;:!?])\s*\1+", r"\1", s)
+        s = re.sub(r"\n\s*[.,;:!?]+\s*", "\n", s)
+    # JSON 조각 제거
     s = re.sub(r'\s*\{\s*"[^"]+"\s*:\s*[^}]*\}\s*', " ", s)
     s = re.sub(r"\s*\[\s*[^\]]*\]\s*", " ", s)
     # 비정상 문자 제거
@@ -299,6 +440,8 @@ _HEALTH_INSTRUCTION_MARKERS = (
 )
 
 HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
+
+[시작 규칙] 응답은 반드시 자연스러운 완전한 문장으로 시작하십시오. 구두점, 따옴표, 특수기호로 시작하지 마십시오. 경고 문구를 자동으로 삽입하지 마십시오.
 
 [최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어(analysis 등) 금지. 답변은 바로 본문으로 시작한다.
 
