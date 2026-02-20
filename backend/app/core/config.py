@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", description="외부 API 사용 시에만 필요")
     llm_timeout_seconds: int = Field(default=120, ge=10, le=600)
     llm_max_concurrent: int = Field(default=20, ge=1, le=100, description="동시 LLM 요청 상한")
+    # LLM 로드 후 기동 시 한국어 LoRA 파인튜닝 백그라운드 실행 여부
+    llm_lora_finetune_on_startup: bool = Field(
+        default=True,
+        description="True면 서버 기동·LLM 로드 후 백그라운드에서 한국어 LoRA 파인튜닝을 시작.",
+    )
 
     @property
     def generated_dir(self) -> Path:
@@ -85,6 +90,11 @@ class Settings(BaseSettings):
         from pathlib import Path as P
         backend_dir = P(__file__).resolve().parent.parent.parent
         return backend_dir / self.training_dir_name
+
+    @property
+    def korean_lora_output_dir(self) -> Path:
+        """한국어 LoRA 파인튜닝 결과 저장 경로 (training_dir/korean_lora)."""
+        return self.training_dir / "korean_lora"
 
     @property
     def upload_max_bytes(self) -> int:

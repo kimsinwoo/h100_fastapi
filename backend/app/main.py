@@ -4,7 +4,10 @@ Z-Image AI Service — production FastAPI application.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
+import sys
 import time
 import warnings
 
@@ -40,6 +43,68 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _start_lora_finetune_background(settings) -> None:
+    """LLM 로드 후 한국어 LoRA 파인튜닝을 서브프로세스로 백그라운드 실행. 서버는 블로킹 없이 기동."""
+    backend_dir = Path(__file__).resolve().parent.parent
+    scripts_dir = backend_dir.parent / "scripts" / "korean_lora"
+    train_script = scripts_dir / "train_lora.py"
+    data_file = scripts_dir / "data" / "korean_sft_train.jsonl"
+    build_script = scripts_dir / "data" / "build_korean_sft.py"
+    out_dir = settings.korean_lora_output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not train_script.exists():
+        logger.warning("LoRA 학습 스크립트 없음: %s — 파인튜닝 생략", train_script)
+        return
+    if not data_file.exists() and build_script.exists():
+        try:
+            subprocess.run(
+                [sys.executable, str(build_script)],
+                cwd=str(scripts_dir),
+                capture_output=True,
+                timeout=60,
+                check=True,
+            )
+            logger.info("한국어 SFT 데이터 생성 완료: %s", data_file)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning("SFT 데이터 생성 실패, 파인튜닝 생략: %s", e)
+            return
+    if not data_file.exists():
+        logger.warning("학습 데이터 없음: %s — 파인튜닝 생략", data_file)
+        return
+
+    cmd = [
+        sys.executable,
+        str(train_script),
+        "--model_name_or_path", settings.llm_local_model_id,
+        "--output_dir", str(out_dir),
+        "--data_file", str(data_file),
+        "--num_epochs", "2",
+        "--per_device_train_batch_size", "2",
+    ]
+    if settings.llm_hf_token and settings.llm_hf_token.strip():
+        cmd.extend(["--hf_token", settings.llm_hf_token.strip()])
+
+    async def _run() -> None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(scripts_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("한국어 LoRA 파인튜닝 완료: %s", out_dir)
+            else:
+                logger.warning("한국어 LoRA 파인튜닝 종료 코드 %s. stderr: %s", proc.returncode, stderr.decode(errors="replace")[:500])
+        except Exception as e:
+            logger.warning("한국어 LoRA 파인튜닝 실행 중 오류: %s", e)
+
+    asyncio.create_task(_run())
+    logger.info("한국어 LoRA 파인튜닝 백그라운드 시작 (출력: %s)", out_dir)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: ensure static dir, load model. Shutdown: cleanup."""
@@ -57,6 +122,15 @@ async def lifespan(app: FastAPI):
         await preload_local_model()
     except Exception as e:
         logger.warning("LLM preload at startup failed: %s", e)
+
+    # LLM 로드 후 한국어 LoRA 파인튜닝을 백그라운드에서 시작 (설정 시)
+    if (
+        settings.llm_enabled
+        and settings.llm_use_local
+        and getattr(settings, "llm_lora_finetune_on_startup", False)
+    ):
+        _start_lora_finetune_background(settings)
+
     yield
     logger.info("Shutting down")
 
