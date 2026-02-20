@@ -163,26 +163,6 @@ def main():
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
     )
 
-    # flash attention: 가능하면 사용
-    attn_impl = None
-    if use_cuda and not args.no_flash_attention:
-        try:
-            import torch.backends.cuda
-            if hasattr(torch.backends.cuda, "flash_sdp_enabled"):
-                attn_impl = "flash_attention_2"
-        except Exception:
-            pass
-        if attn_impl is None and hasattr(AutoModelForCausalLM, "from_pretrained"):
-            # transformers 4.36+ attn_implementation
-            try:
-                attn_impl = "flash_attention_2"
-            except Exception:
-                attn_impl = None
-
-    model_kwargs = {}
-    if attn_impl:
-        model_kwargs["attn_implementation"] = attn_impl
-
     training_args = SFTConfig(
         output_dir=args.output_dir,
         num_train_epochs=args.num_epochs,
@@ -204,7 +184,6 @@ def main():
 
     trainer = SFTTrainer(
         model=args.model_name_or_path,
-        model_init_kwargs=model_kwargs if model_kwargs else None,
         args=training_args,
         train_dataset=dataset,
         peft_config=lora_config,
