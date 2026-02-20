@@ -150,8 +150,21 @@ def is_valid_start(text: str) -> bool:
     return True
 
 
+def _strip_trailing_punct_per_line(text: str) -> str:
+    """줄 끝의 구두점·기호·공백 연속 제거 (한글/숫자 뒤 노이즈)."""
+    lines = text.split("\n")
+    out = []
+    for line in lines:
+        s = line.rstrip()
+        # 끝에서 한글/숫자 나올 때까지 제거
+        while len(s) > 0 and s[-1] in ".,;:!?\"'•·-* \t\u3000":
+            s = s[:-1].rstrip()
+        out.append(s)
+    return "\n".join(out)
+
+
 def _response_start_cleanup(text: str) -> str:
-    """응답 시작 강제 정제: 첫 글자 한글/숫자까지 제거, 첫 줄 15자 미만 삭제."""
+    """응답 시작 강제 정제: 첫 글자 한글/숫자까지 제거, 노이즈 줄 삭제, 줄 끝 구두점 제거."""
     if not text or not text.strip():
         return text
     s = text.strip()
@@ -162,15 +175,34 @@ def _response_start_cleanup(text: str) -> str:
             break
     else:
         return ""
-    # 첫 줄이 15자 미만이면 삭제 (유효한 첫 줄 나올 때까지)
+    # 줄 단위: 끝 구두점 노이즈 제거
+    s = _strip_trailing_punct_per_line(s)
     lines = s.split("\n")
+    # 첫 줄: 한글 문장 뒤 구두점 난사(공백·점 3연속 이상) 나오면 그 앞까지만 유지
+    if lines:
+        first = lines[0]
+        korean_seen = 0
+        cut = len(first)
+        for i, c in enumerate(first):
+            if "\uac00" <= c <= "\ud7a3" or c.isdigit():
+                korean_seen += 1
+            elif korean_seen >= 5:
+                if re.match(r"[\s.,;:!?\"'•·\-*]{3,}", first[i:]):
+                    cut = i
+                    break
+        if cut < len(first):
+            lines[0] = first[:cut].rstrip().rstrip(".,;:!?\"'•·-*")
+    # 첫 줄 15자 미만·한글 거의 없음 줄 건너뛰기 (유효한 첫 줄까지)
     start = 0
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if len(stripped) >= 15 and re.search(r"[\uac00-\ud7a3\d]", stripped):
+        korean_count = len(re.findall(r"[\uac00-\ud7a3]", stripped))
+        punct_count = sum(1 for c in stripped if c in ".,;:!?\"'•·-* \t")
+        if len(stripped) >= 15 and korean_count >= 8 and (korean_count >= punct_count or punct_count < 10):
             start = i
             break
-    return "\n".join(lines[start:]).strip()
+    s = "\n".join(lines[start:]).strip()
+    return _strip_trailing_punct_per_line(s)
 
 
 def _get_bad_words_ids(tokenizer: Any) -> list[list[int]]:
@@ -296,6 +328,10 @@ def clean_output(text: str) -> str:
     if not text or not text.strip():
         return text
     s = text.strip()
+    # 따옴표 조각 제거: "ㄱㅏㅇ"? " " "조언" "니" "※" 등
+    s = re.sub(r'"\s*[^"]{1,6}\s*"\s*\??', " ", s)
+    s = re.sub(r'"\s*"\s*', " ", s)
+    s = re.sub(r"'\s*'\s*'", " ", s)
     # 연속 구두점 제거 (2회 이상 → 제거)
     s = re.sub(r"[.,:;\"'\-]{2,}", " ", s)
     # 전체/줄 시작 특수문자 제거
@@ -332,14 +368,19 @@ def clean_output(text: str) -> str:
     # 불필요한 따옴표 전체 제거 (짧은 인용만 있는 경우)
     s = re.sub(r'"\s*"+', " ", s)
     s = re.sub(r"^\s*[\"']+\s*", "", s)
-    # 줄 시작이 기호면 해당 줄 삭제
+    # 줄 시작이 기호면 해당 줄 삭제; 구두점만/한글 3글자 미만 노이즈 줄 삭제
     out_lines = []
     for line in s.split("\n"):
         stripped = line.strip()
         if stripped and stripped[0] in ".,;:!?\"'•·-*#@•":
             continue
+        korean = len(re.findall(r"[\uac00-\ud7a3]", stripped))
+        punct = sum(1 for c in stripped if c in ".,;:!?\"'•·-* \t")
+        if len(stripped) >= 4 and korean < 3 and punct >= 2:
+            continue
         out_lines.append(line)
     s = "\n".join(out_lines)
+    s = _strip_trailing_punct_per_line(s)
     # 연속 구두점 2회 이상 → 1회
     s = re.sub(r"([.,;:!?\-~])\s*\1+", r"\1", s)
     # 공백 3회 이상 → 1회
