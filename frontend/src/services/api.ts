@@ -49,16 +49,19 @@ export async function getLlmStatus(): Promise<{ available: boolean; model: strin
   return data;
 }
 
+/** LLM 채팅 (건강 도우미). 첫 응답·재생성 시 100초 이상 걸릴 수 있으므로 타임아웃 4분. */
+const LLM_CHAT_TIMEOUT_MS = 240_000;
+
 export async function llmChat(
   messages: Array<{ role: string; content: string }>,
   maxTokens = 256,
   temperature = 0.7
 ): Promise<string> {
-  const { data } = await api.post<{ content: string }>("/api/llm/chat", {
-    messages,
-    max_tokens: maxTokens,
-    temperature,
-  });
+  const { data } = await api.post<{ content: string }>(
+    "/api/llm/chat",
+    { messages, max_tokens: maxTokens, temperature },
+    { timeout: LLM_CHAT_TIMEOUT_MS }
+  );
   return data.content;
 }
 
@@ -113,17 +116,21 @@ export function isApiError(error: unknown): error is AxiosError<ErrorDetail> {
 }
 
 export function getErrorMessage(error: unknown): string {
-  if (isApiError(error)) {
-    const detail = error.response?.data?.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail)) {
-      return (detail as Array<{ msg?: string } | string>)
-        .map((d: { msg?: string } | string) =>
-          typeof d === "object" && d && "msg" in d ? d.msg : String(d)
-        )
-        .join(", ");
+  if (axios.isAxiosError(error)) {
+    if (error.code === "ECONNABORTED" || (error.message && /timeout/i.test(error.message)))
+      return "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+    if (error.response?.data !== undefined) {
+      const detail = error.response.data?.detail;
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return (detail as Array<{ msg?: string } | string>)
+          .map((d: { msg?: string } | string) =>
+            typeof d === "object" && d && "msg" in d ? d.msg : String(d)
+          )
+          .join(", ");
+      }
     }
   }
   if (error instanceof Error) return error.message;
-  return "An unexpected error occurred";
+  return "오류가 발생했습니다.";
 }

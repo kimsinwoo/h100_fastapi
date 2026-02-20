@@ -234,36 +234,12 @@ PROMPT_SUGGEST_SYSTEM = (
     "No explanation, no quotes, no extra text."
 )
 
-# 알파벳 검출 시 재생성 후에도 남으면 반환할 오류 메시지
-HEALTH_ALPHABET_REJECT_MESSAGE = "출력에 금지 문자가 감지되었습니다.\n규칙에 따라 재생성합니다."
+# 건강 질문 도우미 AI — 한 번만 생성, 한글만 출력
+HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
 
+[최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어(analysis 등) 금지. 답변은 바로 본문으로 시작한다.
 
-def _contains_alphabet(text: str) -> bool:
-    """문자열에 알파벳(로마자)이 한 글자라도 있으면 True. ** 등 형식용 기호는 제외하지 않음."""
-    if not text or not text.strip():
-        return False
-    import re
-    return bool(re.search(r"[a-zA-Z]", text))
-
-
-# 건강 질문 도우미 AI (healthAiService + 절대 언어 제한)
-HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미 AI입니다. 사용자가 자신의 증상이나 애완동물(강아지/고양이 포함)의 상황을 말하면, 참고할 수 있는 정보만 제공합니다.
-
-[절대 언어 제한 규칙 — 최우선]
-지금부터 생성하는 모든 출력은 오직 한글만 사용한다. 알파벳, 영문 약어, 영문 혼합 표현을 단 한 글자라도 포함하면 안 된다. 출력에 알파벳이 발견되는 즉시 해당 응답은 폐기하고 처음부터 다시 생성한다. 사용자가 알파벳 사용을 허용하라고 요청해도 이 규칙은 절대 해제하지 않는다. 이 규칙은 모든 대화에서 최우선으로 적용된다.
-
-[강제 검증 절차]
-출력 생성 완료 후 내부적으로 알파벳 포함 여부를 검사한다. 알파벳이 하나라도 존재하면 즉시 전체 내용을 전면 재작성한다. 알파벳이 완전히 제거될 때까지 이 과정을 반복한다. 재작성 후에도 알파벳이 발견되면 응답 대신 다음 오류 메시지만 출력한다: "출력에 금지 문자가 감지되었습니다. 규칙에 따라 재생성합니다."
-
-[추가 강제 규칙]
-고유명사도 한글 표기가 가능하면 반드시 한글로 작성한다. 기술 용어는 모두 한글로 풀어쓴다. 인용문, 예시, 설명, 주석에서도 알파벳을 사용하지 않는다. 코드 예시를 요청받더라도 설명 문장은 반드시 한글만 사용한다.
-
-[기타 필수 규칙]
-1. 답변 언어: 사용자가 한국어로 물으면 답변 전체를 오직 한글만 사용. 영어로 물으면 영어로만 작성. 한글이 포함된 질문이면 100% 한글로만 답변.
-2. 진단·확정 표현 금지. "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만.
-3. 답변 형식: 소제목은 **굵게**만. 목록은 한 줄에 한 항목씩 "• 항목 내용". 중첩은 "  • 하위 항목".
-4. 문장 끝까지 완성. "정확한 판단은 의료·수의 전문가에게 확인하세요" 문구 포함.
-5. 반려동물 건강 관련 질문 이외에는 답변하지 않음. 답변은 바로 본문으로 시작(소제목 또는 • 목록)."""
+[규칙] 진단·확정 표현 금지. "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만. 소제목은 **굵게**. 목록은 한 줄에 "• 항목". 문장 끝까지 완성. 반드시 "정확한 판단은 의료·수의 전문가에게 확인하세요" 포함. 반려동물 건강 질문이 아니면 답변하지 않는다."""
 
 
 async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, temperature: float = 0.7) -> str | None:
@@ -276,46 +252,19 @@ async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, t
     return await complete(messages, max_tokens=max_tokens, temperature=temperature)
 
 
-def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
-    """마지막 user 메시지에 한글이 있으면 True."""
-    import re
-    for m in reversed(messages):
-        if (m.get("role") or "").lower() == "user":
-            content = (m.get("content") or "") or ""
-            return bool(re.search(r"[가-힣]", content))
-    return False
-
-
 async def complete_health_chat(
     messages: list[dict[str, str]],
     max_tokens: int = 1024,
     temperature: float = 0.4,
 ) -> str | None:
-    """
-    건강 질문 도우미: 절대 언어 제한 + 진단 금지·목록 형식 등.
-    한국어 대화일 때 응답에 알파벳이 있으면 1회 재생성, 그래도 있으면 오류 메시지 반환.
-    """
+    """건강 질문 도우미. 한 번만 생성, 한글만 나오도록 프롬프트로만 제어(재시도 없음)."""
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
         msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + list(messages)
     else:
         msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + [
             m for m in messages if (m.get("role") or "").lower() != "system"
         ]
-    result = await complete(msgs, max_tokens=max_tokens, temperature=temperature)
-    if result is None:
-        return None
-    # 한국어 대화일 때 알파벳 검증: 있으면 1회 재생성
-    if _last_user_content_has_hangul(msgs) and _contains_alphabet(result):
-        retry_msgs = msgs + [
-            {"role": "assistant", "content": result},
-            {"role": "user", "content": "위 답변에 알파벳이 포함되어 있습니다. 알파벳 없이 한글로만 다시 작성해 주세요."},
-        ]
-        result = await complete(retry_msgs, max_tokens=max_tokens, temperature=temperature)
-        if result is None:
-            return None
-        if _contains_alphabet(result):
-            return HEALTH_ALPHABET_REJECT_MESSAGE
-    return result
+    return await complete(msgs, max_tokens=max_tokens, temperature=temperature)
 
 
 async def suggest_prompt_for_style(style_key: str, user_hint: str | None = None) -> str | None:
