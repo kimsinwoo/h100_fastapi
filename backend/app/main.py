@@ -259,4 +259,16 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+def _get_app() -> FastAPI:
+    """base_path 설정 시 해당 경로 아래로 앱 마운트 (리버스 프록시 대응)."""
+    _app = create_app()
+    base = (get_settings().base_path or "").strip().strip("/")
+    if not base:
+        return _app
+    root = FastAPI(title="Z-Image AI (root)")
+    root.mount(f"/{base}", _app)
+    logger.info("App mounted at /%s", base)
+    return root
+
+
+app = _get_app()
