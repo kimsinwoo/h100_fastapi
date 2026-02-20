@@ -258,8 +258,39 @@ def _strip_alphabet(text: str) -> str:
     if not text or not text.strip():
         return text
     cleaned = re.sub(r"[a-zA-Z]", "", text)
-    # 앞뒤 공백·빈 줄 정리
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return _strip_leading_junk(cleaned)
+
+
+def _strip_leading_junk(text: str) -> str:
+    """알파벳 제거 후 남은 앞쪽 구두점·쓰레기 줄 제거. 본문(한글/•/**)만 남김."""
+    if not text or not text.strip():
+        return text
+    lines = text.split("\n")
+    filtered = []
+    for line in lines:
+        s = line.strip()
+        if not s:
+            if filtered:
+                filtered.append(line)
+            continue
+        # 구두점·공백만 있는 줄 제거
+        if not re.search(r"[가-힣]", s) and "•" not in s and not s.startswith("**"):
+            continue
+        # 사용자 말 반복처럼 보이는 짧은 인용 한 줄 제거 (전체가 따옴표 한 덩어리)
+        if re.match(r'^\s*"[^"]{1,80}"\s*$', line.strip()):
+            continue
+        filtered.append(line)
+    if not filtered:
+        return text.strip()
+    merged = "\n".join(filtered)
+    # 맨 앞 구두점·공백만 제거(첫 한글/•/** 나올 때까지)
+    for i, c in enumerate(merged):
+        if "\uac00" <= c <= "\ud7a3" or c == "•":
+            return merged[i:].strip()
+        if i + 2 <= len(merged) and merged[i : i + 2] == "**":
+            return merged[i:].strip()
+    return merged.strip()
 
 
 def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
