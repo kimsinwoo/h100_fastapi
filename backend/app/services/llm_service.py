@@ -238,6 +238,15 @@ PROMPT_SUGGEST_SYSTEM = (
 # 건강 질문 도우미 AI — 한 번만 생성, 한글만 출력
 HEALTH_DISCLAIMER = "정확한 판단은 의료·수의 전문가에게 확인하세요."
 
+# 후처리에서 제거할 문구: 시스템 프롬프트/지시가 그대로 출력된 줄
+_HEALTH_INSTRUCTION_MARKERS = (
+    "알파벳",
+    "로마자",
+    "한 글자도 쓰지 않는다",
+    "접두어",
+    "소제목",
+)
+
 HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
 
 [최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어(analysis 등) 금지. 답변은 바로 본문으로 시작한다.
@@ -295,12 +304,23 @@ def _strip_leading_junk(text: str) -> str:
     return merged.strip()
 
 
+def _is_instruction_leakage(s: str) -> bool:
+    """시스템 프롬프트/지시가 그대로 출력된 줄이면 True. 이런 줄은 제거 대상."""
+    for m in _HEALTH_INSTRUCTION_MARKERS:
+        if m in s:
+            return True
+    # 줄 내용이 "수의", "수의사", "의료" 반복만 있는 짧은 경우 (지시 유출)
+    only_korean = re.sub(r"[^\uac00-\ud7a3]", "", s)
+    if len(only_korean) <= 24 and re.fullmatch(r"(수의|수의사|의료)+", only_korean):
+        return True
+    return False
+
+
 def _dedupe_and_fix_disclaimer(text: str) -> str:
-    """반복 문구·disclaimer 남발 제거. disclaimer는 맨 끝에 한 번만."""
+    """반복 문구·disclaimer·지시 유출 제거. disclaimer는 맨 끝에 한 번만."""
     if not text or not text.strip():
         return text
     raw = text.strip()
-    # disclaimer만 있는 줄 제거 후, 맨 끝에 한 번만 붙임
     pattern = re.escape(HEALTH_DISCLAIMER.rstrip("."))
     disclaimer_only = re.compile(r"^\s*" + pattern + r"\.?\s*$")
     lines = raw.split("\n")
@@ -314,6 +334,12 @@ def _dedupe_and_fix_disclaimer(text: str) -> str:
                 kept.append(line)
             continue
         if disclaimer_only.match(s):
+            continue
+        # disclaimer 문구만 있고 구두점만 더 있는 줄 제거
+        normalized = re.sub(r"[^\uac00-\ud7a3·]", "", s)
+        if normalized == "정확한판단은의료수의전문가에게확인하세요":
+            continue
+        if _is_instruction_leakage(s):
             continue
         # 한글 거의 없고 구두점·따옴표만 많은 줄 제거 (한글 2글자 미만)
         if len(hangul.findall(s)) < 2 and not s.startswith("**") and "•" not in s:
