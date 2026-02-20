@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from app.core.config import get_settings
@@ -252,19 +253,41 @@ async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, t
     return await complete(messages, max_tokens=max_tokens, temperature=temperature)
 
 
+def _strip_alphabet(text: str) -> str:
+    """알파벳(a-zA-Z)만 제거. 한글·숫자·•·**·공백·줄바꿈 등은 유지."""
+    if not text or not text.strip():
+        return text
+    cleaned = re.sub(r"[a-zA-Z]", "", text)
+    # 앞뒤 공백·빈 줄 정리
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
+    """마지막 user 메시지에 한글이 있으면 True."""
+    for m in reversed(messages):
+        if (m.get("role") or "").lower() == "user":
+            return bool(re.search(r"[가-힣]", (m.get("content") or "")))
+    return False
+
+
 async def complete_health_chat(
     messages: list[dict[str, str]],
     max_tokens: int = 1024,
     temperature: float = 0.4,
 ) -> str | None:
-    """건강 질문 도우미. 한 번만 생성, 한글만 나오도록 프롬프트로만 제어(재시도 없음)."""
+    """건강 질문 도우미. 한 번만 생성. 한국어 대화면 응답에서 알파벳만 후처리로 제거."""
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
         msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + list(messages)
     else:
         msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + [
             m for m in messages if (m.get("role") or "").lower() != "system"
         ]
-    return await complete(msgs, max_tokens=max_tokens, temperature=temperature)
+    result = await complete(msgs, max_tokens=max_tokens, temperature=temperature)
+    if not result:
+        return result
+    if _last_user_content_has_hangul(msgs):
+        result = _strip_alphabet(result)
+    return result
 
 
 async def suggest_prompt_for_style(style_key: str, user_hint: str | None = None) -> str | None:
