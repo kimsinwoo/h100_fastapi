@@ -200,23 +200,28 @@ async def llm_chat(
     request: Request,
     body: Annotated[dict, Body()],
 ) -> dict:
-    """건강 질문 도우미 채팅 (진단 금지·목록 형식 등 규칙 필수 적용). body: { messages, max_tokens?, temperature? }"""
+    """건강 질문 도우미 채팅. 응답에 1~5분 걸릴 수 있음. body: { messages, max_tokens?, temperature? }"""
     _check_rate_limit(request)
-    from app.services.llm_service import complete, is_llm_available
+    from app.services.llm_service import is_llm_available, complete_health_chat
 
     if not is_llm_available():
         raise HTTPException(status_code=503, detail="LLM not available")
     messages = body.get("messages") or []
     if not messages:
         raise HTTPException(status_code=400, detail="messages required")
-    max_tokens = body.get("max_tokens", 1024)
-    temperature = body.get("temperature", 0.4)
-    from app.services.llm_service import complete_health_chat
-
-    text = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
+    max_tokens = int(body.get("max_tokens", 1024) or 1024)
+    temperature = float(body.get("temperature", 0.4) or 0.4)
+    logger.info("LLM chat request: %s messages, max_tokens=%s", len(messages), max_tokens)
+    try:
+        text = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
+    except Exception as e:
+        logger.exception("LLM chat error: %s", e)
+        raise HTTPException(status_code=503, detail="LLM request failed") from e
     if text is None:
+        logger.warning("LLM chat returned None")
         raise HTTPException(status_code=503, detail="LLM request failed")
-    return {"content": text}
+    logger.info("LLM chat response length: %s chars", len(text) if text else 0)
+    return {"content": text or ""}
 
 
 @router.post("/llm/suggest-prompt")

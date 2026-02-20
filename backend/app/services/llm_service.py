@@ -305,6 +305,12 @@ def _strip_leading_junk(text: str) -> str:
     if not filtered:
         return text.strip()
     merged = "\n".join(filtered)
+    # 앞쪽에 disclaimer + 구두점만 있고 그 다음에 ** 제목이 오면, ** 부터 시작하도록 자름
+    idx = merged.find("**")
+    if idx > 0 and idx < 120:
+        before = re.sub(r"[^\uac00-\ud7a3·]", "", merged[:idx])
+        if "정확한판단은의료수의전문가에게확인하세요" in before or len(before) < 30:
+            merged = merged[idx:].strip()
     # 맨 앞 구두점·공백만 제거(첫 한글/•/** 나올 때까지)
     for i, c in enumerate(merged):
         if "\uac00" <= c <= "\ud7a3" or c == "•":

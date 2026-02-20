@@ -39,7 +39,24 @@ export default function ChatPage() {
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const [roomsLoading, setRoomsLoading] = useState(true);
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // LLM 응답 대기 중 경과 시간 표시 (최대 5분 안내)
+  useEffect(() => {
+    if (!loading) {
+      setWaitingSeconds(0);
+      return;
+    }
+    const start = Date.now();
+    const t = setInterval(() => setWaitingSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [loading]);
 
   const loadRooms = useCallback(async () => {
     setRoomsLoading(true);
@@ -88,32 +105,66 @@ export default function ChatPage() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || !available || loading) return;
+    if (!text || !available || loading || sendingRef.current) return;
+    sendingRef.current = true;
     setInput("");
     const userMsg: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
-    let roomId = currentRoomId;
+    let activeRoomId: string | null = currentRoomId;
     try {
-      if (!roomId) {
+      if (!activeRoomId) {
         const room = await createChatRoom();
-        roomId = room.id;
-        setCurrentRoomId(roomId);
+        activeRoomId = room.id;
+        setCurrentRoomId(activeRoomId);
         await loadRooms();
       }
-      await addChatMessage(roomId!, "user", text);
-      const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
-      const content = await llmChat(history, 1024, 0.4);
-      const assistantMsg: Message = { role: "assistant", content };
+      await addChatMessage(activeRoomId!, "user", text);
+      // 이어하기 시 항상 최신 메시지 목록 사용 (ref로 클로저 문제 방지)
+      const latest = [...messagesRef.current, userMsg];
+      const history = latest.map((m) => ({ role: m.role, content: m.content }));
+      let content: string;
+      try {
+        content = await llmChat(history, 1024, 0.4);
+      } catch (firstErr) {
+        const msg = String((firstErr as Error)?.message ?? "").toLowerCase();
+        const isRetryable = msg.includes("network") || msg.includes("timeout") || msg.includes("초과") || msg.includes("econnaborted");
+        if (isRetryable) {
+          content = await llmChat(history, 1024, 0.4);
+        } else {
+          throw firstErr;
+        }
+      }
+      const assistantContent = content != null && String(content).trim() !== "" ? String(content).trim() : "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+      const assistantMsg: Message = { role: "assistant", content: assistantContent };
       setMessages((prev) => [...prev, assistantMsg]);
-      if (roomId) await addChatMessage(roomId, "assistant", content);
+      if (activeRoomId) {
+        try {
+          await addChatMessage(activeRoomId, "assistant", assistantContent);
+        } catch (e) {
+          try {
+            await addChatMessage(activeRoomId, "assistant", assistantContent);
+          } catch {
+            // 저장 실패해도 화면에는 이미 표시됨
+          }
+        }
+      }
       await loadRooms();
     } catch (err) {
-      setMessages((prev) => [...prev, { role: "assistant", content: `오류: ${getErrorMessage(err)}` }]);
+      const errMsg = `오류: ${getErrorMessage(err)}`;
+      setMessages((prev) => [...prev, { role: "assistant", content: errMsg }]);
+      if (activeRoomId) {
+        try {
+          await addChatMessage(activeRoomId, "assistant", errMsg);
+        } catch {
+          // ignore
+        }
+      }
     } finally {
       setLoading(false);
+      sendingRef.current = false;
     }
-  }, [input, available, loading, messages, currentRoomId, loadRooms]);
+  }, [input, available, loading, currentRoomId, loadRooms]);
 
   const handleDeleteRoom = useCallback(
     async (e: React.MouseEvent, id: string) => {
@@ -184,10 +235,10 @@ export default function ChatPage() {
           <header className="mb-4 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">건강 질문 도우미</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                {available
-                  ? "증상·반려동물 상황을 적어 주세요. 참고 정보만 제공하며, 정확한 판단은 의료·수의 전문가에게 확인하세요."
-                  : "LLM을 사용할 수 없습니다."}
+            <p className="mt-1 text-sm text-gray-500">
+              {available
+                ? "증상·반려동물 상황을 적어 주세요. 답변 생성에 1~5분 걸릴 수 있습니다. 참고 정보만 제공하며, 정확한 판단은 의료·수의 전문가에게 확인하세요."
+                : "LLM을 사용할 수 없습니다."}
               </p>
             </div>
             <Link
@@ -223,8 +274,10 @@ export default function ChatPage() {
               ))}
               {loading && (
                 <div className="mb-3 flex justify-start">
-                  <div className="rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-500">
-                    입력 중…
+                  <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
+                    {waitingSeconds < 60
+                      ? `답변 생성 중… ${waitingSeconds}초`
+                      : `답변 생성 중… ${Math.floor(waitingSeconds / 60)}분 ${waitingSeconds % 60}초 (최대 5분 정도 걸릴 수 있습니다)`}
                   </div>
                 </div>
               )}
