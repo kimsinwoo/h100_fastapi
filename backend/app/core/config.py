@@ -76,10 +76,10 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", description="외부 API 사용 시에만 필요")
     llm_timeout_seconds: int = Field(default=120, ge=10, le=600)
     llm_max_concurrent: int = Field(default=20, ge=1, le=100, description="동시 LLM 요청 상한")
-    # LLM 로드 후 기동 시 한국어 LoRA 파인튜닝 백그라운드 실행 여부
+    # LLM 로드 후 기동 시 한국어 LoRA 파인튜닝 백그라운드 실행 여부 (기본 끔: 채팅과 리소스 경쟁 방지)
     llm_lora_finetune_on_startup: bool = Field(
-        default=True,
-        description="True면 서버 기동·LLM 로드 후 백그라운드에서 한국어 LoRA 파인튜닝을 시작.",
+        default=False,
+        description="True면 서버 기동·LLM 로드 후 백그라운드에서 한국어 LoRA 파인튜닝을 시작. 채팅 안정을 위해 기본 False.",
     )
 
     @property

@@ -80,8 +80,8 @@ export async function deleteChatRoom(roomId: string): Promise<void> {
 
 // ---------- LLM ----------
 
-/** LLM 채팅 (건강 도우미). 응답에 4~5분 걸릴 수 있으므로 타임아웃 6분. */
-const LLM_CHAT_TIMEOUT_MS = 360_000;
+/** LLM 채팅 (건강 도우미). 응답에 5분 이상 걸릴 수 있으므로 타임아웃 10분. */
+const LLM_CHAT_TIMEOUT_MS = 600_000;
 
 export async function llmChat(
   messages: Array<{ role: string; content: string }>,

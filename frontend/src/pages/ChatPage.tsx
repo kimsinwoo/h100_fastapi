@@ -237,7 +237,7 @@ export default function ChatPage() {
               <h1 className="text-2xl font-bold text-gray-900">건강 질문 도우미</h1>
             <p className="mt-1 text-sm text-gray-500">
               {available
-                ? "증상·반려동물 상황을 적어 주세요. 답변 생성에 1~5분 걸릴 수 있습니다. 참고 정보만 제공하며, 정확한 판단은 의료·수의 전문가에게 확인하세요."
+                ? "증상·반려동물 상황을 적어 주세요. 답변 생성에 2~5분 걸릴 수 있습니다. 오래 걸리면 10분까지 기다려 주세요. 참고 정보만 제공하며, 정확한 판단은 의료·수의 전문가에게 확인하세요."
                 : "LLM을 사용할 수 없습니다."}
               </p>
             </div>
@@ -277,7 +277,7 @@ export default function ChatPage() {
                   <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
                     {waitingSeconds < 60
                       ? `답변 생성 중… ${waitingSeconds}초`
-                      : `답변 생성 중… ${Math.floor(waitingSeconds / 60)}분 ${waitingSeconds % 60}초 (최대 5분 정도 걸릴 수 있습니다)`}
+                      : `답변 생성 중… ${Math.floor(waitingSeconds / 60)}분 ${waitingSeconds % 60}초 (최대 10분까지 기다려 주세요)`}
                   </div>
                 </div>
               )}
