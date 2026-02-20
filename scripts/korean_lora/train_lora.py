@@ -182,14 +182,23 @@ def main():
         dataloader_pin_memory=use_cuda,
     )
 
-    trainer = SFTTrainer(
-        model=args.model_name_or_path,
-        args=training_args,
-        train_dataset=dataset,
-        peft_config=lora_config,
-        data_collator=data_collator,
-        tokenizer=tokenizer,
-    )
+    # TRL 버전 호환: 0.12+ 는 processing_class, 이전은 tokenizer / data_collator 지원 여부
+    from inspect import signature
+    sig = signature(SFTTrainer.__init__)
+    params = sig.parameters
+    trainer_kwargs = {
+        "model": args.model_name_or_path,
+        "args": training_args,
+        "train_dataset": dataset,
+        "peft_config": lora_config,
+    }
+    if "processing_class" in params:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in params:
+        trainer_kwargs["tokenizer"] = tokenizer
+    if "data_collator" in params:
+        trainer_kwargs["data_collator"] = data_collator
+    trainer = SFTTrainer(**trainer_kwargs)
     trainer.train()
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
