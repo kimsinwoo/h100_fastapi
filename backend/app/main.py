@@ -283,7 +283,7 @@ def _get_app() -> FastAPI:
     """
     base_path 설정 시 해당 경로 아래로 앱 마운트.
     - 프록시가 경로를 그대로 넘기면 (예: /95ce287337c3ad9f/api/...) → BASE_PATH=95ce287337c3ad9f 설정.
-    - 프록시가 접두사를 제거하고 넘기면 (요청이 /api/... 로 옴) → BASE_PATH 비우기.
+    - 프록시가 접두사를 제거하고 /health, /api/... 로 보내도 동작하도록 미들웨어에서 경로 보정.
     """
     _app = create_app()
     base = (get_settings().base_path or "").strip().strip("/")
@@ -291,7 +291,20 @@ def _get_app() -> FastAPI:
         return _app
     root = FastAPI(title="Z-Image AI (root)")
     root.mount(f"/{base}", _app)
-    logger.info("App mounted at /%s (requests must start with /%s/)", base, base)
+
+    # 프록시가 접두사 제거 후 /health, /api/*, /static/* 등으로 보낼 때: 마운트 경로로 넘겨 404 방지
+    _ROOT_PREFIXES = ("/health", "/api", "/static", "/docs", "/openapi.json", "/redoc", "/assets", "/")
+
+    @root.middleware("http")
+    async def _rewrite_path_if_no_prefix(request: Request, call_next):
+        path = request.scope.get("path") or ""
+        if path.startswith(f"/{base}"):
+            return await call_next(request)
+        if path == "/" or any(path == p or (p != "/" and path.startswith(p + "/")) for p in _ROOT_PREFIXES):
+            request.scope["path"] = f"/{base}{path}"
+        return await call_next(request)
+
+    logger.info("App mounted at /%s (requests /health and /api/* also accepted without prefix)", base)
     return root
 
 
