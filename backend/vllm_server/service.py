@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 def _mock_completion_response(req: ChatCompletionRequest) -> ChatCompletionResponse:
-    """OpenAI 형식 mock 응답 (vLLM 없이 테스트용)."""
+    """OpenAI 형식 mock 응답 (vLLM 없이 테스트용). 메인 앱 clean_output이 기호로 시작하는 줄을 제거하므로 한글로 시작."""
     last_content = req.messages[-1].content if req.messages else ""
-    reply = f"[Mock] 요청하신 내용: {last_content[:80]}{'...' if len(last_content) > 80 else ''}"
+    reply = f"테스트 모드 응답입니다. 요청하신 내용: {last_content[:80]}{'...' if len(last_content) > 80 else ''}"
     return ChatCompletionResponse(
         id="mock-cmpl-1",
         object="chat.completion",
@@ -47,7 +47,7 @@ async def _mock_completion_stream(req: ChatCompletionRequest) -> AsyncIterator[s
     """SSE 스트리밍 mock (vLLM 없이 테스트용)."""
     import json
     last_content = req.messages[-1].content if req.messages else ""
-    reply = f"[Mock] {last_content[:50]}{'...' if len(last_content) > 50 else ''} 에 대한 답변입니다."
+    reply = f"테스트 모드 응답입니다. {last_content[:50]}{'...' if len(last_content) > 50 else ''} 에 대한 답변입니다."
     chunk = {
         "id": "mock-stream-1",
         "object": "chat.completion.chunk",

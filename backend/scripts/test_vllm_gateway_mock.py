@@ -40,7 +40,7 @@ def main() -> int:
             print("  POST /v1/chat/completions: no choices in response")
             return 1
         content = choices[0].get("message", {}).get("content", "")
-        if "[Mock]" not in content:
+        if "테스트 모드" not in content:
             print("  POST /v1/chat/completions: response does not look like mock:", content[:100])
             return 1
         print("  POST /v1/chat/completions OK (mock):", content[:80] + "...")
