@@ -16,12 +16,20 @@ from types import ModuleType
 
 
 class _XformersOpsFake(ModuleType):
+    """가짜 xformers.ops: inspect 등이 __file__/__name__을 참조해도 예외 없이 동작하도록 기본 속성 제공."""
+    __file__ = ""
+    __path__ = []
+
     def __getattr__(self, name):
         raise ImportError("xformers disabled for Triton/PyTorch compatibility (JITCallable._set_src)")
 
 
 _xops = _XformersOpsFake("xformers.ops")
+_xops.__file__ = ""
+_xops.__path__ = []
 _xformers = ModuleType("xformers")
+_xformers.__file__ = ""
+_xformers.__path__ = []
 _xformers.ops = _xops
 sys.modules["xformers"] = _xformers
 sys.modules["xformers.ops"] = _xops
