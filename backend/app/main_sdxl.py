@@ -11,10 +11,10 @@ from pathlib import Path
 # xformers + Triton/PyTorch 2.9 호환 오류(JITCallable._set_src) 방지: 실제 xformers 로드 차단
 os.environ.setdefault("PYTORCH_JIT", "0")
 os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+import importlib.util
 import sys
 from types import ModuleType
 
-# inspect.getfile(module)이 빈 __file__을 built-in으로 간주해 TypeError 나는 것 방지
 _FAKE_MODULE_FILE = os.path.abspath(__file__)
 
 
@@ -26,9 +26,11 @@ class _XformersOpsFake(ModuleType):
 _xops = _XformersOpsFake("xformers.ops")
 _xops.__file__ = _FAKE_MODULE_FILE
 _xops.__path__ = []
+_xops.__spec__ = importlib.util.spec_from_loader("xformers.ops", loader=None, origin=_FAKE_MODULE_FILE)
 _xformers = ModuleType("xformers")
 _xformers.__file__ = _FAKE_MODULE_FILE
 _xformers.__path__ = []
+_xformers.__spec__ = importlib.util.spec_from_loader("xformers", loader=None, origin=_FAKE_MODULE_FILE)
 _xformers.ops = _xops
 sys.modules["xformers"] = _xformers
 sys.modules["xformers.ops"] = _xops
