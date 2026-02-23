@@ -29,10 +29,11 @@ PORT="${VLLM_PORT:-7001}"
 echo ">>> 모델: $MODEL, 포트: $PORT (로드에 1~2분 걸릴 수 있음)"
 echo ""
 
-# H100 NVL (80GB): gpu-memory-utilization 0.85~0.90, max-num-seqs 64~128. 2-GPU NVL이면 tensor_parallel_size=2.
-# OOM 시: GPU_UTIL 낮추기(0.80), MAX_NUM_SEQS 줄이기(32), 또는 VLLM_ENFORCE_EAGER=1
+# H100 NVL (80/93GB): GPU 단독 사용 시 0.85~0.90 가능. 다른 프로세스(Z-Image 등)와 공유 시 여유 메모리에 맞춰 낮추기.
+# "Free memory (72.37/93.0 GiB) is less than desired (0.88, 81.84 GiB)" → VLLM_GPU_MEMORY_UTILIZATION=0.75 로 실행하거나 GPU 선점 프로세스 종료.
+# 기본값 0.75: 약 70GiB 요청으로, 72GiB 여유 있을 때도 기동 가능. GPU 단독이면 VLLM_GPU_MEMORY_UTILIZATION=0.88 로 더 높일 수 있음.
 ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
-GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
+GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.75}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # GPU 개수 초과 시 "World size (2) is larger than the number of available GPUs (1)" 방지
@@ -81,7 +82,7 @@ VLLM_EXTRA=(
 [ -n "$QUANTIZATION" ] && [ "$QUANTIZATION" != "none" ] && VLLM_EXTRA+=( --quantization "$QUANTIZATION" )
 [ "$ENFORCE_EAGER" = "1" ] && VLLM_EXTRA+=( --enforce-eager )
 
-echo ">>> tensor_parallel_size: $TENSOR_PARALLEL (GPU ${NUM_GPUS}대), 양자화: ${QUANTIZATION:-미전달(모델 mxfp4)}"
+echo ">>> gpu_memory_utilization: $GPU_UTIL, tensor_parallel_size: $TENSOR_PARALLEL (GPU ${NUM_GPUS}대), 양자화: ${QUANTIZATION:-미전달(모델 mxfp4)}"
 
 # Python/vLLM 로그가 버퍼 없이 바로 콘솔에 나오도록
 export PYTHONUNBUFFERED=1
