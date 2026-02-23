@@ -14,21 +14,20 @@ os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 import sys
 from types import ModuleType
 
+# inspect.getfile(module)이 빈 __file__을 built-in으로 간주해 TypeError 나는 것 방지
+_FAKE_MODULE_FILE = os.path.abspath(__file__)
+
 
 class _XformersOpsFake(ModuleType):
-    """가짜 xformers.ops: inspect 등이 __file__/__name__을 참조해도 예외 없이 동작하도록 기본 속성 제공."""
-    __file__ = ""
-    __path__ = []
-
     def __getattr__(self, name):
         raise ImportError("xformers disabled for Triton/PyTorch compatibility (JITCallable._set_src)")
 
 
 _xops = _XformersOpsFake("xformers.ops")
-_xops.__file__ = ""
+_xops.__file__ = _FAKE_MODULE_FILE
 _xops.__path__ = []
 _xformers = ModuleType("xformers")
-_xformers.__file__ = ""
+_xformers.__file__ = _FAKE_MODULE_FILE
 _xformers.__path__ = []
 _xformers.ops = _xops
 sys.modules["xformers"] = _xformers
