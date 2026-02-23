@@ -72,7 +72,10 @@ class Settings(BaseSettings):
     )
     llm_hf_token: str = Field(default="", description="게이트 모델일 때 Hugging Face 토큰.")
     llm_api_base: str = Field(default="", description="llm_use_local=False일 때만. OpenAI 호환 API 베이스 URL.")
-    llm_model: str = Field(default="gpt-oss-20b", description="API 사용 시 모델 이름.")
+    llm_model: str = Field(
+        default="openai/gpt-oss-20b",
+        description="API 사용 시 모델 이름. vLLM 서빙명과 일치해야 함(예: openai/gpt-oss-20b).",
+    )
     llm_api_key: str = Field(default="", description="외부 API 사용 시에만 필요")
     llm_timeout_seconds: int = Field(default=120, ge=10, le=600)
     llm_max_concurrent: int = Field(

@@ -142,3 +142,10 @@ export VLLM_TENSOR_PARALLEL_SIZE=1
   먼저 위 1번 또는 2번으로 vLLM을 띄운 뒤, 메인 앱을 재기동하세요.
 
 요청 URL은 실패 시 앱 로그에 `URL=...` 로 남습니다. 그 URL이 실제 vLLM 주소와 같은지 확인하면 됩니다.
+
+## 7. 7001에서 404 / 메인 앱 503: `The model 'gpt-oss-20b' does not exist`
+
+vLLM은 **서버 기동 시 쓴 모델 ID**로만 요청을 받습니다. `vllm serve openai/gpt-oss-20b` 로 띄웠다면, 요청의 `model` 값은 **`openai/gpt-oss-20b`** 여야 합니다.
+
+- **조치**: 메인 앱 설정에서 `LLM_MODEL=openai/gpt-oss-20b` 로 두세요. (기본값이 이미 이렇게 되어 있음. `.env`에서 `LLM_MODEL=gpt-oss-20b` 로 오버라이드했다면 제거하거나 `openai/gpt-oss-20b`로 변경.)
+- **확인**: 7000 재기동 후 채팅 다시 시도.
