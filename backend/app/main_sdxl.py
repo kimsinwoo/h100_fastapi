@@ -26,6 +26,10 @@ _xformers.ops = _xops
 sys.modules["xformers"] = _xformers
 sys.modules["xformers.ops"] = _xops
 
+# TORCH_LIBRARY "prims" 중복 등록 방지: 메인 스레드에서 torch를 먼저 로드해 두면
+# run_in_executor 스레드의 import torch가 캐시만 반환하고 재등록하지 않음
+import torch  # noqa: E402
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
