@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="*")
     cors_allow_credentials: bool = Field(default=True)
 
-    # Rate limiting (동시 100명 사용 시 rate_limit_requests 100~200 권장)
-    rate_limit_requests: int = Field(default=60, ge=1, le=500)
+    # Rate limiting (동시 100명 사용 시 100~200 권장)
+    rate_limit_requests: int = Field(default=100, ge=1, le=500)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
 
     # LLM: 로컬에서 gpt-oss-20b(transformers) 사용

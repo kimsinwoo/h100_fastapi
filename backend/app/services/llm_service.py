@@ -373,11 +373,13 @@ def clean_output(text: str) -> str:
     # 불필요한 따옴표 전체 제거 (짧은 인용만 있는 경우)
     s = re.sub(r'"\s*"+', " ", s)
     s = re.sub(r"^\s*[\"']+\s*", "", s)
-    # 줄 시작이 기호면 해당 줄 삭제; 구두점만/한글 3글자 미만 노이즈 줄 삭제
+    # 줄 시작이 기호면 해당 줄 삭제; 구두점만/한글 3글자 미만 노이즈 줄 삭제; 기호 위주 줄 삭제
     out_lines = []
     for line in s.split("\n"):
         stripped = line.strip()
         if stripped and stripped[0] in ".,;:!?\"'•·-*#@•":
+            continue
+        if stripped and _is_noise_line(stripped):
             continue
         korean = len(re.findall(r"[\uac00-\ud7a3]", stripped))
         punct = sum(1 for c in stripped if c in ".,;:!?\"'•·-* \t")
@@ -564,7 +566,23 @@ _HEALTH_INSTRUCTION_MARKERS = (
     "의료·수를 통해",
     "확인하시길 바랍니다",
     "전공자가 검토",
+    "전공자에게 확인",
     "진단·확정",
+    "답변 맨 끝",
+    "답변 맨끝",
+    "답변 맹엔",
+    "한 번만 썬다",
+    "한 번만 썰라",
+    "한 번만 쓴다",
+    "정확히 한 번만",
+    "정확적으로 한 번만",
+    "수의사와 상의",
+    "상의하시길 바랍니다",
+    "과정을 거쳐야",
+    "정확히 판단하기 위해서는",
+    "정확한 판단을 위해",
+    "지시문",
+    "메타 설명",
 )
 
 
@@ -575,22 +593,41 @@ def _is_disclaimer_variant_line(s: str) -> bool:
         return False
     norm = re.sub(r"[^\uac00-\ud7a3·]", "", t)
     # 정확한판단 + 의료/수의 + 확인/바랍 등 핵심만 있는 짧은 줄
-    if "정확한" in norm and ("의료" in norm or "수의" in norm) and ("확인" in norm or "바랍" in norm or "검토" in norm):
+    if "정확한" in norm and ("의료" in norm or "수의" in norm) and ("확인" in norm or "바랍" in norm or "검토" in norm or "상의" in norm):
         return True
     if re.match(r"^[\s\.\:\'\"]*정확한\s*판단", t) and len(norm) < 35:
+        return True
+    # "전문가에게 확인하세요" 단독 또는 앞뒤 기호만
+    if re.search(r"전문가에게\s*확인", t) and len(norm) < 30:
+        return True
+    if re.search(r"수의사와\s*상의", t) or re.search(r"전공자에게\s*확인", t):
         return True
     return False
 
 
-HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
+def _is_noise_line(s: str) -> bool:
+    """기호·구두점 위주 줄(한글 거의 없음)이면 True. 제거 대상."""
+    t = s.strip()
+    if not t or len(t) > 200:
+        return False
+    korean = len(re.findall(r"[가-힣]", t))
+    punct_etc = sum(1 for c in t if c in ".,:;!?\"'•·\-~()[]{}*#@ \t\n\u3000")
+    # 한글이 3글자 미만이고 기호/공백이 절반 이상
+    if korean < 3 and punct_etc >= len(t) // 2:
+        return True
+    # 줄 전체가 따옴표·콜론·공백 조합 (예: "   '  :    : " ")
+    if korean == 0 and len(t) >= 3:
+        return True
+    return False
 
-[시작 규칙] 응답은 반드시 자연스러운 완전한 문장으로 시작하십시오. 구두점, 따옴표, 특수기호로 시작하지 마십시오. 경고 문구로 시작하지 마십시오.
 
-[최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어 금지. 답변은 바로 본문으로 시작한다.
+HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 반려동물 건강 질문에 답하는 도우미입니다. 참고 정보만 안내하고, 진단·확정 표현은 하지 않습니다.
 
-[규칙] 진단·확정 표현 금지. "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만. 소제목은 **굵게**. 목록은 한 줄에 "• 항목". 문장 끝까지 완성.
-
-[마지막 문장] 답변 맨 끝에 다음 문장을 정확히 한 번만 쓴다: 정확한 판단은 의료·수의 전문가에게 확인하세요. 이 문장을 반복하거나 변형하지 말고, 지시문이나 메타 설명을 출력하지 않는다. 반려동물 건강 질문이 아니면 답변하지 않는다."""
+응답 규칙:
+- 한글만 사용. 영문·기호로 시작하지 말고, 바로 본문 문장으로 시작.
+- 소제목은 **굵게**, 목록은 "• 항목" 한 줄씩.
+- 답변 마지막에 반드시 이 한 문장만 붙임: 정확한 판단은 의료·수의 전문가에게 확인하세요.
+- 위 문장 외에 지시문, 인용부호 난입, 반복 금지. 반려동물 건강 질문이 아니면 답하지 않음."""
 
 
 async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, temperature: float = 0.7) -> str | None:
@@ -629,6 +666,9 @@ def _strip_leading_junk(text: str) -> str:
             continue
         # 사용자 말 반복처럼 보이는 짧은 인용 한 줄 제거 (전체가 따옴표 한 덩어리)
         if re.match(r'^\s*"[^"]{1,80}"\s*$', line.strip()):
+            continue
+        # 기호·구두점 위주 노이즈 줄 제거
+        if _is_noise_line(s):
             continue
         # 앞쪽에 나온 면책 변형·지시 유출 짧은 줄은 제거 (본문이 나오기 전까지)
         if len(s) < 70 and (_is_disclaimer_variant_line(s) or _is_instruction_leakage(s)):
@@ -691,6 +731,9 @@ def _dedupe_and_fix_disclaimer(text: str) -> str:
         if _is_disclaimer_variant_line(s):
             continue
         if _is_instruction_leakage(s):
+            continue
+        # 기호·구두점 위주 노이즈 줄 제거
+        if _is_noise_line(s):
             continue
         # 한글 거의 없고 구두점·따옴표만 많은 줄 제거 (한글 2글자 미만)
         if len(hangul.findall(s)) < 2 and not s.startswith("**") and "•" not in s:

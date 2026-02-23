@@ -109,6 +109,8 @@ def _start_lora_finetune_background(settings) -> None:
 async def lifespan(app: FastAPI):
     """Startup: ensure static dir, load model. Shutdown: cleanup."""
     settings = get_settings()
+    import sys
+    print(f"\n>>> Z-Image AI 서버 기동: http://0.0.0.0:{settings.port} (API: /api, 상태: /health)\n", file=sys.stderr, flush=True)
     ensure_generated_dir()
     logger.info("Static directory ready: %s", settings.generated_dir)
     # Load image model once at startup
@@ -117,11 +119,16 @@ async def lifespan(app: FastAPI):
         logger.info("GPU available: %s", is_gpu_available())
     except Exception as e:
         logger.warning("Model not loaded at startup (will fail on first request): %s", e)
-    # LLM 로컬 사용 시 기동 시 미리 로드 (첫 채팅 요청 대기 없음)
-    try:
-        await preload_local_model()
-    except Exception as e:
-        logger.warning("LLM preload at startup failed: %s", e)
+    # LLM: vLLM(API) 사용 시 로컬 로드 생략; 로컬 사용 시에만 미리 로드
+    if settings.llm_enabled:
+        if settings.llm_use_local:
+            try:
+                await preload_local_model()
+                logger.info("LLM: 로컬 모델 로드 완료 (동시 1건, 대기 초과 시 503)")
+            except Exception as e:
+                logger.warning("LLM preload at startup failed: %s", e)
+        else:
+            logger.info("LLM: API 모드 → %s (동시 다수 사용 가능)", settings.llm_api_base or "(미설정)")
 
     # LLM 로드 후 한국어 LoRA 파인튜닝을 백그라운드에서 시작 (설정 시)
     if (
