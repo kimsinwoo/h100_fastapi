@@ -282,29 +282,39 @@ def create_app() -> FastAPI:
 def _get_app() -> FastAPI:
     """
     base_path 설정 시 해당 경로 아래로 앱 마운트.
-    - 프록시가 경로를 그대로 넘기면 (예: /95ce287337c3ad9f/api/...) → BASE_PATH=95ce287337c3ad9f 설정.
-    - 프록시가 접두사를 제거하고 /health, /api/... 로 보내도 동작하도록 미들웨어에서 경로 보정.
+    - 프록시가 접두사 제거 후 /health, /api/* 로 보내도 200 나오도록 루트에 동일 라우트·lifespan 등록.
     """
     _app = create_app()
     base = (get_settings().base_path or "").strip().strip("/")
     if not base:
         return _app
-    root = FastAPI(title="Z-Image AI (root)")
+    # 루트도 동일 lifespan 사용 (파이프라인 로드 등) + CORS
+    settings = get_settings()
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if "*" in origins:
+        origins = ["*"]
+    root = FastAPI(title="Z-Image AI (root)", lifespan=lifespan)
+    root.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # 프록시가 /health, /api/* 만 보낼 때 404 방지: 루트에 동일 라우트 등록 (접두사 없이 호출 가능)
+    root.include_router(router)
+
+    @root.get("/health")
+    async def _health() -> dict[str, str | bool]:
+        return {
+            "status": "ok",
+            "gpu_available": is_gpu_available(),
+            "model_loaded": is_pipeline_loaded(),
+        }
+
     root.mount(f"/{base}", _app)
-
-    # 프록시가 접두사 제거 후 /health, /api/*, /static/* 등으로 보낼 때: 마운트 경로로 넘겨 404 방지
-    _ROOT_PREFIXES = ("/health", "/api", "/static", "/docs", "/openapi.json", "/redoc", "/assets", "/")
-
-    @root.middleware("http")
-    async def _rewrite_path_if_no_prefix(request: Request, call_next):
-        path = request.scope.get("path") or ""
-        if path.startswith(f"/{base}"):
-            return await call_next(request)
-        if path == "/" or any(path == p or (p != "/" and path.startswith(p + "/")) for p in _ROOT_PREFIXES):
-            request.scope["path"] = f"/{base}{path}"
-        return await call_next(request)
-
-    logger.info("App mounted at /%s (requests /health and /api/* also accepted without prefix)", base)
+    logger.info("App mounted at /%s (also serving /health and /api/* without prefix)", base)
     return root
 
 

@@ -2,7 +2,7 @@ import axios, { AxiosError } from "axios";
 import type { GenerateResponse, ErrorDetail, StylesResponse, TrainingItem } from "../types/api";
 
 const api = axios.create({
-  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/vscode/h8212918284d84e9b348b302527193731-3228-0/proxy/7000/",
+  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/vscode/h8212918284d84e9b348b302527193731-3228-0/proxy/7000",
   timeout: 120_000,
   headers: { "Content-Type": "application/json" },
 });
@@ -40,6 +40,7 @@ const uploadApi = axios.create({
   timeout: 120_000,
 });
 
+/** SDXL API: prompt 필수, image 선택. 응답은 image_url, processing_time_seconds → 공통 형식으로 정규화 */
 export async function generateImage(
   file: File,
   style: string,
@@ -48,19 +49,24 @@ export async function generateImage(
   seed: number | null
 ): Promise<GenerateResponse> {
   const form = new FormData();
-  form.append("file", file);
+  const prompt = customPrompt?.trim() || "high quality image, detailed, sharp focus";
+  form.append("prompt", prompt);
   form.append("style", style);
-  if (customPrompt !== null && customPrompt.trim() !== "") {
-    form.append("custom_prompt", customPrompt.trim());
-  }
-  if (strength !== null) {
-    form.append("strength", String(strength));
-  }
-  if (seed !== null) {
-    form.append("seed", String(seed));
-  }
-  const { data } = await uploadApi.post<GenerateResponse>("/api/generate", form);
-  return data;
+  form.append("image", file);
+  form.append("strength", String(strength ?? 0.75));
+  form.append("steps", "30");
+  form.append("cfg", "7.5");
+  if (seed !== null) form.append("seed", String(seed));
+  form.append("width", "1024");
+  form.append("height", "1024");
+
+  type SdxlResponse = { image_url: string; processing_time_seconds: number };
+  const { data } = await uploadApi.post<SdxlResponse>("/api/generate", form);
+  return {
+    original_url: "",
+    generated_url: data.image_url,
+    processing_time: data.processing_time_seconds,
+  };
 }
 
 export async function getStyles(): Promise<StylesResponse> {
@@ -68,16 +74,22 @@ export async function getStyles(): Promise<StylesResponse> {
   return data;
 }
 
+/** 백엔드가 SDXL( main_sdxl )이면 /api/health, Z-Image( main )이면 /health — SDXL 기준으로 통일 */
 export async function getHealth(): Promise<{ status: string; gpu_available: boolean }> {
-  const { data } = await api.get<{ status: string; gpu_available: boolean }>("/health");
+  const { data } = await api.get<{ status: string; gpu_available: boolean }>("/api/health");
   return data;
 }
 
 // ---------- LLM (gpt-oss-20b) ----------
 
+/** SDXL 백엔드에는 없음 → 404 시 사용 불가로 처리 */
 export async function getLlmStatus(): Promise<{ available: boolean; model: string | null }> {
-  const { data } = await api.get<{ available: boolean; model: string | null }>("/api/llm/status");
-  return data;
+  try {
+    const { data } = await api.get<{ available: boolean; model: string | null }>("/api/llm/status");
+    return data;
+  } catch {
+    return { available: false, model: null };
+  }
 }
 
 // ---------- 채팅방 저장 ----------

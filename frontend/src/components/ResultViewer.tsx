@@ -14,15 +14,17 @@ export const ResultViewer: React.FC<ResultViewerProps> = ({
   onDownload,
 }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <div>
-        <p className="mb-2 text-sm font-medium text-gray-600">Original</p>
-        <img
-          src={originalUrl}
-          alt="Original"
-          className="max-h-96 w-full rounded-lg border border-gray-200 object-contain"
-        />
-      </div>
+    <div className={`grid gap-4 ${originalUrl ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}>
+      {originalUrl ? (
+        <div>
+          <p className="mb-2 text-sm font-medium text-gray-600">Original</p>
+          <img
+            src={originalUrl}
+            alt="Original"
+            className="max-h-96 w-full rounded-lg border border-gray-200 object-contain"
+          />
+        </div>
+      ) : null}
       <div>
         <p className="mb-2 text-sm font-medium text-gray-600">Generated</p>
         <img
