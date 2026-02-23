@@ -35,7 +35,19 @@ ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
 GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
-TENSOR_PARALLEL="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+# GPU 개수 초과 시 "World size (2) is larger than the number of available GPUs (1)" 방지
+NUM_GPUS=1
+if command -v nvidia-smi &>/dev/null; then
+  NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+  [ "$NUM_GPUS" -lt 1 ] && NUM_GPUS=1
+fi
+REQUESTED_TP="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+if [ "$REQUESTED_TP" -gt "$NUM_GPUS" ]; then
+  echo ">>> GPU가 ${NUM_GPUS}대뿐이므로 tensor_parallel_size를 ${REQUESTED_TP} → ${NUM_GPUS}로 조정합니다."
+  TENSOR_PARALLEL="$NUM_GPUS"
+else
+  TENSOR_PARALLEL="$REQUESTED_TP"
+fi
 # openai/gpt-oss-20b는 모델 config가 mxfp4 → --quantization 전달 시 fp8과 충돌. 비우면 모델 기본값(mxfp4) 사용.
 # mxfp4는 vLLM 0.15+ 필요. 0.7.x에서는 "Unknown quantization: mxfp4" 나오면 pip install -U "vllm>=0.15"
 QUANTIZATION="${VLLM_QUANTIZATION:-}"
@@ -69,7 +81,7 @@ VLLM_EXTRA=(
 [ -n "$QUANTIZATION" ] && [ "$QUANTIZATION" != "none" ] && VLLM_EXTRA+=( --quantization "$QUANTIZATION" )
 [ "$ENFORCE_EAGER" = "1" ] && VLLM_EXTRA+=( --enforce-eager )
 
-echo ">>> 양자화: ${QUANTIZATION:-미전달(모델 mxfp4, vLLM 0.15+ 필요)}"
+echo ">>> tensor_parallel_size: $TENSOR_PARALLEL (GPU ${NUM_GPUS}대), 양자화: ${QUANTIZATION:-미전달(모델 mxfp4)}"
 
 # Python/vLLM 로그가 버퍼 없이 바로 콘솔에 나오도록
 export PYTHONUNBUFFERED=1

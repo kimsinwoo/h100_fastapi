@@ -113,7 +113,17 @@ pip install -U "vllm>=0.15"
 
 스크립트 기본값은 이제 `VLLM_QUANTIZATION`을 비워 두어 `--quantization`을 전달하지 않습니다. vLLM 0.15+에서만 mxfp4가 지원되므로, 0.7.x 환경이라면 반드시 위처럼 업그레이드한 뒤 실행하세요.
 
-## 5. LLM 채팅 "All connection attempts failed" 해결
+## 5. 오류 해결: `World size (2) is larger than the number of available GPUs (1)`
+
+**GPU 1대**인데 `VLLM_TENSOR_PARALLEL_SIZE=2`로 두면 발생합니다. `start_vllm_h100.sh`는 이제 **GPU 개수를 자동으로 확인**해 `tensor_parallel_size`를 GPU 수 이하로 맞춥니다. 별도 설정 없이 다시 실행하면 됩니다.
+
+수동으로 1대로 고정하려면:
+```bash
+export VLLM_TENSOR_PARALLEL_SIZE=1
+./scripts/start_vllm_h100.sh
+```
+
+## 6. LLM 채팅 "All connection attempts failed" 해결
 
 이 오류는 **메인 앱이 vLLM 서버에 연결하지 못할 때** 납니다.
 
