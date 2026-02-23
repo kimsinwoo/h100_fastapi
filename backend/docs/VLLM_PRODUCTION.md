@@ -27,26 +27,30 @@
 
 ## Deployment (two processes)
 
-### 1. vLLM OpenAI server (inference, H100) — 포트 **7001**
+### 1. vLLM OpenAI server (inference, Linux + H100 NVL) — 포트 **7001**
 
 ```bash
-# From repo root or backend dir
+# From backend dir (Linux, H100 NVL 1.19.210 등)
+cd zimage_webapp/backend
+source venv/bin/activate
 export VLLM_MODEL=openai/gpt-oss-20b
 export VLLM_PORT=7001
+# OOM 시: export VLLM_ENFORCE_EAGER=1 또는 VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32
 ./scripts/start_vllm_h100.sh
 ```
 
-**H100-oriented parameters** (in the script / CLI):
+**H100 NVL 기본값** (스크립트/환경변수로 조정):
 
-| Parameter | Value | Purpose |
-|-----------|--------|--------|
-| `--gpu-memory-utilization` | 0.90 | KV cache and model on GPU |
-| `--max-num-seqs` | 256 | Continuous batching width |
-| `--tensor-parallel-size` | 1 | Single GPU |
-| `--dtype` | bfloat16 | H100-friendly precision |
+| Parameter | Default (H100 NVL) | Purpose |
+|-----------|---------------------|--------|
+| `--gpu-memory-utilization` | 0.88 | KV cache and model (OOM 시 0.80) |
+| `--max-num-seqs` | 96 | Continuous batching (OOM 시 32) |
+| `--max-model-len` | 32768 | Context length |
+| `--tensor-parallel-size` | 1 | Single GPU; 2-GPU NVL이면 2 |
+| `--dtype` | bfloat16 | H100 NVL 권장 |
 | `--trust-remote-code` | true | For custom model code |
 
-Optional: `--enforce-eager` to disable CUDA graphs (debugging only; lowers throughput).
+Optional: `VLLM_ENFORCE_EAGER=1` to disable CUDA graphs (메모리 절약, 기동 빠름).
 
 ### 2. Z-Image main app (FastAPI) — 포트 **7000**
 

@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# vLLM 서버만 최소 옵션으로 바로 실행. (스크립트 로직 없이 즉시 출력)
+# vLLM 서버 최소 옵션으로 실행 (Linux, H100 NVL 호환). 환경변수로 오버라이드 가능.
 # 사용법: cd backend && source venv/bin/activate && bash scripts/run_vllm_minimal.sh
-# 또는 아래 한 줄 명령을 그대로 복사해 터미널에서 실행.
+# 프로덕션 H100 NVL 권장: scripts/start_vllm_h100.sh (env로 GPU/메모리 조정)
 
 set -e
 export PYTHONUNBUFFERED=1
 
 MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 PORT="${VLLM_PORT:-7001}"
+GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
+MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
+MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
+# OOM 시: VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32 또는 VLLM_ENFORCE_EAGER=1
 
-# vllm이 PATH에 있으면 그대로, 없으면 venv 기준
 if command -v vllm &>/dev/null; then
   exec vllm serve "$MODEL" \
     --port "$PORT" \
     --host 0.0.0.0 \
-    --gpu-memory-utilization 0.85 \
-    --max-num-seqs 64 \
-    --max-model-len 32768 \
+    --gpu-memory-utilization "$GPU_UTIL" \
+    --max-num-seqs "$MAX_NUM_SEQS" \
+    --max-model-len "$MAX_MODEL_LEN" \
     --dtype bfloat16 \
     --trust-remote-code \
     --enforce-eager \
@@ -27,9 +30,9 @@ else
     --model "$MODEL" \
     --port "$PORT" \
     --host 0.0.0.0 \
-    --gpu-memory-utilization 0.85 \
-    --max-num-seqs 64 \
-    --max-model-len 32768 \
+    --gpu-memory-utilization "$GPU_UTIL" \
+    --max-num-seqs "$MAX_NUM_SEQS" \
+    --max-model-len "$MAX_MODEL_LEN" \
     --dtype bfloat16 \
     --trust-remote-code \
     --enforce-eager \

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Start vLLM OpenAI-compatible server optimized for single H100.
+# Start vLLM OpenAI-compatible server for Linux + NVIDIA H100 NVL.
 # Run from backend dir. Requires: pip install vllm (in venv recommended).
 #
+# 환경: Linux, GPU H100 NVL (1.19.210 등). 단일 GPU 기본; 2-GPU NVL은 VLLM_TENSOR_PARALLEL_SIZE=2.
 # 중요: vLLM 기동 전 GPU를 다른 프로세스가 쓰고 있으면 CUDA OOM으로 실패합니다.
 #   nvidia-smi  로 확인 후, 다른 GPU 프로세스를 종료한 뒤 실행하세요.
-# OOM이 나면: VLLM_ENFORCE_EAGER=1 ./scripts/start_vllm_h100.sh (CUDA 그래프 비활성화, 느리지만 메모리 절약)
-# 기동만 빨리: VLLM_ENFORCE_EAGER=1 (CUDA 그래프 캡처 생략 → 기동 1분 내외, 추론은 약간 느림)
-# 양자화: 기본 fp8(H100 고속). fp8 오류 시 VLLM_QUANTIZATION=none ./scripts/start_vllm_h100.sh
-# mxfp4 사용하려면 vLLM을 0.15+ 로 업그레이드 후 VLLM_QUANTIZATION= 비우기
+# OOM이 나면: VLLM_ENFORCE_EAGER=1 (CUDA 그래프 비활성화, 메모리 절약)
+# 기동만 빨리: VLLM_ENFORCE_EAGER=1 (CUDA 그래프 캡처 생략 → 기동 1분 내외)
+# 양자화: 기본 fp8(H100 고속). fp8 오류 시 인자 생략(모델 기본값) 또는 vLLM 0.15+ 업그레이드.
 
 set -e
-# 실행 직후 콘솔에 바로 출력 (모델 로드 전에 사용자에게 안내)
-echo ">>> vLLM 서버 시작 중..."
+echo ">>> vLLM 서버 시작 중 (Linux, H100 NVL)..."
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -30,14 +29,14 @@ PORT="${VLLM_PORT:-7001}"
 echo ">>> 모델: $MODEL, 포트: $PORT (로드에 1~2분 걸릴 수 있음)"
 echo ""
 
-# OOM 방지: CUDA 그래프 캡처 시 메모리 여유 필요. 다른 프로세스가 GPU 사용 중이면 반드시 종료 후 실행.
-# VLLM_ENFORCE_EAGER=1 이면 CUDA 그래프 비활성화(메모리 절약, 추론은 조금 느림)
+# H100 NVL (80GB): gpu-memory-utilization 0.85~0.90, max-num-seqs 64~128. 2-GPU NVL이면 tensor_parallel_size=2.
+# OOM 시: GPU_UTIL 낮추기(0.80), MAX_NUM_SEQS 줄이기(32), 또는 VLLM_ENFORCE_EAGER=1
 ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
-GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
-MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-64}"
+GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
+MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
-# 양자화: H100에서 fp8=빠른 속도. vLLM 0.7.x는 --quantization none 미지원 → fp8만 전달하거나 인자 생략.
-# VLLM_QUANTIZATION=fp8 (기본) | 비우면 --quantization 미전달 (모델 기본값 사용, mxfp4 오류 시 vLLM 0.15+ 업그레이드)
+TENSOR_PARALLEL="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+# 양자화: H100에서 fp8=고속. 비우면 --quantization 미전달 (mxfp4 오류 시 vLLM 0.15+ 업그레이드)
 QUANTIZATION="${VLLM_QUANTIZATION:-fp8}"
 
 # vllm CLI가 있으면 설치 검사 생략(검사 시 torch/vllm 로드로 10~30초 걸림). 없을 때만 import 검사.
@@ -54,15 +53,14 @@ else
   echo ">>> vLLM 확인됨. 엔진 시작..."
 fi
 
-# 공통 인자 (메모리 절감: gpu-memory-utilization 0.85, max-num-seqs 64, max-model-len 32768)
-# 양자화: fp8 = H100에서 고속 추론 (vLLM 0.7.x는 mxfp4 미지원 → fp8 또는 none으로 모델 config 오버라이드)
+# 공통 인자: Linux 0.0.0.0 수신, H100 NVL에 맞춘 bfloat16, 연속 배치(MAX_NUM_SEQS)
 VLLM_EXTRA=(
   --port "$PORT"
   --host 0.0.0.0
   --gpu-memory-utilization "$GPU_UTIL"
   --max-num-seqs "$MAX_NUM_SEQS"
   --max-model-len "$MAX_MODEL_LEN"
-  --tensor-parallel-size 1
+  --tensor-parallel-size "$TENSOR_PARALLEL"
   --dtype bfloat16
   --trust-remote-code
 )
