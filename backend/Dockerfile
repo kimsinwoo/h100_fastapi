@@ -1,6 +1,6 @@
 # Z-Image AI Service — production backend
 # Build: docker build -t zimage-backend .
-# Run: docker run -p 8000:8000 --gpus all zimage-backend
+# Run: docker run -p 7000:7000 --gpus all zimage-backend
 
 FROM python:3.11-slim
 
@@ -26,10 +26,10 @@ COPY app/ ./app/
 COPY static/ ./static/ 2>/dev/null || true
 RUN mkdir -p static/generated
 
-EXPOSE 8000
+EXPOSE 7000
 
 # Non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7000"]

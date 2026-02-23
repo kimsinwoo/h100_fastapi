@@ -10,7 +10,7 @@ from typing import AsyncIterator
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from vllm_server.schemas import ChatCompletionRequest, ChatCompletionResponse
+from vllm_server.schemas import ChatCompletionRequest
 from vllm_server.service import VLLMQueueTimeoutError, get_vllm_service
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,8 @@ async def _sse_stream(generator: AsyncIterator[str]) -> AsyncIterator[str]:
         yield chunk
 
 
-@router.post("/chat/completions")
-async def chat_completions(body: ChatCompletionRequest) -> ChatCompletionResponse | StreamingResponse:
+@router.post("/chat/completions", response_model=None)
+async def chat_completions(body: ChatCompletionRequest):
     """
     OpenAI-compatible chat completions. Use stream=true for SSE streaming.
     Concurrency and queue timeout enforced by service layer.

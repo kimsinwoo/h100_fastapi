@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Server
     host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000, ge=1, le=65535)
+    port: int = Field(default=7000, ge=1, le=65535)
     # 리버스 프록시 등으로 앱이 하위 경로에 있을 때 (예: /95ce287337c3ad9f). 비우면 루트.
     base_path: str = Field(default="", description="예: /95ce287337c3ad9f — 이 경로 아래로 앱 마운트")
 

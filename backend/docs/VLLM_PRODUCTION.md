@@ -16,9 +16,18 @@
 6. **Timeouts**: Per‑request and queue‑wait timeouts ensure no request hangs indefinitely.
 7. **Graceful shutdown**: Lifespan closes the HTTP client and allows in‑flight requests to finish or time out.
 
+## Port assignment
+
+| Port | Process | Description |
+|------|---------|-------------|
+| **7000** | **Z-Image main app** (`app.main:app`) | 이미지 생성, 채팅, API — `zimage_webapp/backend/app/` |
+| **7001** | vLLM OpenAI server | LLM 추론 전용 (H100) |
+
+**7000번은 메인 앱(`app.main:app`)입니다.** vLLM 전용 게이트웨이(`vllm_server`)가 아님.
+
 ## Deployment (two processes)
 
-### 1. vLLM OpenAI server (inference, H100)
+### 1. vLLM OpenAI server (inference, H100) — 포트 **7001**
 
 ```bash
 # From repo root or backend dir
@@ -39,24 +48,17 @@ export VLLM_PORT=7001
 
 Optional: `--enforce-eager` to disable CUDA graphs (debugging only; lowers throughput).
 
-### 2. FastAPI gateway (queue, timeout, streaming)
+### 2. Z-Image main app (FastAPI) — 포트 **7000**
 
 ```bash
 cd zimage_webapp/backend
-pip install -r requirements-vllm.txt
-export VLLM_BACKEND_URL=http://127.0.0.1:7001
-python run_vllm_gateway.py
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 7000
 ```
 
-Gateway listens on port **7000** by default. Environment:
+또는 설정에서 포트 읽기: `PORT=7000` (기본 7000). `run.sh` 사용 시에도 7000번으로 기동됨.
 
-| Variable | Default | Description |
-|----------|--------|-------------|
-| `VLLM_BACKEND_URL` | http://127.0.0.1:8001 | vLLM OpenAI server URL |
-| `VLLM_MAX_CONCURRENT_REQUESTS` | 100 | Semaphore size |
-| `VLLM_REQUEST_TIMEOUT_SECONDS` | 120 | Timeout for one inference |
-| `VLLM_QUEUE_WAIT_TIMEOUT_SECONDS` | 60 | Max wait for a slot (then 503) |
-| `VLLM_HOST` / `VLLM_PORT` | 0.0.0.0 / 7000 | Gateway bind |
+**Optional: vLLM 전용 게이트웨이** (채팅만 별도 서비스로 둘 때): `run_vllm_gateway.py` → 다른 포트(예: 8000)에 두고, 메인 앱(7000)에서 그쪽으로 프록시할 수 있음. 기본 배포는 **7000 = app.main**, **7001 = vLLM**.
 
 ## API (OpenAI‑compatible)
 

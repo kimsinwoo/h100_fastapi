@@ -55,9 +55,9 @@ class VLLMServerSettings(BaseSettings):
         description="Max wait time for a semaphore slot before 503.",
     )
 
-    # Server
+    # Server (vLLM gateway only; main app uses app.core.config port 7000)
     host: str = Field(default="0.0.0.0")
-    port: int = Field(default=7000, ge=1, le=65535)
+    port: int = Field(default=8000, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO")
 
     # Embedded engine (H100-optimized)
