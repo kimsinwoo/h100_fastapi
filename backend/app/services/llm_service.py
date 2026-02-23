@@ -554,15 +554,43 @@ _HEALTH_INSTRUCTION_MARKERS = (
     "한 글자도 쓰지 않는다",
     "접두어",
     "소제목",
+    "넣으라고",
+    "이렇게 나오는데",
+    "표현금지",
+    "표현 금지",
+    "정확한 판단 =",
+    "정확한 판단\"",
+    "의료·수와 전문가",
+    "의료·수를 통해",
+    "확인하시길 바랍니다",
+    "전공자가 검토",
+    "진단·확정",
 )
+
+
+def _is_disclaimer_variant_line(s: str) -> bool:
+    """면책 문구 변형·오타 한 줄이면 True. (제거 후 마지막에 정식 문장 1회만 붙임)"""
+    t = s.strip()
+    if len(t) > 80:
+        return False
+    norm = re.sub(r"[^\uac00-\ud7a3·]", "", t)
+    # 정확한판단 + 의료/수의 + 확인/바랍 등 핵심만 있는 짧은 줄
+    if "정확한" in norm and ("의료" in norm or "수의" in norm) and ("확인" in norm or "바랍" in norm or "검토" in norm):
+        return True
+    if re.match(r"^[\s\.\:\'\"]*정확한\s*판단", t) and len(norm) < 35:
+        return True
+    return False
+
 
 HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 건강 질문 도우미입니다. 사용자 증상·반려동물 상황에 대해 참고 정보만 제공합니다.
 
-[시작 규칙] 응답은 반드시 자연스러운 완전한 문장으로 시작하십시오. 구두점, 따옴표, 특수기호로 시작하지 마십시오. 경고 문구를 자동으로 삽입하지 마십시오.
+[시작 규칙] 응답은 반드시 자연스러운 완전한 문장으로 시작하십시오. 구두점, 따옴표, 특수기호로 시작하지 마십시오. 경고 문구로 시작하지 마십시오.
 
-[최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어(analysis 등) 금지. 답변은 바로 본문으로 시작한다.
+[최우선] 답변은 한글만 사용한다. 알파벳·영문·로마자 한 글자도 쓰지 않는다. 고유명사·기술 용어도 한글로 쓴다. 접두어 금지. 답변은 바로 본문으로 시작한다.
 
-[규칙] 진단·확정 표현 금지. "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만. 소제목은 **굵게**. 목록은 한 줄에 "• 항목". 문장 끝까지 완성. 반드시 "정확한 판단은 의료·수의 전문가에게 확인하세요" 포함. 반려동물 건강 질문이 아니면 답변하지 않는다."""
+[규칙] 진단·확정 표현 금지. "참고로 생각해볼 수 있는 내용", "병원에서 확인해 보시면 좋습니다"처럼 안내만. 소제목은 **굵게**. 목록은 한 줄에 "• 항목". 문장 끝까지 완성.
+
+[마지막 문장] 답변 맨 끝에 다음 문장을 정확히 한 번만 쓴다: 정확한 판단은 의료·수의 전문가에게 확인하세요. 이 문장을 반복하거나 변형하지 말고, 지시문이나 메타 설명을 출력하지 않는다. 반려동물 건강 질문이 아니면 답변하지 않는다."""
 
 
 async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, temperature: float = 0.7) -> str | None:
@@ -585,7 +613,7 @@ def _strip_alphabet(text: str) -> str:
 
 
 def _strip_leading_junk(text: str) -> str:
-    """알파벳 제거 후 남은 앞쪽 구두점·쓰레기 줄 제거. 본문(한글/•/**)만 남김."""
+    """알파벳 제거 후 남은 앞쪽 구두점·쓰레기·면책 변형·지시 유출 줄 제거. 본문(한글/•/**)만 남김."""
     if not text or not text.strip():
         return text
     lines = text.split("\n")
@@ -601,6 +629,9 @@ def _strip_leading_junk(text: str) -> str:
             continue
         # 사용자 말 반복처럼 보이는 짧은 인용 한 줄 제거 (전체가 따옴표 한 덩어리)
         if re.match(r'^\s*"[^"]{1,80}"\s*$', line.strip()):
+            continue
+        # 앞쪽에 나온 면책 변형·지시 유출 짧은 줄은 제거 (본문이 나오기 전까지)
+        if len(s) < 70 and (_is_disclaimer_variant_line(s) or _is_instruction_leakage(s)):
             continue
         filtered.append(line)
     if not filtered:
@@ -634,7 +665,7 @@ def _is_instruction_leakage(s: str) -> bool:
 
 
 def _dedupe_and_fix_disclaimer(text: str) -> str:
-    """반복 문구·disclaimer·지시 유출 제거. disclaimer는 맨 끝에 한 번만."""
+    """반복 문구·disclaimer 변형·지시 유출 제거. disclaimer는 맨 끝에 정식 문장 한 번만."""
     if not text or not text.strip():
         return text
     raw = text.strip()
@@ -656,6 +687,9 @@ def _dedupe_and_fix_disclaimer(text: str) -> str:
         normalized = re.sub(r"[^\uac00-\ud7a3·]", "", s)
         if normalized == "정확한판단은의료수의전문가에게확인하세요":
             continue
+        # 면책 문구 변형·오타 줄 제거 (예: 정확한 판단는, 확인하시길 바랍니다 등)
+        if _is_disclaimer_variant_line(s):
+            continue
         if _is_instruction_leakage(s):
             continue
         # 한글 거의 없고 구두점·따옴표만 많은 줄 제거 (한글 2글자 미만)
@@ -669,6 +703,8 @@ def _dedupe_and_fix_disclaimer(text: str) -> str:
     if not kept:
         return HEALTH_DISCLAIMER
     merged = "\n".join(kept).strip()
+    # 앞쪽 노이즈: disclaimer/지시 유출만 있는 줄들이 먼저 나온 경우 제거했으므로, 본문만 남음.
+    # 맨 끝에 정식 면책 문장 1회만
     base = HEALTH_DISCLAIMER.rstrip(".")
     if merged.endswith(HEALTH_DISCLAIMER) or merged.rstrip().endswith(base):
         return merged
