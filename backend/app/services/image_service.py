@@ -89,6 +89,13 @@ def _load_pipeline_sync():
         except Exception:
             pass
 
+    # xformers + Triton 3.x 호환 오류(JITCallable._set_src) 회피: xformers 미사용으로 로드
+    try:
+        import diffusers.utils.import_utils as diffusers_import_utils
+        diffusers_import_utils.is_xformers_available = lambda: False
+    except Exception:
+        pass
+
     try:
         from diffusers import ZImageImg2ImgPipeline
     except ImportError as e:
