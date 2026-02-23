@@ -120,17 +120,35 @@ export async function deleteChatRoom(roomId: string): Promise<void> {
 /** LLM 채팅 (건강 도우미). 응답에 5분 이상 걸릴 수 있으므로 타임아웃 10분. */
 const LLM_CHAT_TIMEOUT_MS = 600_000;
 
+/** 건강 상담 구조화 응답 (감별 1~4순위, 응급 기준, 핵심 질문, 추천 카테고리) */
+export type HealthChatDifferentialItem = {
+  rank: number;
+  name: string;
+  reason: string;
+  emergency: boolean;
+  home_check: string;
+};
+export type HealthChatRecommendedCategory = { label: string; query: string };
+export type HealthChatStructured = {
+  differential: HealthChatDifferentialItem[];
+  emergency_criteria: string[];
+  key_questions: string[];
+  recommended_categories: HealthChatRecommendedCategory[];
+};
+
+export type LlmChatResponse = { content: string; structured?: HealthChatStructured };
+
 export async function llmChat(
   messages: Array<{ role: string; content: string }>,
-  maxTokens = 256,
-  temperature = 0.7
-): Promise<string> {
-  const { data } = await api.post<{ content: string }>(
+  maxTokens = 1024,
+  temperature = 0.4
+): Promise<LlmChatResponse> {
+  const { data } = await api.post<LlmChatResponse>(
     "/api/llm/chat",
     { messages, max_tokens: maxTokens, temperature },
     { timeout: LLM_CHAT_TIMEOUT_MS }
   );
-  return data.content;
+  return { content: data.content ?? "", structured: data.structured };
 }
 
 export async function suggestPrompt(style: string, userHint?: string | null): Promise<string> {

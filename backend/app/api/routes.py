@@ -244,7 +244,7 @@ async def llm_chat(
     temperature = float(body.get("temperature", 0.4) or 0.4)
     logger.info("LLM chat request: %s messages, max_tokens=%s", len(messages), max_tokens)
     try:
-        text = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
+        text, structured = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
     except LLMQueueTimeoutError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -253,8 +253,11 @@ async def llm_chat(
     if text is None:
         logger.warning("LLM chat returned None")
         raise HTTPException(status_code=503, detail="LLM request failed")
-    logger.info("LLM chat response length: %s chars", len(text) if text else 0)
-    return {"content": text or ""}
+    logger.info("LLM chat response length: %s chars, structured: %s", len(text) if text else 0, structured is not None)
+    out: dict = {"content": text or ""}
+    if structured is not None:
+        out["structured"] = structured.model_dump()
+    return out
 
 
 @router.post("/llm/suggest-prompt")

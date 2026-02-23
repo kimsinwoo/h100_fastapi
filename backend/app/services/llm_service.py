@@ -636,7 +636,108 @@ HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 반려동물 건강 질문에 답�
 - 한글만 사용. 영문·기호로 시작하지 말고, 바로 본문 문장으로 시작.
 - 소제목은 **굵게**, 목록은 "• 항목" 한 줄씩.
 - 답변 마지막에 반드시 이 한 문장만 붙임: 정확한 판단은 의료·수의 전문가에게 확인하세요.
-- 위 문장 외에 지시문, 인용부호 난입, 반복 금지. 반려동물 건강 질문이 아니면 답하지 않음."""
+- 위 문장 외에 지시문, 인용부호 난입, 반복 금지. 반려동물 건강 질문이 아니면 답하지 않음.
+- 약물·처방·복용·투여·경구·주사·mg 등 약과 관련한 언급은 절대 하지 않습니다. "병원에서 확인 후 처방받으세요" 같은 문장도 쓰지 마세요. 질문을 이어갈 수 있도록 다음에 물어볼 만한 것을 안내해 주세요."""
+
+# 구조화 건강 상담: 임상 추론 수준, 1~4순위 감별, JSON 블록 필수
+HEALTH_ASSISTANT_STRUCTURED_PROMPT = """당신은 반려동물 질병 상담 AI입니다. 임상 추론 수준을 중급 이상(75점 이상)으로 유지하세요.
+
+[금지 사항]
+- 단순 질환 나열 금지. 반드시 위험도 기반 우선순위로 1~4순위까지만 제시.
+- 5순위 이상 절대 출력 금지.
+- 병태생리적 연결 근거 없는 설명 금지.
+- 추상적 표현 금지 (예: "혈압이 낮으면" X). 행동 기준으로 명확히 제시.
+- 약물·처방·복용·투여·경구·주사·mg·약 이름·처방받으세요 등 약과 관련한 말은 절대 하지 않습니다. "병원에서 확인 후 처방받으세요" 같은 문장도 쓰지 마세요.
+- 대신 보호자가 다음에 무엇을 관찰하면 좋을지, 어떤 질문을 이어가면 감별에 도움이 되는지에 초점을 맞추고, recommended_categories로 이어갈 질문을 구체적으로 제안하세요.
+
+[출력 구조 - 반드시 준수]
+
+1) 감별 진단 (위험 가능성 높은 순, 1~4위만)
+각 항목 포함: 해당 증상과 질환의 병태생리적 연결 근거 1~2문장, 응급 가능성 여부, 보호자가 즉시 확인할 수 있는 관찰 포인트.
+
+2) 즉시 병원 내원 기준 (행동 기준으로 명확히)
+예: 안정 시 호흡수 분당 40회 이상, 입 벌리고 호흡, 잇몸 창백/회색, 의식 저하. 추상적 표현 금지.
+
+3) 감별을 좁히기 위한 핵심 추가 질문 (최대 5개)
+실제 감별에 영향 주는 질문만. 일반 질문 금지.
+
+4) 이어갈 수 있는 추천 질문 카테고리 (최소 2개 이상)
+보호자가 대화를 이어가며 감별을 좁히거나 응급 여부를 판단할 수 있도록, "이렇게 물어보면 좋아요" 형태의 구체적인 query를 제안하세요. 약물·처방 관련 질문은 넣지 마세요.
+
+위 1~4 내용을 본문에 **굵은 소제목**과 • 목록으로 서술한 뒤, 반드시 마지막에 아래 JSON 블록만 한 번 출력하세요. JSON 외 다른 텍스트를 JSON 뒤에 쓰지 마세요.
+
+```json
+{
+  "differential": [
+    { "rank": 1, "name": "질환명", "reason": "병태생리 근거 1~2문장", "emergency": true/false, "home_check": "보호자 관찰 포인트" },
+    { "rank": 2, "name": "", "reason": "", "emergency": false, "home_check": "" },
+    { "rank": 3, "name": "", "reason": "", "emergency": false, "home_check": "" },
+    { "rank": 4, "name": "", "reason": "", "emergency": false, "home_check": "" }
+  ],
+  "emergency_criteria": ["행동 기준 1", "행동 기준 2"],
+  "key_questions": ["감별에 필요한 질문 1", "질문 2"],
+  "recommended_categories": [
+    { "label": "카테고리 라벨", "query": "사용자가 바로 물어볼 수 있는 질문 문장" },
+    { "label": "...", "query": "..." }
+  ]
+}
+```
+
+- differential은 1~4개만. rank는 1,2,3,4만 사용. emergency는 반드시 true 또는 false.
+- recommended_categories는 최소 2개 이상.
+- 답변 마지막 한 문장: 정확한 판단은 의료·수의 전문가에게 확인하세요."""
+
+# 약물·처방 언급 제거용 패턴 (한 줄이 이 키워드 위주면 해당 줄 제거)
+_MEDICATION_LINE_PATTERN = re.compile(
+    r"(?:약\s*(?:물|이름|을|을\s*먹|복용|투여)|처방|복용|투여|경구|주사|정제|캡슐|mg\s*이상|mL\s*이상|용량|내복|외용)"
+)
+
+
+def _strip_medication_mentions(text: str) -> str:
+    """약물·처방 관련 문장이 포함된 줄을 제거. JSON 블록 앞 본문만 처리."""
+    if not text or not text.strip():
+        return text
+    # ```json 이전 부분만 처리 (JSON 블록은 그대로 유지)
+    parts = re.split(r"(\s*```(?:json)?\s*[\s\S]*?\s*```\s*)", text, maxsplit=1)
+    narrative = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    lines = narrative.split("\n")
+    kept = []
+    for line in lines:
+        strip_line = line.strip()
+        if not strip_line:
+            if kept:
+                kept.append(line)
+            continue
+        if _MEDICATION_LINE_PATTERN.search(strip_line):
+            continue
+        kept.append(line)
+    result = "\n".join(kept).strip()
+    if rest:
+        result = result + "\n" + rest
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+def _extract_health_structured(raw: str) -> Any | None:
+    """응답 텍스트에서 ```json ... ``` 블록을 찾아 HealthChatStructured로 파싱. 실패 시 None."""
+    import json
+    from app.schemas.health_chat_schema import HealthChatStructured
+
+    if not raw or not raw.strip():
+        return None
+    # ```json ... ``` 또는 ``` ... ```
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(1).strip())
+        obj = HealthChatStructured(**data)
+        # 1~4 순위만 허용: differential 개수 4 초과 시 에러
+        if len(obj.differential) > 4:
+            return None
+        return obj
+    except Exception:
+        return None
 
 
 async def complete_chat(messages: list[dict[str, str]], max_tokens: int = 512, temperature: float = 0.7) -> str | None:
@@ -775,22 +876,26 @@ async def complete_health_chat(
     messages: list[dict[str, str]],
     max_tokens: int = 1024,
     temperature: float = 0.4,
-) -> str | None:
-    """건강 질문 도우미. 한 번만 생성. 한국어 대화면 응답에서 알파벳만 후처리로 제거."""
+) -> tuple[str | None, Any | None]:
+    """건강 질문 도우미(구조화). (본문 텍스트, HealthChatStructured | None) 반환."""
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + list(messages)
+        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + list(messages)
     else:
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_SYSTEM_PROMPT}] + [
+        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + [
             m for m in messages if (m.get("role") or "").lower() != "system"
         ]
     result = await complete(msgs, max_tokens=max_tokens, temperature=temperature)
     if not result:
-        return result
+        return (result, None)
     if _last_user_content_has_hangul(msgs):
         result = _strip_alphabet(result)
         if result:
             result = _dedupe_and_fix_disclaimer(result)
-    return result
+    result = _strip_medication_mentions(result)
+    structured = _extract_health_structured(result)
+    if structured is not None:
+        result = re.sub(r"\s*```(?:json)?\s*[\s\S]*?\s*```\s*$", "", result).strip() or result
+    return (result, structured)
 
 
 async def suggest_prompt_for_style(style_key: str, user_hint: str | None = None) -> str | None:
