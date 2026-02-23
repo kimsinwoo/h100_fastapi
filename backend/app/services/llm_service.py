@@ -459,10 +459,19 @@ async def _complete_via_api(
     if settings.llm_api_key and settings.llm_api_key.strip():
         headers["Authorization"] = f"Bearer {settings.llm_api_key.strip()}"
 
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
-        r = await client.post(url, json=payload, headers=headers)
-        r.raise_for_status()
-        data = r.json()
+    try:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
+            r = await client.post(url, json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.ConnectError as e:
+        logger.warning(
+            "LLM API 연결 실패 (vLLM 서버 확인): URL=%s, 오류=%s. "
+            "같은 호스트면 http://127.0.0.1:7001/v1, 다른 Pod/호스트면 해당 주소로 LLM_API_BASE 설정.",
+            url,
+            e,
+        )
+        return None
     choices = data.get("choices") or []
     if not choices:
         return None

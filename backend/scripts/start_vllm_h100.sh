@@ -5,6 +5,7 @@
 # 중요: vLLM 기동 전 GPU를 다른 프로세스가 쓰고 있으면 CUDA OOM으로 실패합니다.
 #   nvidia-smi  로 확인 후, 다른 GPU 프로세스를 종료한 뒤 실행하세요.
 # OOM이 나면: VLLM_ENFORCE_EAGER=1 ./scripts/start_vllm_h100.sh (CUDA 그래프 비활성화, 느리지만 메모리 절약)
+# 기동만 빨리: VLLM_ENFORCE_EAGER=1 (CUDA 그래프 캡처 생략 → 기동 1분 내외, 추론은 약간 느림)
 # 양자화: 기본 fp8(H100 고속). fp8 오류 시 VLLM_QUANTIZATION=none ./scripts/start_vllm_h100.sh
 # mxfp4 사용하려면 vLLM을 0.15+ 로 업그레이드 후 VLLM_QUANTIZATION= 비우기
 
@@ -39,15 +40,19 @@ MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # VLLM_QUANTIZATION=fp8 (기본) | none (양자화 끔) | mxfp4 쓰려면 vLLM 업그레이드 후 비우기
 QUANTIZATION="${VLLM_QUANTIZATION:-fp8}"
 
-# Check vLLM is importable (이 단계에서 torch/vllm 로드로 수 초~수십 초 걸릴 수 있음)
-echo ">>> vLLM 설치 확인 중... (최초 1회는 10~30초 걸릴 수 있음)"
-if ! "$PYTHON" -c "import vllm" 2>/dev/null; then
-  echo "Error: vLLM is not installed. Install it in your environment, e.g.:" >&2
-  echo "  source $BACKEND_DIR/venv/bin/activate" >&2
-  echo "  pip install vllm" >&2
-  exit 1
+# vllm CLI가 있으면 설치 검사 생략(검사 시 torch/vllm 로드로 10~30초 걸림). 없을 때만 import 검사.
+if command -v vllm &>/dev/null; then
+  echo ">>> vLLM CLI 사용. 엔진 시작..."
+else
+  echo ">>> vLLM 설치 확인 중..."
+  if ! "$PYTHON" -c "import vllm" 2>/dev/null; then
+    echo "Error: vLLM is not installed. Install it in your environment, e.g.:" >&2
+    echo "  source $BACKEND_DIR/venv/bin/activate" >&2
+    echo "  pip install vllm" >&2
+    exit 1
+  fi
+  echo ">>> vLLM 확인됨. 엔진 시작..."
 fi
-echo ">>> vLLM 확인됨. 엔진 시작..."
 
 # 공통 인자 (메모리 절감: gpu-memory-utilization 0.85, max-num-seqs 64, max-model-len 32768)
 # 양자화: fp8 = H100에서 고속 추론 (vLLM 0.7.x는 mxfp4 미지원 → fp8 또는 none으로 모델 config 오버라이드)
