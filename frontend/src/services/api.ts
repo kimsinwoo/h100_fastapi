@@ -161,15 +161,22 @@ export async function suggestPrompt(style: string, userHint?: string | null): Pr
 
 // ---------- LoRA 학습 데이터 ----------
 
-export async function getTrainingItems(): Promise<TrainingItem[]> {
-  const { data } = await api.get<TrainingItem[]>("/api/training/items");
+export async function getTrainingItems(category?: string | null): Promise<TrainingItem[]> {
+  const params = category ? { category } : {};
+  const { data } = await api.get<TrainingItem[]>("/api/training/items", { params });
   return data;
 }
 
-export async function addTrainingItem(file: File, caption: string): Promise<TrainingItem> {
+export async function getTrainingCategories(): Promise<string[]> {
+  const { data } = await api.get<string[]>("/api/training/categories");
+  return data;
+}
+
+export async function addTrainingItem(file: File, caption: string, category?: string): Promise<TrainingItem> {
   const form = new FormData();
   form.append("file", file);
   form.append("caption", caption);
+  form.append("category", category ?? "");
   const { data } = await api.post<TrainingItem>("/api/training/items", form, {
     headers: { "Content-Type": "multipart/form-data" },
   });
@@ -181,12 +188,28 @@ export async function updateTrainingCaption(itemId: string, caption: string): Pr
   return data;
 }
 
+export async function updateTrainingItem(
+  itemId: string,
+  updates: { caption?: string; category?: string }
+): Promise<TrainingItem> {
+  const { data } = await api.patch<TrainingItem>(`/api/training/items/${itemId}`, updates);
+  return data;
+}
+
 export async function deleteTrainingItem(itemId: string): Promise<void> {
   await api.delete(`/api/training/items/${itemId}`);
 }
 
-export async function startTraining(): Promise<{ status: string; message?: string; error?: string }> {
-  const { data } = await api.post<{ status: string; message?: string; error?: string }>("/api/training/start");
+export async function startTraining(category?: string | null): Promise<{
+  status: string;
+  message?: string;
+  error?: string;
+}> {
+  const body = category ? { category } : {};
+  const { data } = await api.post<{ status: string; message?: string; error?: string }>(
+    "/api/training/start",
+    body
+  );
   return data;
 }
 

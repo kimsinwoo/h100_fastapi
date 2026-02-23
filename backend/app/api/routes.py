@@ -19,8 +19,10 @@ from app.services.training_store import (
     add_item as training_add_item,
     delete_item as training_delete_item,
     get_image_path as training_get_image_path,
+    list_categories as training_list_categories,
     list_items as training_list_items,
     update_caption as training_update_caption,
+    update_item as training_update_item,
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
 
@@ -291,10 +293,18 @@ def _training_item_with_url(item: dict) -> dict:
 
 
 @router.get("/training/items")
-async def training_list() -> list[dict]:
-    """학습용 데이터 목록 (이미지 URL 포함)."""
-    items = training_list_items()
+async def training_list(
+    category: str | None = None,
+) -> list[dict]:
+    """학습용 데이터 목록 (이미지 URL 포함). category 쿼리로 필터 가능."""
+    items = training_list_items(category=category)
     return [_training_item_with_url(it) for it in items]
+
+
+@router.get("/training/categories")
+async def training_categories() -> list[str]:
+    """학습 데이터에 사용 중인 카테고리 목록."""
+    return training_list_categories()
 
 
 @router.post("/training/items")
@@ -302,8 +312,9 @@ async def training_add(
     request: Request,
     file: Annotated[UploadFile, File(description="학습용 이미지")],
     caption: Annotated[str, Form(description="프롬프트 라벨")] = "",
+    category: Annotated[str, Form(description="카테고리 (예: 픽셀아트, anime)")] = "",
 ) -> dict:
-    """학습 데이터 1건 추가 (이미지 + 캡션)."""
+    """학습 데이터 1건 추가 (이미지 + 캡션 + 카테고리)."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Image file required")
     content = await file.read()
@@ -312,18 +323,22 @@ async def training_add(
     settings = get_settings()
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
-    item = training_add_item(content, caption)
+    item = training_add_item(content, caption, category=category)
     return _training_item_with_url(item)
 
 
 @router.patch("/training/items/{item_id}")
-async def training_update_caption_route(
+async def training_update_item_route(
     item_id: str,
     body: Annotated[dict, Body()] = None,
 ) -> dict | None:
-    """학습 항목의 캡션(프롬프트)만 수정. body: { \"caption\": \"...\" }"""
-    caption = (body or {}).get("caption", "")
-    updated = training_update_caption(item_id, caption)
+    """학습 항목의 캡션·카테고리 수정. body: { \"caption\": \"...\", \"category\": \"...\" }"""
+    body = body or {}
+    caption = body.get("caption") if "caption" in body else None
+    category = body.get("category") if "category" in body else None
+    if caption is None and category is None:
+        raise HTTPException(status_code=400, detail="caption or category required")
+    updated = training_update_item(item_id, caption=caption, category=category)
     if updated is None:
         raise HTTPException(status_code=404, detail="Item not found")
     return _training_item_with_url(updated)
@@ -347,11 +362,16 @@ async def training_serve_image(filename: str) -> FileResponse:
 
 
 @router.post("/training/start")
-async def training_start() -> dict:
-    """LoRA 학습 시작 (백그라운드). 데이터가 없으면 400."""
+async def training_start(
+    body: Annotated[dict, Body()] = None,
+) -> dict:
+    """LoRA 학습 시작 (백그라운드). body: { \"category\": \"픽셀아트\" } — 해당 카테고리만 학습. 생략 시 전체."""
     from app.services.training_runner import start_lora_training
 
-    result = start_lora_training()
+    category = (body or {}).get("category") if body else None
+    if isinstance(category, str) and not category.strip():
+        category = None
+    result = start_lora_training(category=category)
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
     return result

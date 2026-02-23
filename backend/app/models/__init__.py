@@ -1,15 +1,15 @@
-from app.models.image_prompt_expert import ImagePromptExpert
-from app.models.style_presets import (
-    STYLE_PRESETS,
-    get_style_prompt,
-    get_style_negative_prompt,
-    merge_prompt,
+from app.models.style_router import (
+    ANIMAGINE_XL,
+    DEFAULT_MODEL,
+    SDXL_BASE,
+    get_model_key_for_style,
+    list_styles,
 )
 
 __all__ = [
-    "ImagePromptExpert",
-    "STYLE_PRESETS",
-    "get_style_prompt",
-    "get_style_negative_prompt",
-    "merge_prompt",
+    "ANIMAGINE_XL",
+    "DEFAULT_MODEL",
+    "SDXL_BASE",
+    "get_model_key_for_style",
+    "list_styles",
 ]

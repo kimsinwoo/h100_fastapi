@@ -1,0 +1,28 @@
+# SDXL Image Service — production. Python 3.10+
+# Commercial-safe: Stability AI SDXL 1.0, Animagine XL (Cagliostro Lab)
+
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Image generation
+diffusers>=0.30.0
+transformers>=4.38.0
+accelerate>=0.27.0
+safetensors>=0.4.0
+torch>=2.2.0
+torchvision>=0.17.0
+
+# LoRA training
+peft>=0.10.0
+datasets>=2.18.0
+
+# Optional: xformers for memory-efficient attention (Linux/CUDA)
+# xformers>=0.0.26
+
+# Utils
+Pillow>=10.0.0
+numpy>=1.24.0
+tqdm>=4.66.0

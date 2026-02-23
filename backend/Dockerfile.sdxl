@@ -1,0 +1,25 @@
+# SDXL Image Service — CUDA-optimized. Build: docker build -f Dockerfile.sdxl -t sdxl-service .
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv python3-pip \
+    libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements_sdxl.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ app/
+COPY scripts/ scripts/
+
+ENV HF_HOME=/app/.cache/huggingface
+ENV TORCH_DTYPE=bfloat16
+ENV ENABLE_TF32=true
+
+EXPOSE 7000
+CMD ["uvicorn", "app.main_sdxl:app", "--host", "0.0.0.0", "--port", "7000"]

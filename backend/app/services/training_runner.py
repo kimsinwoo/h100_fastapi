@@ -12,12 +12,14 @@ import sys
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.services.training_store import _get_images_dir, _load_metadata
+from app.services.training_store import _get_images_dir, _load_metadata, list_items as training_list_items
 
 logger = logging.getLogger(__name__)
 
 # 학습 실행 중 여부 (단일 프로세스 기준)
 _training_running = False
+# 현재 학습에 사용할 카테고리 (start_lora_training에서 설정, _run_lora_script_sync에서 env로 전달)
+_training_category: str | None = None
 
 
 def _run_lora_script_sync() -> tuple[bool, str]:
@@ -25,13 +27,9 @@ def _run_lora_script_sync() -> tuple[bool, str]:
     학습 데이터를 준비하고 LoRA 학습 스크립트 실행.
     반환: (성공 여부, 메시지)
     """
-    global _training_running
+    global _training_running, _training_category
     if _training_running:
         return False, "이미 학습이 실행 중입니다."
-
-    items = _load_metadata()
-    if not items:
-        return False, "학습 데이터가 없습니다. 이미지와 캡션을 먼저 추가하세요."
 
     images_dir = _get_images_dir()
     settings = get_settings()
@@ -64,6 +62,7 @@ def _run_lora_script_sync() -> tuple[bool, str]:
     env["TRAINING_DATA_DIR"] = str(training_dir)
     env["TRAINING_IMAGES_DIR"] = str(images_dir)
     env["TRAINING_DATASET_JSON"] = str(training_dir / "dataset.json")
+    env["TRAINING_CATEGORY"] = (_training_category or "").strip()
 
     try:
         _training_running = True
@@ -93,14 +92,19 @@ def _run_lora_script_sync() -> tuple[bool, str]:
         _training_running = False
 
 
-def start_lora_training() -> dict:
+def start_lora_training(category: str | None = None) -> dict:
     """
     학습 데이터 확인 후 백그라운드에서 LoRA 학습 시작.
+    category가 있으면 해당 카테고리 항목만 학습. 없으면 전체.
     반환: { "status": "started" | "failed", "message": "...", "error": "..." (실패 시) }
     """
-    items = _load_metadata()
+    global _training_category
+    _training_category = (category or "").strip() or None
+    items = training_list_items(category=_training_category) if _training_category else _load_metadata()
     if not items:
-        return {"status": "failed", "message": "학습 데이터가 없습니다.", "error": "No training data"}
+        if _training_category:
+            return {"status": "failed", "message": f"카테고리 '{_training_category}'에 해당하는 학습 데이터가 없습니다.", "error": "No data for category"}
+        return {"status": "failed", "message": "학습 데이터가 없습니다. 이미지와 캡션을 먼저 추가하세요.", "error": "No training data"}
 
     # 백그라운드에서 실행 (비동기로 기다리지 않음)
     loop = asyncio.get_event_loop()

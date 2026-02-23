@@ -30,5 +30,6 @@ export interface TrainingItem {
   image_filename: string;
   image_url: string;
   caption: string;
+  category?: string;
   created_at?: string;
 }

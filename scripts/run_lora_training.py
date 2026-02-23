@@ -28,8 +28,14 @@ def main() -> int:
     with open(dataset_json, "r", encoding="utf-8") as f:
         items = json.load(f)
 
+    # 카테고리 필터: TRAINING_CATEGORY가 있으면 해당 카테고리만 사용
+    category = (os.environ.get("TRAINING_CATEGORY") or "").strip()
+    if category:
+        items = [it for it in items if (it.get("category") or "").strip() == category]
+        print(f"Filtered by category '{category}': {len(items)} items", file=sys.stderr)
+
     if not items:
-        print("No items in dataset", file=sys.stderr)
+        print("No items in dataset" + (f" for category '{category}'" if category else ""), file=sys.stderr)
         return 1
 
     # Kohya_ss / Every Dream 2 형식: 각 이미지와 같은 이름의 .txt 에 캡션
