@@ -36,25 +36,28 @@ def main() -> int:
     prepared_dir = Path(data_dir) / "prepared_for_training"
     prepared_dir.mkdir(parents=True, exist_ok=True)
     images_path = Path(images_dir)
+    copied = 0
 
     for i, it in enumerate(items):
         fn = it.get("image_filename", "")
         caption = (it.get("caption") or "").strip() or "image"
         src = images_path / fn
         if not src.exists():
+            print(f"Warning: image not found: {src}", file=sys.stderr)
             continue
-        # 파일명 충돌 방지: index_originalname
         stem = f"{i}_{Path(fn).stem}"
         dest_img = prepared_dir / f"{stem}.png"
         dest_txt = prepared_dir / f"{stem}.txt"
         shutil.copy2(src, dest_img)
         dest_txt.write_text(caption, encoding="utf-8")
+        copied += 1
 
-    print(f"Prepared {len(items)} images + captions at: {prepared_dir}")
+    if copied == 0:
+        print("No images could be copied (files missing?).", file=sys.stderr)
+        return 1
 
-    # 실제 LoRA 학습 호출 (선택)
-    # - kohya_ss: subprocess.run(["python", "train_network.py", ...])
-    # - diffusers: from diffusers import ... ; trainer.train()
+    print(f"Prepared {copied} images + captions at: {prepared_dir}")
+
     success = _run_training(str(prepared_dir), data_dir)
     return 0 if success else 1
 
@@ -62,11 +65,27 @@ def main() -> int:
 def _run_training(prepared_dir: str, data_dir: str) -> bool:
     """
     LoRA 학습 실행.
-    현재는 플레이스홀더: prepared 디렉터리만 만들어 두고,
-    여기에 Kohya_ss / diffusers 학습 코드를 연동하면 됩니다.
+    - LORA_TRAIN_CMD 환경변수가 있으면 해당 명령 실행 (PREPARED_DIR, TRAINING_DATA_DIR 전달).
+    - 없으면 준비만 완료로 간주하고 True 반환 (Kohya_ss 등으로 수동 학습 가능).
     """
-    print("LoRA training step: placeholder. To run real training, edit scripts/run_lora_training.py and call your trainer (e.g. Kohya_ss train_network.py).")
-    print("Prepared dataset is at:", prepared_dir)
+    import subprocess
+    cmd = os.environ.get("LORA_TRAIN_CMD", "").strip()
+    if cmd:
+        env = os.environ.copy()
+        env["PREPARED_DIR"] = prepared_dir
+        env["TRAINING_DATA_DIR"] = data_dir
+        try:
+            ret = subprocess.run(cmd, shell=True, env=env, cwd=data_dir)
+            if ret.returncode != 0:
+                print("LoRA train command failed with code", ret.returncode, file=sys.stderr)
+                return False
+        except Exception as e:
+            print("LoRA train command error:", e, file=sys.stderr)
+            return False
+        print("LoRA training command finished successfully.")
+        return True
+    print("Prepared dataset at:", prepared_dir)
+    print("To run real training, set LORA_TRAIN_CMD (e.g. Kohya_ss train_network.py) or run your trainer manually.")
     return True
 
 

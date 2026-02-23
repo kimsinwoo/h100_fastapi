@@ -72,7 +72,19 @@ def _load_pipeline_sync():
     global _pipeline, _device
 
     import torch
-    from diffusers import ZImageImg2ImgPipeline
+
+    try:
+        from diffusers import ZImageImg2ImgPipeline
+    except ImportError as e:
+        logger.error(
+            "ZImageImg2ImgPipeline not found. Z-Image-Turbo requires diffusers from git: "
+            "pip install git+https://github.com/huggingface/diffusers.git -U (error: %s)",
+            e,
+        )
+        raise RuntimeError(
+            "Z-Image-Turbo 파이프라인을 불러올 수 없습니다. "
+            "diffusers 최신 버전이 필요합니다: pip install git+https://github.com/huggingface/diffusers.git -U"
+        ) from e
 
     settings = get_settings()
     _device = _resolve_device()
@@ -82,12 +94,19 @@ def _load_pipeline_sync():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
-        pipe = ZImageImg2ImgPipeline.from_pretrained(
-            settings.model_id,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-        )
-        # Z-Image 전용 스케줄러 유지 (UniPCMultistepScheduler 교체 시 set_timesteps AssertionError 발생)
+        try:
+            pipe = ZImageImg2ImgPipeline.from_pretrained(
+                settings.model_id,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+            )
+        except Exception as e:
+            logger.exception("Failed to load model %s: %s", settings.model_id, e)
+            raise RuntimeError(
+                f"모델 로드 실패: {settings.model_id}. "
+                "인터넷 연결·Hugging Face 접근·디스크 공간을 확인하세요. "
+                "diffusers는 pip install git+https://github.com/huggingface/diffusers.git 로 설치 권장."
+            ) from e
 
         for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
             method = getattr(pipe, method_name, None)
@@ -98,7 +117,6 @@ def _load_pipeline_sync():
                     pass
 
         pipe = pipe.to(_device)
-        # VAE는 파이프라인과 동일 dtype 유지 (float32로 바꾸면 Half/float 불일치로 오류)
 
     logger.info(
         "Pipeline loaded on %s (dtype=%s)",
@@ -220,7 +238,8 @@ async def run_image_to_image(
     )
     prompt = compiled["final_prompt"]
     prompt += (
-        ", preserve original composition, same layout and pose, keep subject arrangement, "
+        ", high detail, sharp focus, preserve fine details and texture, "
+        "preserve original composition, same layout and pose, keep subject arrangement, "
         "same subject(s) as reference image, same number of figures or animals, do not change to human or one character"
     )
     negative_prompt = compiled["negative_prompt"]

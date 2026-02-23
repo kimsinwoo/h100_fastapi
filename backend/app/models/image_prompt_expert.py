@@ -169,7 +169,7 @@ class ImagePromptExpert:
             )
 
         final_positive = pos_template.format(subject=content_emphasized)
-        final_positive += f", masterpiece, 8k, aspect ratio {aspect_ratio}"
+        final_positive += f", masterpiece, best quality, 8k, high resolution, aspect ratio {aspect_ratio}"
 
         final_negative = f"{cls.BASE_NEGATIVE}, {neg_template}"
 

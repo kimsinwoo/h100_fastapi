@@ -36,18 +36,26 @@ def _run_lora_script_sync() -> tuple[bool, str]:
     images_dir = _get_images_dir()
     settings = get_settings()
     training_dir = settings.training_dir
-    # 스크립트 경로: backend/scripts/run_lora_training.py
     backend_dir = Path(__file__).resolve().parent.parent.parent
-    script_path = backend_dir / "scripts" / "run_lora_training.py"
+    # 프로젝트 루트 scripts/ 우선, 없으면 backend/scripts/
+    project_root = backend_dir.parent
+    script_path = project_root / "scripts" / "run_lora_training.py"
     if not script_path.exists():
-        logger.warning("LoRA script not found: %s — creating placeholder", script_path)
+        script_path = backend_dir / "scripts" / "run_lora_training.py"
+    if not script_path.exists():
+        logger.warning("LoRA script not found at %s or %s — creating minimal placeholder", project_root / "scripts" / "run_lora_training.py", backend_dir / "scripts" / "run_lora_training.py")
+        script_path = backend_dir / "scripts" / "run_lora_training.py"
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(
             "# LoRA training entrypoint\n"
-            "# Install: pip install diffusers transformers accelerate etc.\n"
-            "# Then implement with Kohya_ss or diffusers training script.\n"
-            "import sys\n"
-            "print('LoRA training script placeholder. Implement run_lora_training.py with your trainer.')\n"
+            "import os, sys\n"
+            "from pathlib import Path\n"
+            "data_dir = os.environ.get('TRAINING_DATA_DIR', '')\n"
+            "dataset_json = os.environ.get('TRAINING_DATASET_JSON', '')\n"
+            "if not dataset_json or not Path(dataset_json).exists():\n"
+            "    print('TRAINING_DATASET_JSON missing', file=sys.stderr)\n"
+            "    sys.exit(1)\n"
+            "print('Dataset at', dataset_json, '- Add scripts/run_lora_training.py for full prepare+train.')\n"
             "sys.exit(0)\n",
             encoding="utf-8",
         )
@@ -59,7 +67,7 @@ def _run_lora_script_sync() -> tuple[bool, str]:
 
     try:
         _training_running = True
-        logger.info("Starting LoRA training (subprocess)...")
+        logger.info("Starting LoRA training (subprocess): %s", script_path)
         proc = subprocess.run(
             [sys.executable, str(script_path)],
             cwd=str(backend_dir),

@@ -883,6 +883,9 @@ async def complete_health_chat(
     if structured is not None:
         narrative = re.sub(r"\s*```(?:json)?\s*[\s\S]*?\s*```\s*$", "", result).strip()
         result = narrative if narrative else "감별 진단과 관찰 포인트를 확인하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요."
+    # 구조화 실패 시에도 빈 응답 방지: 원문이 없거나 너무 짧으면 안내 문구로 대체
+    if not result or not result.strip():
+        result = "응답을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요. (감별 진단은 4순위까지, 각 항목에 이유·관찰 포인트를 2문장 이상 적어 주시면 더 잘 나옵니다.)"
     return (result, structured)
 
 

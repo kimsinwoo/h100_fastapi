@@ -253,8 +253,10 @@ async def llm_chat(
     if text is None:
         logger.warning("LLM chat returned None")
         raise HTTPException(status_code=503, detail="LLM request failed")
-    logger.info("LLM chat response length: %s chars, structured: %s", len(text) if text else 0, structured is not None)
-    out: dict = {"content": text or ""}
+    if not text.strip():
+        text = "응답을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    logger.info("LLM chat response length: %s chars, structured: %s", len(text), structured is not None)
+    out: dict = {"content": text}
     if structured is not None:
         out["structured"] = structured.model_dump()
     return out
