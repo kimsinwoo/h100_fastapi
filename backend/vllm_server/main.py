@@ -31,9 +31,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: ensure service client. Shutdown: close client, cancel in-flight."""
     settings = get_vllm_settings()
+    mode = "mock" if settings.use_mock else (settings.backend_url or "embedded")
     logger.info(
         "vLLM gateway starting: backend=%s, max_concurrent=%s",
-        settings.backend_url or "(embedded)",
+        mode,
         settings.max_concurrent_requests,
     )
     yield

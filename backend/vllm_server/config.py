@@ -31,6 +31,10 @@ class VLLMServerSettings(BaseSettings):
         default=False,
         description="If True and backend_url empty, run AsyncLLM in-process.",
     )
+    use_mock: bool = Field(
+        default=False,
+        description="If True, return mock completions without calling vLLM (for testing without GPU/vLLM).",
+    )
 
     # Model (for embedded engine)
     model_id: str = Field(default="openai/gpt-oss-20b", description="Hugging Face model ID.")
@@ -57,7 +61,7 @@ class VLLMServerSettings(BaseSettings):
 
     # Server (vLLM gateway only; main app uses app.core.config port 7000)
     host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000, ge=1, le=65535)
+    port: int = Field(default=7001, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO")
 
     # Embedded engine (H100-optimized)

@@ -6,6 +6,38 @@
 
 ---
 
+## 0. vLLM 엔진 없이 테스트 (Mock 모드)
+
+**GPU·vLLM 설치 없이** `vllm_server` 게이트웨이만 띄워서 API 흐름을 검증할 수 있습니다.  
+채팅 요청 시 실제 추론 대신 Mock 응답이 반환됩니다.
+
+```bash
+cd zimage_webapp/backend
+source venv/bin/activate
+export VLLM_USE_MOCK=1
+python run_vllm_gateway.py
+```
+
+또는 스크립트로 (기본 포트 7001):
+
+```bash
+cd zimage_webapp/backend
+source venv/bin/activate
+bash scripts/run_vllm_gateway_mock.sh
+```
+
+**동작 검증** (다른 터미널에서):
+
+```bash
+cd zimage_webapp/backend
+source venv/bin/activate
+python scripts/test_vllm_gateway_mock.py
+```
+
+성공 시 `All checks passed.` 가 출력됩니다. 게이트웨이 기본 포트는 **7001**이라 메인 앱 `LLM_API_BASE=http://127.0.0.1:7001/v1` 그대로 쓰면 됩니다.
+
+---
+
 ## 1. 한 줄 명령으로 바로 실행 (스크립트 없이, 로그 즉시 출력)
 
 backend 디렉터리로 이동한 뒤, 아래 한 줄을 **그대로 복사**해 실행합니다.

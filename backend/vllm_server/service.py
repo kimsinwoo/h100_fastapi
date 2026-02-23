@@ -16,10 +16,47 @@ from vllm_server.config import get_vllm_settings
 from vllm_server.schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChatCompletionChoice,
     ChatMessage,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _mock_completion_response(req: ChatCompletionRequest) -> ChatCompletionResponse:
+    """OpenAI 형식 mock 응답 (vLLM 없이 테스트용)."""
+    last_content = req.messages[-1].content if req.messages else ""
+    reply = f"[Mock] 요청하신 내용: {last_content[:80]}{'...' if len(last_content) > 80 else ''}"
+    return ChatCompletionResponse(
+        id="mock-cmpl-1",
+        object="chat.completion",
+        created=int(time.time()),
+        model=req.model,
+        choices=[
+            ChatCompletionChoice(
+                index=0,
+                message=ChatMessage(role="assistant", content=reply),
+                finish_reason="stop",
+            )
+        ],
+        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    )
+
+
+async def _mock_completion_stream(req: ChatCompletionRequest) -> AsyncIterator[str]:
+    """SSE 스트리밍 mock (vLLM 없이 테스트용)."""
+    import json
+    last_content = req.messages[-1].content if req.messages else ""
+    reply = f"[Mock] {last_content[:50]}{'...' if len(last_content) > 50 else ''} 에 대한 답변입니다."
+    chunk = {
+        "id": "mock-stream-1",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": req.model,
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": reply}, "finish_reason": None}],
+    }
+    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 class VLLMQueueTimeoutError(Exception):
@@ -77,7 +114,7 @@ class VLLMService:
 
     async def chat_completion(self, req: ChatCompletionRequest) -> ChatCompletionResponse:
         """
-        Non-streaming completion. Acquires semaphore with queue timeout, then POST to vLLM.
+        Non-streaming completion. Acquires semaphore with queue timeout, then POST to vLLM (or mock).
         """
         settings = get_vllm_settings()
         sem = self._get_semaphore()
@@ -91,6 +128,9 @@ class VLLMService:
                 f"서버가 바쁩니다. {int(settings.queue_wait_timeout_seconds)}초 후 다시 시도해 주세요."
             )
         try:
+            if settings.use_mock:
+                logger.debug("Mock completion (no vLLM backend)")
+                return _mock_completion_response(req)
             client = self._get_client()
             body = self._build_body(req)
             start = time.perf_counter()
@@ -129,6 +169,11 @@ class VLLMService:
                 f"서버가 바쁩니다. {int(settings.queue_wait_timeout_seconds)}초 후 다시 시도해 주세요."
             )
         try:
+            if settings.use_mock:
+                logger.debug("Mock stream (no vLLM backend)")
+                async for chunk in _mock_completion_stream(req):
+                    yield chunk
+                return
             client = self._get_client()
             body = self._build_body(req)
             async with client.stream(
