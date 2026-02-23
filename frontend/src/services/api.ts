@@ -190,11 +190,19 @@ export async function startTraining(): Promise<{ status: string; message?: strin
   return data;
 }
 
+/** API 서버 기준 전체 URL (이미지 등). 상대 경로면 baseURL과 합침. */
+export function getApiResourceUrl(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
+  const base = api.defaults.baseURL ?? "";
+  if (!base) return pathOrUrl;
+  const baseClean = base.replace(/\/$/, "");
+  const path = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${baseClean}${path}`;
+}
+
 /** 학습용 이미지 전체 URL (API base + image_url). */
 export function getTrainingImageFullUrl(imageUrl: string): string {
-  if (imageUrl.startsWith("http")) return imageUrl;
-  const base = api.defaults.baseURL ?? "";
-  return base ? `${base.replace(/\/$/, "")}${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}` : imageUrl;
+  return getApiResourceUrl(imageUrl);
 }
 
 export function isApiError(error: unknown): error is AxiosError<ErrorDetail> {

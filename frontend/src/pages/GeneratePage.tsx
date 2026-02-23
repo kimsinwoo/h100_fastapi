@@ -4,7 +4,7 @@ import { ImageUploader } from "../components/ImageUploader";
 import { LoadingOverlay } from "../components/LoadingSpinner";
 import { ResultViewer } from "../components/ResultViewer";
 import { StyleSelector } from "../components/StyleSelector";
-import { generateImage, getHealth, getLlmStatus, getErrorMessage, suggestPrompt } from "../services/api";
+import { generateImage, getHealth, getLlmStatus, getErrorMessage, suggestPrompt, getApiResourceUrl } from "../services/api";
 import type { GenerateResponse } from "../types/api";
 
 type AppState =
@@ -63,8 +63,7 @@ export default function GeneratePage() {
 
   const handleDownload = useCallback(() => {
     if (state.phase !== "success") return;
-    const url = state.data.generated_url;
-    const fullUrl = url.startsWith("http") ? url : `${window.location.origin}${url}`;
+    const fullUrl = getApiResourceUrl(state.data.generated_url);
     fetch(fullUrl)
       .then((r) => r.blob())
       .then((blob) => {
@@ -132,7 +131,7 @@ export default function GeneratePage() {
                   disabled={suggesting || isProcessing}
                   className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {suggesting ? "추천 중…" : "AI 프롬프트 추천"}
+                  {suggesting ? "작성중...🤔" : "AI 프롬프트 추천"}
                 </button>
               )}
             </div>
@@ -181,16 +180,8 @@ export default function GeneratePage() {
             <section className="border-t border-gray-200 pt-6">
               <h2 className="mb-4 text-sm font-semibold text-gray-700">Result</h2>
               <ResultViewer
-                originalUrl={
-                  state.data.original_url.startsWith("http")
-                    ? state.data.original_url
-                    : `${window.location.origin}${state.data.original_url}`
-                }
-                generatedUrl={
-                  state.data.generated_url.startsWith("http")
-                    ? state.data.generated_url
-                    : `${window.location.origin}${state.data.generated_url}`
-                }
+                originalUrl={getApiResourceUrl(state.data.original_url)}
+                generatedUrl={getApiResourceUrl(state.data.generated_url)}
                 processingTime={state.data.processing_time}
                 onDownload={handleDownload}
               />
