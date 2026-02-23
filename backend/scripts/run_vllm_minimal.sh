@@ -18,7 +18,6 @@ if command -v vllm &>/dev/null; then
     --max-num-seqs 64 \
     --max-model-len 32768 \
     --dtype bfloat16 \
-    --quantization none \
     --trust-remote-code \
     --enforce-eager \
     "$@"
@@ -32,7 +31,6 @@ else
     --max-num-seqs 64 \
     --max-model-len 32768 \
     --dtype bfloat16 \
-    --quantization none \
     --trust-remote-code \
     --enforce-eager \
     "$@"

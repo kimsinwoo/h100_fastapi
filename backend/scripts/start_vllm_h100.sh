@@ -36,8 +36,8 @@ ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
 GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-64}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
-# 양자화: H100에서 fp8=빠른 속도. 모델 기본값 mxfp4는 vLLM 0.15+ 필요. 0.7.x에서는 fp8 또는 none.
-# VLLM_QUANTIZATION=fp8 (기본) | none (양자화 끔) | mxfp4 쓰려면 vLLM 업그레이드 후 비우기
+# 양자화: H100에서 fp8=빠른 속도. vLLM 0.7.x는 --quantization none 미지원 → fp8만 전달하거나 인자 생략.
+# VLLM_QUANTIZATION=fp8 (기본) | 비우면 --quantization 미전달 (모델 기본값 사용, mxfp4 오류 시 vLLM 0.15+ 업그레이드)
 QUANTIZATION="${VLLM_QUANTIZATION:-fp8}"
 
 # vllm CLI가 있으면 설치 검사 생략(검사 시 torch/vllm 로드로 10~30초 걸림). 없을 때만 import 검사.
@@ -64,12 +64,13 @@ VLLM_EXTRA=(
   --max-model-len "$MAX_MODEL_LEN"
   --tensor-parallel-size 1
   --dtype bfloat16
-  --quantization "$QUANTIZATION"
   --trust-remote-code
 )
+# vLLM 0.7.x는 --quantization none 미지원. none/비어있으면 인자 생략.
+[ -n "$QUANTIZATION" ] && [ "$QUANTIZATION" != "none" ] && VLLM_EXTRA+=( --quantization "$QUANTIZATION" )
 [ "$ENFORCE_EAGER" = "1" ] && VLLM_EXTRA+=( --enforce-eager )
 
-echo ">>> 양자화: $QUANTIZATION (속도 향상 목적)"
+echo ">>> 양자화: ${QUANTIZATION:-미전달(모델 기본)}"
 
 # Python/vLLM 로그가 버퍼 없이 바로 콘솔에 나오도록
 export PYTHONUNBUFFERED=1

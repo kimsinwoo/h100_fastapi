@@ -5,12 +5,12 @@
 아래를 **그대로 복사**해 터미널에서 실행하면 vLLM이 바로 뜨고 로그가 즉시 찍힙니다.
 
 ```bash
-cd ~/project/h100_fastapi/backend && source venv/bin/activate && PYTHONUNBUFFERED=1 vllm serve openai/gpt-oss-20b --port 7001 --host 0.0.0.0 --gpu-memory-utilization 0.85 --max-num-seqs 64 --max-model-len 32768 --dtype bfloat16 --quantization none --trust-remote-code --enforce-eager
+cd ~/project/h100_fastapi/backend && source venv/bin/activate && PYTHONUNBUFFERED=1 vllm serve openai/gpt-oss-20b --port 7001 --host 0.0.0.0 --gpu-memory-utilization 0.85 --max-num-seqs 64 --max-model-len 32768 --dtype bfloat16 --trust-remote-code --enforce-eager
 ```
 
 - **같은 머신에서**: `cd` 경로만 실제 backend 경로로 바꾸면 됩니다.
 - **기동만 빨리**: `--enforce-eager` 포함되어 있어 CUDA 그래프 캡처 없이 기동합니다.
-- **양자화**: `--quantization none` (fp8 오류 나면 이렇게 실행).
+- **mxfp4 오류** 나면: `pip install -U "vllm>=0.15"` 후 다시 실행.
 
 ## 2. 최소 스크립트로 실행
 
