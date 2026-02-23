@@ -36,7 +36,7 @@ MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel art": (0.36, 0.46),      # 매우 낮게 유지해야 순수 2D 스프라이트만 나옴
+    "pixel art": (0.23, 0.38),      # 매우 낮게 유지해야 순수 2D 스프라이트만 나옴
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -53,7 +53,7 @@ STRENGTH_GLOBAL_MAX = 0.58
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
     ", voxel art, 3D pixel art, blocky 3D, Minecraft style, lego style, "
-    "sweater made of blocks, dog made of cubes, volumetric blocks, 2.5D"
+    "sweater made of blocks, dog made of cubes, volumetric blocks, 2.5D, only 2D image and picture"
 )
 
 # 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
