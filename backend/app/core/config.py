@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     training_dir_name: str = Field(default="data/training")
     lora_adapters_dir: str = Field(default="data/lora", description="LoRA safetensors")
 
+    # Z-Image-Turbo (Hugging Face에서 다운로드 후 로컬에서 추론)
+    model_id: str = Field(
+        default="Tongyi-MAI/Z-Image-Turbo",
+        description="Hugging Face model ID for Z-Image img2img (로컬에서 실행)",
+    )
     # SDXL models (commercial-safe: Stability AI SDXL 1.0, Animagine XL)
     sdxl_base_id: str = Field(default="stabilityai/stable-diffusion-xl-base-1.0")
     animagine_xl_id: str = Field(default="cagliostrolab/animagine-xl-3.0")

@@ -34,11 +34,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/** FormData 전용: Content-Type 미설정 → multipart/form-data; boundary= 자동 설정 (422 방지) */
+const uploadApi = axios.create({
+  baseURL: api.defaults.baseURL ?? "/",
+  timeout: 120_000,
+});
+
 export async function generateImage(
   file: File,
   style: string,
   customPrompt: string | null,
-  strength: number | null,  
+  strength: number | null,
   seed: number | null
 ): Promise<GenerateResponse> {
   const form = new FormData();
@@ -53,7 +59,7 @@ export async function generateImage(
   if (seed !== null) {
     form.append("seed", String(seed));
   }
-  const { data } = await api.post<GenerateResponse>("/api/generate", form);
+  const { data } = await uploadApi.post<GenerateResponse>("/api/generate", form);
   return data;
 }
 

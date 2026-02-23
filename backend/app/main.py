@@ -176,9 +176,15 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
-        """422 검증 실패 시 원인 로그 (필드명/타입 등)."""
-        logger.warning("422 Unprocessable Entity: %s", exc.errors())
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """422 검증 실패 시 원인 로그 (Content-Type·필드별 오류)."""
+        ct = request.headers.get("content-type", "")
+        logger.info(
+            "422 Unprocessable Entity path=%s content_type=%s detail=%s",
+            request.url.path,
+            ct,
+            exc.errors(),
+        )
         return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     @app.get("/health")
