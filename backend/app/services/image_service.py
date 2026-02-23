@@ -5,6 +5,11 @@ Optimized for quality, stability, and commercial deployment
 
 from __future__ import annotations
 
+# Z-Image 파이프라인 import 시 JITCallable._set_src() 오류 방지 (PyTorch JIT/compile 호환성)
+import os
+os.environ.setdefault("PYTORCH_JIT", "0")
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+
 import asyncio
 import io
 import logging
@@ -71,11 +76,30 @@ def _resolve_device():
 def _load_pipeline_sync():
     global _pipeline, _device
 
+    import os
+    # JITCallable._set_src() 호환성 오류 방지: diffusers Z-Image 로드 전에 JIT/compile 비활성화
+    os.environ.setdefault("PYTORCH_JIT", "0")
+    os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+
     import torch
+    # torch.compile 사용 시 일부 환경에서 JIT 오류 발생 가능 → 비활성화
+    if getattr(torch, "_dynamo", None) and getattr(torch._dynamo, "config", None):
+        try:
+            torch._dynamo.config.suppress_errors = True
+        except Exception:
+            pass
 
     try:
         from diffusers import ZImageImg2ImgPipeline
     except ImportError as e:
+        err_msg = str(e)
+        if "JITCallable" in err_msg or "_set_src" in err_msg:
+            logger.exception("Z-Image pipeline import failed (JIT/torch compatibility): %s", e)
+            raise RuntimeError(
+                "Z-Image 파이프라인 로드 중 JIT 호환 오류가 발생했습니다. "
+                "서버 시작 전에 다음 환경 변수를 설정한 뒤 다시 시도하세요: "
+                "PYTORCH_JIT=0 TORCH_COMPILE_DISABLE=1"
+            ) from e
         logger.error(
             "ZImageImg2ImgPipeline not found. Z-Image-Turbo requires diffusers from git: "
             "pip install git+https://github.com/huggingface/diffusers.git -U (error: %s)",
@@ -85,6 +109,16 @@ def _load_pipeline_sync():
             "Z-Image-Turbo 파이프라인을 불러올 수 없습니다. "
             "diffusers 최신 버전이 필요합니다: pip install git+https://github.com/huggingface/diffusers.git -U"
         ) from e
+    except Exception as e:
+        err_msg = str(e)
+        if "JITCallable" in err_msg or "_set_src" in err_msg:
+            logger.exception("Z-Image pipeline import failed (JIT/torch compatibility): %s", e)
+            raise RuntimeError(
+                "Z-Image 파이프라인 로드 중 JIT 호환 오류가 발생했습니다. "
+                "서버 시작 전에 다음 환경 변수를 설정한 뒤 다시 시도하세요: "
+                "PYTORCH_JIT=0 TORCH_COMPILE_DISABLE=1"
+            ) from e
+        raise
 
     settings = get_settings()
     _device = _resolve_device()
