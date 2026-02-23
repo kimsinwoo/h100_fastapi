@@ -4,8 +4,27 @@ SDXL Image Service — production FastAPI. H100-optimized, LoRA, txt2img/img2img
 
 from __future__ import annotations
 
+import os
 import logging
 from pathlib import Path
+
+# xformers + Triton/PyTorch 2.9 호환 오류(JITCallable._set_src) 방지: 실제 xformers 로드 차단
+os.environ.setdefault("PYTORCH_JIT", "0")
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+import sys
+from types import ModuleType
+
+
+class _XformersOpsFake(ModuleType):
+    def __getattr__(self, name):
+        raise ImportError("xformers disabled for Triton/PyTorch compatibility (JITCallable._set_src)")
+
+
+_xops = _XformersOpsFake("xformers.ops")
+_xformers = ModuleType("xformers")
+_xformers.ops = _xops
+sys.modules["xformers"] = _xformers
+sys.modules["xformers.ops"] = _xops
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

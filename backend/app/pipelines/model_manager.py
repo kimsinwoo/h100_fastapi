@@ -4,9 +4,19 @@ Lazy-loading, thread-safe model manager. Caches SDXL and Animagine XL pipelines.
 
 from __future__ import annotations
 
+import os
 import logging
 import threading
 from typing import TYPE_CHECKING
+
+# diffusers import 전에 xformers 비활성화 (JITCallable._set_src / Triton 버전 호환)
+os.environ.setdefault("PYTORCH_JIT", "0")
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+try:
+    import diffusers.utils.import_utils as _du
+    _du.is_xformers_available = lambda: False
+except Exception:
+    pass
 
 from app.core.config import get_settings
 from app.models.style_router import ANIMAGINE_XL, SDXL_BASE
