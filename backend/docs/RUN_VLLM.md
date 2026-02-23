@@ -16,6 +16,7 @@
 | `VLLM_MAX_MODEL_LEN` | 32768 | 최대 컨텍스트 길이 |
 | `VLLM_ENFORCE_EAGER` | 0 | 1이면 CUDA 그래프 비활성화(메모리 절약, 기동 빠름) |
 | `VLLM_TENSOR_PARALLEL_SIZE` | 1 | 2-GPU NVL이면 2 |
+| `VLLM_QUANTIZATION` | (비움) | gpt-oss-20b는 모델이 mxfp4 → 비우면 모델 기본값 사용. vLLM 0.15+ 필요 |
 | `VLLM_PORT` | 7001 | 서버 포트 |
 
 ---
@@ -97,7 +98,22 @@ pip install -U "vllm>=0.15"
 
 `requirements-vllm.txt`에는 Triton 2.x 고정이 들어 있어, `pip install -r requirements-vllm.txt`로 재설치해도 동일하게 맞출 수 있습니다.
 
-## 4. LLM 채팅 "All connection attempts failed" 해결
+## 4. 오류 해결: `Quantization method specified in the model config (mxfp4) does not match ... (fp8)`
+
+**openai/gpt-oss-20b**는 모델 설정이 **mxfp4**라서, `--quantization fp8`을 넘기면 위 오류가 납니다.
+
+**해결:** vLLM 0.15 이상을 쓰고, **양자화 인자를 넘기지 않기** (모델 기본값 mxfp4 사용).
+
+```bash
+source venv/bin/activate
+pip install -U "vllm>=0.15"
+# VLLM_QUANTIZATION 은 설정하지 않음(비움). 그다음 스크립트 실행
+./scripts/start_vllm_h100.sh
+```
+
+스크립트 기본값은 이제 `VLLM_QUANTIZATION`을 비워 두어 `--quantization`을 전달하지 않습니다. vLLM 0.15+에서만 mxfp4가 지원되므로, 0.7.x 환경이라면 반드시 위처럼 업그레이드한 뒤 실행하세요.
+
+## 5. LLM 채팅 "All connection attempts failed" 해결
 
 이 오류는 **메인 앱이 vLLM 서버에 연결하지 못할 때** 납니다.
 

@@ -36,8 +36,9 @@ GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 TENSOR_PARALLEL="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
-# 양자화: H100에서 fp8=고속. 비우면 --quantization 미전달 (mxfp4 오류 시 vLLM 0.15+ 업그레이드)
-QUANTIZATION="${VLLM_QUANTIZATION:-fp8}"
+# openai/gpt-oss-20b는 모델 config가 mxfp4 → --quantization 전달 시 fp8과 충돌. 비우면 모델 기본값(mxfp4) 사용.
+# mxfp4는 vLLM 0.15+ 필요. 0.7.x에서는 "Unknown quantization: mxfp4" 나오면 pip install -U "vllm>=0.15"
+QUANTIZATION="${VLLM_QUANTIZATION:-}"
 
 # vllm CLI가 있으면 설치 검사 생략(검사 시 torch/vllm 로드로 10~30초 걸림). 없을 때만 import 검사.
 if command -v vllm &>/dev/null; then
@@ -68,7 +69,7 @@ VLLM_EXTRA=(
 [ -n "$QUANTIZATION" ] && [ "$QUANTIZATION" != "none" ] && VLLM_EXTRA+=( --quantization "$QUANTIZATION" )
 [ "$ENFORCE_EAGER" = "1" ] && VLLM_EXTRA+=( --enforce-eager )
 
-echo ">>> 양자화: ${QUANTIZATION:-미전달(모델 기본)}"
+echo ">>> 양자화: ${QUANTIZATION:-미전달(모델 mxfp4, vLLM 0.15+ 필요)}"
 
 # Python/vLLM 로그가 버퍼 없이 바로 콘솔에 나오도록
 export PYTHONUNBUFFERED=1
