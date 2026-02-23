@@ -49,9 +49,7 @@ export async function generateImage(
   if (seed !== null) {
     form.append("seed", String(seed));
   }
-  const { data } = await api.post<GenerateResponse>("/api/generate", form, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const { data } = await api.post<GenerateResponse>("/api/generate", form);
   return data;
 }
 
