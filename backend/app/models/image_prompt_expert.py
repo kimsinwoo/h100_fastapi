@@ -168,6 +168,11 @@ class ImagePromptExpert:
     }
 
     @classmethod
+    def get_allowed_style_keys(cls) -> list[str]:
+        """API 검증·스타일 목록용 단일 소스. 이 키만 허용하면 파이프라인과 항상 일치."""
+        return sorted(cls.STYLE_POS_DB.keys())
+
+    @classmethod
     def _get_style_key(cls, style: str) -> str:
         key = style.lower().strip()
         if key in cls.STYLE_POS_DB:

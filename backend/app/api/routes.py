@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request,
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
+from app.models.image_prompt_expert import ImagePromptExpert
 from app.models.style_presets import STYLE_PRESETS
 from app.schemas.image_schema import GenerateResponse
 from app.services.image_service import run_image_to_image
@@ -58,26 +59,47 @@ def _check_rate_limit(request: Request) -> None:
         _rate_store = {k: v for k, v in _rate_store.items() if now - v[1] < settings.rate_limit_window_seconds}
 
 
+def _parse_optional_float(s: str | None) -> float | None:
+    if s is None or (isinstance(s, str) and not s.strip()):
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_optional_int(s: str | None) -> int | None:
+    if s is None or (isinstance(s, str) and not s.strip()):
+        return None
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return None
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(
     request: Request,
     file: Annotated[UploadFile, File(description="Image file to transform")],
     style: Annotated[str, Form(description="Style preset key")] = "realistic",
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
-    strength: Annotated[float | None, Form()] = None,
-    seed: Annotated[int | None, Form()] = None,
+    strength: Annotated[str | None, Form()] = None,
+    seed: Annotated[str | None, Form()] = None,
 ) -> GenerateResponse:
     """
     Upload image, run Z-Image-Turbo with selected style (and optional custom prompt).
     Returns URLs to original and generated images plus processing time.
     """
     _check_rate_limit(request)
+    strength_f: float | None = _parse_optional_float(strength)
+    seed_i: int | None = _parse_optional_int(seed)
     settings = get_settings()
     style_lower = style.strip().lower()
-    if style_lower not in STYLE_PRESETS:
+    allowed = set(ImagePromptExpert.get_allowed_style_keys())
+    if style_lower not in allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid style. Allowed: {', '.join(sorted(STYLE_PRESETS.keys()))}",
+            detail=f"Invalid style. Allowed: {', '.join(sorted(allowed))}",
         )
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
@@ -102,8 +124,8 @@ async def generate(
             image_bytes=content,
             style_key=style_lower,
             custom_prompt=custom_prompt,
-            strength=strength,
-            seed=seed,
+            strength=strength_f,
+            seed=seed_i,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -126,8 +148,9 @@ async def generate(
 
 @router.get("/styles")
 async def list_styles() -> dict[str, str]:
-    """Return available style presets (key -> description)."""
-    return {k: v for k, v in STYLE_PRESETS.items()}
+    """Return available style presets (key -> description). ImagePromptExpert와 동기화된 키만 노출."""
+    allowed = ImagePromptExpert.get_allowed_style_keys()
+    return {k: STYLE_PRESETS.get(k, k) for k in allowed}
 
 
 # ---------- LLM (gpt-oss-20b) API ----------

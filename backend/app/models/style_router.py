@@ -1,5 +1,8 @@
 """
 Style-based model and scheduler routing. Extensible.
+
+현재 main.py 이미지 생성은 Z-Image-Turbo 단일 파이프라인만 사용하므로
+이 모듈은 호출되지 않음. routes_sdxl / pipelines (SDXL·Animagine 멀티 모델) 전용.
 """
 
 from __future__ import annotations

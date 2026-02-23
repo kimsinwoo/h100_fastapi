@@ -27,6 +27,10 @@ api.interceptors.request.use((config) => {
   if (config.url?.includes("/api/chat")) {
     config.headers.set("X-User-Id", getOrCreateUserId());
   }
+  // FormData 전송 시 기본 application/json 제거 → axios가 multipart/form-data; boundary=... 설정
+  if (config.data instanceof FormData && config.headers) {
+    delete (config.headers as Record<string, unknown>)["Content-Type"];
+  }
   return config;
 });
 

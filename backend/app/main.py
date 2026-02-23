@@ -24,6 +24,7 @@ from pathlib import Path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -173,6 +174,12 @@ def create_app() -> FastAPI:
 
     # API와 /health 먼저 등록 (아래 프론트엔드 마운트보다 우선)
     app.include_router(router)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+        """422 검증 실패 시 원인 로그 (필드명/타입 등)."""
+        logger.warning("422 Unprocessable Entity: %s", exc.errors())
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:

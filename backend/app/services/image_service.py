@@ -19,6 +19,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.models.image_prompt_expert import ImagePromptExpert
+from app.models.style_presets import get_style_negative_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def _resolve_device():
 
 
 # ============================================================
-# Load Pipeline
+# Load Pipeline (단일 Z-Image-Turbo. style_router는 SDXL/Animagine 멀티 모델용으로 별도 경로에서만 사용)
 # ============================================================
 
 def _load_pipeline_sync():
@@ -284,6 +285,13 @@ async def run_image_to_image(
         "same subject(s) as reference image, same number of figures or animals, do not change to human or one character"
     )
     negative_prompt = compiled["negative_prompt"]
+    # style_presets 보강: 스타일별 네거티브 추가 (ImagePromptExpert + style_presets 동시 사용)
+    try:
+        style_presets_neg = get_style_negative_prompt(style_lower)
+        if style_presets_neg:
+            negative_prompt = f"{negative_prompt}, {style_presets_neg}"
+    except Exception:
+        pass
     if "pixel" in style_lower:
         negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX
 
