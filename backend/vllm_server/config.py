@@ -19,6 +19,7 @@ class VLLMServerSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        protected_namespaces=("settings_",),
     )
 
     # Backend: use external vLLM OpenAI server (recommended) or embedded engine

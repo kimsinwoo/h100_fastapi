@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["chat"])
 
 
-def _sse_stream(generator: AsyncIterator[str]) -> AsyncIterator[str]:
-    """Ensure each chunk is SSE-formatted; yield as bytes for StreamingResponse."""
+async def _sse_stream(generator: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Relay SSE chunks from backend to client."""
     async for chunk in generator:
         yield chunk
 
