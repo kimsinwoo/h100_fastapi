@@ -1,21 +1,28 @@
 # vLLM 서버 실행 방법
 
+**실행 경로**: 프로젝트의 **backend** 디렉터리에서 실행합니다.  
+- 이 저장소 기준: `zimage_webapp/backend`  
+- 서버 예: `~/project/h100_fastapi/backend` 등 실제 backend 경로
+
+---
+
 ## 1. 한 줄 명령으로 바로 실행 (스크립트 없이, 로그 즉시 출력)
 
-아래를 **그대로 복사**해 터미널에서 실행하면 vLLM이 바로 뜨고 로그가 즉시 찍힙니다.
+backend 디렉터리로 이동한 뒤, 아래 한 줄을 **그대로 복사**해 실행합니다.
 
 ```bash
-cd ~/project/h100_fastapi/backend && source venv/bin/activate && PYTHONUNBUFFERED=1 vllm serve openai/gpt-oss-20b --port 7001 --host 0.0.0.0 --gpu-memory-utilization 0.85 --max-num-seqs 64 --max-model-len 32768 --dtype bfloat16 --trust-remote-code --enforce-eager
+cd zimage_webapp/backend && source venv/bin/activate && PYTHONUNBUFFERED=1 vllm serve openai/gpt-oss-20b --port 7001 --host 0.0.0.0 --gpu-memory-utilization 0.85 --max-num-seqs 64 --max-model-len 32768 --dtype bfloat16 --trust-remote-code --enforce-eager
 ```
 
-- **같은 머신에서**: `cd` 경로만 실제 backend 경로로 바꾸면 됩니다.
-- **기동만 빨리**: `--enforce-eager` 포함되어 있어 CUDA 그래프 캡처 없이 기동합니다.
+서버에서 backend가 다른 경로에 있으면 `cd` 부분만 바꿉니다. 예: `cd ~/project/h100_fastapi/backend && ...`
+
+- **기동만 빨리**: `--enforce-eager` 포함 (CUDA 그래프 캡처 생략).
 - **mxfp4 오류** 나면: `pip install -U "vllm>=0.15"` 후 다시 실행.
 
 ## 2. 최소 스크립트로 실행
 
 ```bash
-cd ~/project/h100_fastapi/backend
+cd zimage_webapp/backend
 source venv/bin/activate
 bash scripts/run_vllm_minimal.sh
 ```
@@ -23,7 +30,27 @@ bash scripts/run_vllm_minimal.sh
 `run_vllm_minimal.sh`는 위 한 줄과 동일한 옵션만 넣은 최소 스크립트라, 실행하면 곧바로 vLLM 로그가 나옵니다.  
 (`chmod +x scripts/run_vllm_minimal.sh` 후 `./scripts/run_vllm_minimal.sh` 로 실행해도 됩니다.)
 
-## 3. LLM 채팅 "All connection attempts failed" 해결
+## 3. 오류 해결: `cannot import name 'default_cache_dir' from 'triton.runtime.cache'`
+
+vLLM 0.7.x는 Triton 3.x와 API 호환이 되지 않아 이 오류가 날 수 있습니다. **아래 중 하나**를 적용한 뒤 다시 실행하세요.
+
+**방법 A – Triton 2.x 사용 (vLLM 0.7 유지)**  
+```bash
+source venv/bin/activate
+pip install 'triton>=2.0,<3.0'
+# 그다음 1번 또는 2번으로 vLLM 서버 다시 실행
+```
+
+**방법 B – vLLM 업그레이드 (Triton 최신과 호환)**  
+```bash
+source venv/bin/activate
+pip install -U "vllm>=0.15"
+# 그다음 1번 또는 2번으로 vLLM 서버 다시 실행
+```
+
+`requirements-vllm.txt`에는 Triton 2.x 고정이 들어 있어, `pip install -r requirements-vllm.txt`로 재설치해도 동일하게 맞출 수 있습니다.
+
+## 4. LLM 채팅 "All connection attempts failed" 해결
 
 이 오류는 **메인 앱이 vLLM 서버에 연결하지 못할 때** 납니다.
 

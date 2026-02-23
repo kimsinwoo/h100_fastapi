@@ -9,3 +9,9 @@ httpx>=0.27.0,<0.28.0
 
 # vLLM: use version compatible with your CUDA (e.g. 0.6.x or 0.10+)
 vllm>=0.6.0
+
+# Triton: vLLM 0.7.x는 triton 3.x와 호환되지 않음 (default_cache_dir 제거됨).
+# "cannot import name 'default_cache_dir'" 오류 시 아래 중 하나 적용:
+#   (1) triton 2.x 고정: pip install 'triton>=2.0,<3.0'
+#   (2) vLLM 업그레이드: pip install -U 'vllm>=0.15'
+triton>=2.0,<3.0
