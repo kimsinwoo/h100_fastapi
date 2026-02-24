@@ -316,7 +316,7 @@ def _run_inference_omnigen_sync(
     guidance_scale: float = 2.0,
     img_guidance_scale: float = 1.6,
 ) -> bytes:
-    """OmniGen(Omni) 이미지 편집: placeholder <|image_1|> + input_images."""
+    """OmniGen(Omni) 이미지 편집: diffusers 요구 형식 <img><|image_1|></img> + input_images."""
     import torch
     from PIL import Image, ImageOps
 
@@ -332,7 +332,7 @@ def _run_inference_omnigen_sync(
     if seed is not None:
         generator.manual_seed(seed)
 
-    omni_prompt = "<|image_1|> " + prompt
+    omni_prompt = "<img><|image_1|></img> " + prompt
     use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
