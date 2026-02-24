@@ -1,5 +1,6 @@
 """
 Dynamic LoRA loading and application. Cache by path, scale control.
+PEFT 전체 저장(old) 형식 → diffusers(transformer.* LoRA만) 로드 시 변환 지원.
 """
 
 from __future__ import annotations
@@ -7,6 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from app.core.config import get_settings
 
@@ -14,6 +16,35 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
 _loaded: dict[str, list[str]] = {}
+
+PEFT_PREFIX = "base_model.model."
+DIFFUSERS_PREFIX = "transformer."
+
+
+def _load_safetensors_state_dict(path: Path) -> dict[str, Any]:
+    import safetensors.torch
+    with safetensors.torch.safe_open(path, framework="pt", device="cpu") as f:
+        return {k: f.get_tensor(k) for k in f.keys()}
+
+
+def _is_old_peft_format(state_dict: dict[str, Any]) -> bool:
+    if not state_dict:
+        return False
+    keys = list(state_dict.keys())
+    return any("base_model.model." in k for k in keys)
+
+
+def _convert_old_peft_to_diffusers(state_dict: dict[str, Any]) -> dict[str, Any]:
+    """PEFT 전체 state_dict에서 LoRA 키만 남기고 transformer. 접두사로 변환."""
+    out = {}
+    for k, v in state_dict.items():
+        if "lora_A" not in k and "lora_B" not in k:
+            continue
+        if not k.startswith(PEFT_PREFIX):
+            continue
+        new_key = DIFFUSERS_PREFIX + k.replace(PEFT_PREFIX, "", 1)
+        out[new_key] = v
+    return out
 
 
 def load_lora(
@@ -27,7 +58,6 @@ def load_lora(
         path = path.with_suffix(".safetensors")
     if not path.exists():
         raise FileNotFoundError(f"LoRA not found: {path}")
-    key = str(path.resolve())
     name = adapter_name or f"lora_{path.stem}"
 
     if not hasattr(pipe, "load_lora_weights"):
@@ -42,13 +72,28 @@ def load_lora(
         if name in _loaded[pid]:
             return
 
-    weight_name = path.name if path.suffix == ".safetensors" else None
-    pipe.load_lora_weights(
-        str(path.parent),
-        weight_name=weight_name or path.name,
-        adapter_name=name,
-        lora_scale=scale,
-    )
+    state_dict = _load_safetensors_state_dict(path)
+    if _is_old_peft_format(state_dict):
+        state_dict = _convert_old_peft_to_diffusers(state_dict)
+        if not state_dict:
+            raise ValueError(
+                "LoRA file is old PEFT format but has no lora_A/lora_B keys. "
+                "Re-train with the updated train_lora_zit.py and use the new .safetensors."
+            )
+        logger.info("Converted old PEFT LoRA to diffusers format (%d keys)", len(state_dict))
+        pipe.load_lora_weights(
+            state_dict,
+            adapter_name=name,
+            lora_scale=scale,
+        )
+    else:
+        weight_name = path.name if path.suffix == ".safetensors" else None
+        pipe.load_lora_weights(
+            str(path.parent),
+            weight_name=weight_name or path.name,
+            adapter_name=name,
+            lora_scale=scale,
+        )
     with _lock:
         _loaded.setdefault(pid, []).append(name)
 
