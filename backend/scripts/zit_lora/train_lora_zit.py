@@ -38,7 +38,14 @@ logger = logging.getLogger(__name__)
 
 import torch
 from torch.utils.data import DataLoader
-from torchvision import transforms
+
+
+def _pil_to_tensor(pil_img: Any) -> torch.Tensor:
+    """PIL -> [0,1] -> [-1,1] (torchvision 미사용, 호환성 회피)."""
+    import numpy as np
+    arr = np.array(pil_img, dtype=np.float32) / 255.0
+    arr = (arr - 0.5) / 0.5
+    return torch.from_numpy(arr).permute(2, 0, 1)
 
 
 def _get_transformer(pipe: Any) -> Any:
@@ -95,11 +102,7 @@ def _apply_lora(transformer: Any, target_modules: list[str], rank: int, alpha: i
 
 
 def _collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
-    trans = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]),
-    ])
-    pixel_values = torch.stack([trans(b["image"]) for b in batch])
+    pixel_values = torch.stack([_pil_to_tensor(b["image"]) for b in batch])
     captions = [b["caption"] for b in batch]
     return {"pixel_values": pixel_values, "captions": captions}
 
