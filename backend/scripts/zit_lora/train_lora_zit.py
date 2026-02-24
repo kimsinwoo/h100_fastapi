@@ -171,9 +171,21 @@ def _train_one_epoch(
             else:
                 t = torch.randint(0, scheduler.config.num_train_timesteps, (bsz,), device=device).long()
                 noisy = scheduler.add_noise(latents, noise, t)
-        out = transformer_lora(noisy, t, encoder_hidden_states=enc, return_dict=True)
-        pred = out.sample if hasattr(out, "sample") else out
-        loss = torch.nn.functional.mse_loss(pred.float(), noise.float(), reduction="mean") / grad_accum
+        # ZImageTransformer2DModel: (x_list, timestep, cap_feats) positional; x_list = list of (C,1,H,W)
+        noisy_typed = noisy.to(dtype)
+        latent_list = list(noisy_typed.unsqueeze(2).unbind(dim=0))
+        cap_feats = [enc[i : i + 1].to(dtype) for i in range(bsz)]
+        out = transformer_lora(latent_list, t, cap_feats)
+        if isinstance(out, tuple):
+            model_out_list = out[0]
+        else:
+            model_out_list = out
+        if isinstance(model_out_list, list):
+            pred = torch.stack([p.float() for p in model_out_list], dim=0).squeeze(2)
+        else:
+            pred = model_out_list.float().squeeze(2) if model_out_list.dim() > 2 else model_out_list.float()
+        # Pipeline uses -model_out as noise_pred; training target is noise
+        loss = torch.nn.functional.mse_loss(-pred, noise.float(), reduction="mean") / grad_accum
         scaler.scale(loss).backward()
         if (step + 1) % grad_accum == 0:
             scaler.step(optimizer)
