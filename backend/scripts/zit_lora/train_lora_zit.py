@@ -162,9 +162,9 @@ def _train_one_epoch(
             enc = text_encoder(tokens.input_ids)[0]
             noise = torch.randn_like(latents, device=device, dtype=dtype)
             bsz = latents.shape[0]
-            # FlowMatchEulerDiscreteScheduler uses scale_noise; timestep must match scheduler.timesteps
+            # FlowMatchEulerDiscreteScheduler uses scale_noise; timestep must exactly match scheduler.timesteps (float32)
             if hasattr(scheduler, "scale_noise") and hasattr(scheduler, "timesteps"):
-                timesteps = scheduler.timesteps.to(device=device, dtype=latents.dtype)
+                timesteps = scheduler.timesteps.to(device=device)
                 idx = torch.randint(0, len(timesteps), (bsz,), device=device)
                 t = timesteps[idx]
                 noisy = scheduler.scale_noise(latents, t, noise)
