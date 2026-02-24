@@ -88,6 +88,17 @@ def get_registry() -> ModelRegistry:
     return _registry
 
 
+def _ensure_diffusers_deps() -> None:
+    """CLIPImageProcessor 등 diffusers SDXL 의존성 확인. 없으면 명확한 오류."""
+    try:
+        from transformers import CLIPImageProcessor  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            "SDXL 파이프라인 로드에 필요한 CLIPImageProcessor를 불러올 수 없습니다. "
+            "transformers 버전을 올려 주세요: pip install 'transformers>=4.44.0'"
+        ) from e
+
+
 def initialize_registry() -> ModelRegistry:
     """서버 시작 시 1회만 호출. 모든 스타일 preload. 이후 register 금지."""
     global _registry
@@ -95,6 +106,7 @@ def initialize_registry() -> ModelRegistry:
         if _registry is not None:
             return _registry
 
+    _ensure_diffusers_deps()
     registry = ModelRegistry()
 
     registry.register(Style.PIXEL, "nerijs/pixel-art-xl")
