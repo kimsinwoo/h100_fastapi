@@ -93,7 +93,7 @@ class HFDatasetWrapper(Dataset[dict[str, Any]]):
         self.style_token = STYLE_TOKEN[style_key]
         repo = STYLE_DATASET[style_key]
         from datasets import load_dataset
-        self._ds = load_dataset(repo, split="train", trust_remote_code=True, streaming=False)
+        self._ds = load_dataset(repo, split="train", streaming=False)
         cols = self._ds.column_names
         image_col = None
         caption_col = None
