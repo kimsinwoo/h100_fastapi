@@ -50,3 +50,8 @@ backend/static_frontend/
 # Runtime data (채팅방 저장 등)
 # ========================
 backend/data/
+
+# ========================
+# LoRA 학습 결과 (서버에서 학습한 가중치)
+# ========================
+backend/lora_output/

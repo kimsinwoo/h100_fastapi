@@ -80,7 +80,8 @@ def _parse_optional_int(s: str | None) -> int | None:
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(
     request: Request,
-    file: Annotated[UploadFile, File(description="Image file to transform")],
+    file: Annotated[UploadFile | None, File(description="Image file (field: file or image)")] = None,
+    image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
     style: Annotated[str, Form(description="Style preset key")] = "realistic",
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     strength: Annotated[str | None, Form()] = None,
@@ -89,8 +90,12 @@ async def generate(
     """
     Upload image, run Z-Image-Turbo with selected style (and optional custom prompt).
     Returns URLs to original and generated images plus processing time.
+    Accepts multipart field "file" or "image" (frontend may send "image").
     """
     _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing required file. Send as multipart field 'file' or 'image'.")
     strength_f: float | None = _parse_optional_float(strength)
     seed_i: int | None = _parse_optional_int(seed)
     settings = get_settings()
@@ -101,9 +106,9 @@ async def generate(
             status_code=400,
             detail=f"Invalid style. Allowed: {', '.join(sorted(allowed))}",
         )
-    if not file.content_type or not file.content_type.startswith("image/"):
+    if not upload.content_type or not upload.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
-    content = await file.read()
+    content = await upload.read()
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(
             status_code=400,
