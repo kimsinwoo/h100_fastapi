@@ -57,12 +57,25 @@ def _gpu_available() -> bool:
         return False
 
 
+def _ensure_transformers_for_diffusers() -> None:
+    """diffusers SDXL img2img가 필요로 하는 CLIPImageProcessor를 앱 최초 로드 전에 등록.
+    run_sd15_startup()에서 diffusers를 쓰면 SDXL 파이프라인도 함께 로드될 수 있어, 그 전에 호출해야 함."""
+    try:
+        from transformers import CLIPImageProcessor  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            "이미지 파이프라인 로드에 필요한 transformers 버전이 필요합니다. "
+            "다음으로 업그레이드 후 서버를 재시작하세요: pip install 'transformers>=4.44.0'"
+        ) from e
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: static dir, SD 1.5 only (Hugging Face 또는 로컬). Z-Image/SDXL API는 배제."""
     settings = get_settings()
     import sys
     print(f"\n>>> SD 1.5 이미지 서버 기동: http://0.0.0.0:{settings.port} (API: /sd15, 상태: /health)\n", file=sys.stderr, flush=True)
+    _ensure_transformers_for_diffusers()
     ensure_generated_dir()
     logger.info("Static directory ready: %s", settings.generated_dir)
     # SD 1.5만 사용 — Hugging Face에서 다운로드 후 로컬에서 추론 (로컬 model_path 없으면 model_id 사용)
