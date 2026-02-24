@@ -112,9 +112,15 @@ def create_app() -> FastAPI:
 
     @app.get("/api/info")
     async def api_info() -> dict[str, str | bool]:
-        """Z-Image-Turbo: Hugging Face에서 다운로드 후 로컬에서 실행."""
+        """이미지 생성: OmniGen(Omni) 또는 Z-Image-Turbo, Hugging Face에서 로드 후 로컬 실행."""
+        settings = get_settings()
+        use_omni = getattr(settings, "use_omnigen", False)
+        if use_omni:
+            source = f"OmniGen (Omni) — {getattr(settings, 'omnigen_model_id', 'Shitao/OmniGen-v1-diffusers')}"
+        else:
+            source = f"Z-Image-Turbo — {settings.model_id}"
         return {
-            "image_model_source": "Z-Image-Turbo (Tongyi-MAI/Z-Image-Turbo)",
+            "image_model_source": source,
             "runs_locally": True,
             "model_loaded": is_pipeline_loaded(),
         }

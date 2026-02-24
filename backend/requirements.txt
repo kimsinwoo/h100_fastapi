@@ -10,7 +10,7 @@ pydantic>=2.6.0
 pydantic-settings>=2.2.0
 python-multipart>=0.0.9
 
-# --- ML (Z-Image-Turbo: diffusers에서 ZImageImg2ImgPipeline) ---
+# --- ML (OmniGen 또는 Z-Image: diffusers OmniGenPipeline / ZImageImg2ImgPipeline) ---
 # torch와 torchvision은 반드시 같은 PyTorch 릴리스로 맞출 것 (버전 불일치 시 torchvision::nms 오류)
 torch>=2.2.0
 torchvision>=0.17.0

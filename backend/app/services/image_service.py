@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _lock = asyncio.Lock()
 _device: Any = None
+_use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100 등)
 
 # ===== Z-Image-Turbo 권장값 =====
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
@@ -92,23 +93,21 @@ def _resolve_device():
 # ============================================================
 
 def _load_pipeline_sync():
-    global _pipeline, _device
+    global _pipeline, _device, _use_omnigen
 
     import os
-    # JITCallable._set_src() 호환성 오류 방지: diffusers Z-Image 로드 전에 JIT/compile 비활성화
     os.environ.setdefault("PYTORCH_JIT", "0")
     os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 
     import torch
-    # torch.compile 사용 시 일부 환경에서 JIT 오류 발생 가능 → 비활성화
     if getattr(torch, "_dynamo", None) and getattr(torch._dynamo, "config", None):
         try:
             torch._dynamo.config.suppress_errors = True
         except Exception:
             pass
 
-    # xformers: 설정이 꺼져 있을 때만 비활성화 (H100 등에서 enable_xformers=True 시 attention 최적화)
-    _settings = get_settings()
+    settings = get_settings()
+    _settings = settings
     if not getattr(_settings, "enable_xformers", False):
         try:
             import diffusers.utils.import_utils as diffusers_import_utils
@@ -116,59 +115,62 @@ def _load_pipeline_sync():
         except Exception:
             pass
 
+    _device = _resolve_device()
+    dtype = torch.bfloat16 if (_device.type == "cuda" and getattr(torch, "bfloat16", None)) else torch.float32
+
+    # H100 등: OmniGen(Omni) 사용 (use_omnigen=True)
+    if getattr(settings, "use_omnigen", False):
+        try:
+            from diffusers import OmniGenPipeline
+        except ImportError as e:
+            logger.warning("OmniGenPipeline not found, falling back to Z-Image: %s", e)
+        else:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                try:
+                    pipe = OmniGenPipeline.from_pretrained(
+                        getattr(settings, "omnigen_model_id", "Shitao/OmniGen-v1-diffusers"),
+                        torch_dtype=dtype,
+                    )
+                    pipe = pipe.to(_device)
+                    for name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
+                        fn = getattr(pipe, name, None)
+                        if callable(fn):
+                            try:
+                                fn()
+                            except Exception:
+                                pass
+                    _pipeline = pipe
+                    _use_omnigen = True
+                    logger.info("OmniGen (Omni) pipeline loaded on %s (dtype=%s)", _device, dtype)
+                    return pipe
+                except Exception as e:
+                    logger.exception("OmniGen load failed: %s", e)
+                    raise RuntimeError(
+                        f"OmniGen 모델 로드 실패. USE_OMNIGEN=false 로 Z-Image 사용 가능. 원인: {e}"
+                    ) from e
+
+    # Z-Image-Turbo
+    _use_omnigen = False
     try:
         from diffusers import ZImageImg2ImgPipeline
     except ImportError as e:
         err_msg = str(e)
         if "JITCallable" in err_msg or "_set_src" in err_msg:
-            logger.exception("Z-Image pipeline import failed (JIT/torch compatibility): %s", e)
             raise RuntimeError(
-                "Z-Image 파이프라인 로드 중 JIT 호환 오류가 발생했습니다. "
-                "서버 시작 전에 다음 환경 변수를 설정한 뒤 다시 시도하세요: "
-                "PYTORCH_JIT=0 TORCH_COMPILE_DISABLE=1"
+                "Z-Image 파이프라인 로드 중 JIT 호환 오류. PYTORCH_JIT=0 TORCH_COMPILE_DISABLE=1 설정 후 재시도."
             ) from e
-        logger.error(
-            "ZImageImg2ImgPipeline not found. Z-Image-Turbo requires diffusers from git: "
-            "pip install git+https://github.com/huggingface/diffusers.git -U (error: %s)",
-            e,
-        )
         raise RuntimeError(
-            "Z-Image-Turbo 파이프라인을 불러올 수 없습니다. "
-            "diffusers 최신 버전이 필요합니다: pip install git+https://github.com/huggingface/diffusers.git -U"
+            "ZImageImg2ImgPipeline을 찾을 수 없습니다. pip install git+https://github.com/huggingface/diffusers.git -U"
         ) from e
-    except Exception as e:
-        err_msg = str(e)
-        if "JITCallable" in err_msg or "_set_src" in err_msg:
-            logger.exception("Z-Image pipeline import failed (JIT/torch compatibility): %s", e)
-            raise RuntimeError(
-                "Z-Image 파이프라인 로드 중 JIT 호환 오류가 발생했습니다. "
-                "서버 시작 전에 다음 환경 변수를 설정한 뒤 다시 시도하세요: "
-                "PYTORCH_JIT=0 TORCH_COMPILE_DISABLE=1"
-            ) from e
-        raise
-
-    settings = get_settings()
-    _device = _resolve_device()
-
-    dtype = torch.bfloat16 if (_device.type == "cuda" and getattr(torch, "bfloat16", None)) else torch.float32
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-
-        try:
-            pipe = ZImageImg2ImgPipeline.from_pretrained(
-                settings.model_id,
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True,
-            )
-        except Exception as e:
-            logger.exception("Failed to load model %s: %s", settings.model_id, e)
-            raise RuntimeError(
-                f"모델 로드 실패: {settings.model_id}. "
-                "인터넷 연결·Hugging Face 접근·디스크 공간을 확인하세요. "
-                "diffusers는 pip install git+https://github.com/huggingface/diffusers.git 로 설치 권장."
-            ) from e
-
+        pipe = ZImageImg2ImgPipeline.from_pretrained(
+            settings.model_id,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
         for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
             method = getattr(pipe, method_name, None)
             if callable(method):
@@ -176,15 +178,9 @@ def _load_pipeline_sync():
                     method()
                 except Exception:
                     pass
-
         pipe = pipe.to(_device)
 
-    logger.info(
-        "Pipeline loaded on %s (dtype=%s)",
-        _device,
-        dtype,
-    )
-
+    logger.info("Z-Image-Turbo pipeline loaded on %s (dtype=%s)", _device, dtype)
     _pipeline = pipe
     return pipe
 
@@ -201,8 +197,13 @@ async def get_pipeline():
 
 
 def is_pipeline_loaded() -> bool:
-    """Z-Image-Turbo 파이프라인 로드 여부 (health 등에서 사용)."""
+    """이미지 생성 파이프라인 로드 여부 (OmniGen 또는 Z-Image, health 등에서 사용)."""
     return _pipeline is not None
+
+
+def is_omnigen_in_use() -> bool:
+    """현재 OmniGen(Omni) 파이프라인 사용 중인지."""
+    return _use_omnigen
 
 
 # ============================================================
@@ -307,6 +308,51 @@ def _run_inference_sync(
     return buf.getvalue()
 
 
+def _run_inference_omnigen_sync(
+    image_bytes: bytes,
+    prompt: str,
+    seed: int | None,
+    num_steps: int = 50,
+    guidance_scale: float = 2.0,
+    img_guidance_scale: float = 1.6,
+) -> bytes:
+    """OmniGen(Omni) 이미지 편집: placeholder <|image_1|> + input_images."""
+    import torch
+    from PIL import Image, ImageOps
+
+    global _pipeline, _device
+
+    if _pipeline is None:
+        raise RuntimeError("OmniGen pipeline not loaded")
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+
+    generator = torch.Generator(device=_device)
+    if seed is not None:
+        generator.manual_seed(seed)
+
+    omni_prompt = "<|image_1|> " + prompt
+    use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
+    ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
+
+    logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f", num_steps, guidance_scale, img_guidance_scale)
+    with torch.inference_mode(), ctx:
+        result = _pipeline(
+            prompt=omni_prompt,
+            input_images=[img],
+            guidance_scale=guidance_scale,
+            img_guidance_scale=img_guidance_scale,
+            num_inference_steps=num_steps,
+            use_input_image_size_as_output=True,
+            generator=generator,
+        )
+    out_pil = result.images[0]
+    buf = io.BytesIO()
+    out_pil.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # ============================================================
 # Public API
 # ============================================================
@@ -328,7 +374,30 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # 학습된 LoRA가 있으면 해당 스타일용으로 로드 후 추론 (3D Render, Cyberpunk, Pixel Art)
+    # OmniGen(Omni) 사용 시: placeholder + input_images 로 이미지 편집 (LoRA 미지원)
+    if _use_omnigen:
+        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
+        prompt = compiled["final_prompt"] + (
+            ", high detail, sharp focus, preserve original composition and subject."
+        )
+        num_steps_omni = max(1, min(50, num_steps or 50))
+        loop = asyncio.get_event_loop()
+        start = time.perf_counter()
+        result = await loop.run_in_executor(
+            None,
+            lambda: _run_inference_omnigen_sync(
+                image_bytes,
+                prompt,
+                seed,
+                num_steps=num_steps_omni,
+                guidance_scale=2.0,
+                img_guidance_scale=1.6,
+            ),
+        )
+        elapsed = time.perf_counter() - start
+        return result, elapsed
+
+    # Z-Image-Turbo: LoRA + strength/guidance/steps
     lora_filename = STYLE_TO_LORA_FILENAME.get(style_lower)
     lora_path = settings.lora_output_dir / lora_filename if lora_filename else None
     if lora_path and lora_path.exists():

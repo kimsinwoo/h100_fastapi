@@ -36,10 +36,20 @@ class Settings(BaseSettings):
     training_dir_name: str = Field(default="data/training")
     lora_adapters_dir: str = Field(default="data/lora", description="LoRA safetensors")
 
-    # Z-Image-Turbo (Hugging Face에서 다운로드 후 로컬에서 추론)
+    # 이미지 생성 백엔드: OmniGen(Omni) 사용 시 H100 등에서 Omni 모델 로드
+    use_omnigen: bool = Field(
+        default=True,
+        description="True면 OmniGen(Omni) 파이프라인 사용, False면 Z-Image-Turbo 사용 (환경변수 USE_OMNIGEN)",
+    )
+    omnigen_model_id: str = Field(
+        default="Shitao/OmniGen-v1-diffusers",
+        description="OmniGen Hugging Face model ID (use_omnigen=True일 때)",
+    )
+
+    # Z-Image-Turbo (use_omnigen=False일 때만 사용)
     model_id: str = Field(
         default="Tongyi-MAI/Z-Image-Turbo",
-        description="Hugging Face model ID for Z-Image img2img (로컬에서 실행)",
+        description="Hugging Face model ID for Z-Image img2img",
     )
 
     device: Literal["cuda", "cpu", "auto"] = Field(default="auto")

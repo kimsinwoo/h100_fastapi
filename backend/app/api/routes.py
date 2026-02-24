@@ -123,7 +123,7 @@ async def generate(
         logger.exception("Failed to save upload: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save uploaded image")
     original_url = get_generated_url(original_filename)
-    print("[Z-Image] 로컬에서 이미지 생성 중...", file=sys.stderr, flush=True)
+    print("[이미지 생성] 로컬에서 생성 중...", file=sys.stderr, flush=True)
     try:
         out_bytes, processing_time = await run_image_to_image(
             image_bytes=content,
@@ -137,7 +137,7 @@ async def generate(
     except RuntimeError as e:
         logger.exception("Model inference failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
-    print("[Z-Image] 로컬 생성 완료 (%.1f초)" % processing_time, file=sys.stderr, flush=True)
+    print("[이미지 생성] 로컬 생성 완료 (%.1f초)" % processing_time, file=sys.stderr, flush=True)
     try:
         generated_filename = await save_upload_async(out_bytes, suffix=".png")
     except Exception as e:
