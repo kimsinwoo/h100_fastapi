@@ -4,9 +4,7 @@ Z-Image AI Service — production FastAPI application.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import subprocess
 import sys
 import time
 import warnings
@@ -29,10 +27,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import router
 from app.core.config import get_settings
-from app.services.image_service import get_pipeline, is_gpu_available, is_pipeline_loaded
-from app.services.llm_service import preload_local_model
+from app.sd15.model_manager import is_model_loaded as sd15_model_loaded
+from app.sd15.routes import router as sd15_router, run_sd15_startup
 from app.utils.file_handler import ensure_generated_dir
 
 # Configure logging
@@ -44,101 +41,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _start_lora_finetune_background(settings) -> None:
-    """LLM 로드 후 한국어 LoRA 파인튜닝을 서브프로세스로 백그라운드 실행. 서버는 블로킹 없이 기동."""
-    backend_dir = Path(__file__).resolve().parent.parent
-    scripts_dir = backend_dir.parent / "scripts" / "korean_lora"
-    train_script = scripts_dir / "train_lora.py"
-    data_file = scripts_dir / "data" / "korean_sft_train.jsonl"
-    build_script = scripts_dir / "data" / "build_korean_sft.py"
-    out_dir = settings.korean_lora_output_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    if not train_script.exists():
-        logger.warning("LoRA 학습 스크립트 없음: %s — 파인튜닝 생략", train_script)
-        return
-    # 학습 데이터 없으면 생성; 있으면 최신 예시 반영을 위해 매번 재생성 (건강 도우미 예시 포함)
-    if build_script.exists():
-        try:
-            subprocess.run(
-                [sys.executable, str(build_script)],
-                cwd=str(scripts_dir),
-                capture_output=True,
-                timeout=90,
-                check=True,
-            )
-            logger.info("한국어 SFT 데이터 준비 완료: %s", data_file)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            logger.warning("SFT 데이터 생성 실패: %s", e)
-    if not data_file.exists():
-        logger.warning("학습 데이터 없음: %s — 파인튜닝 생략", data_file)
-        return
-
-    cmd = [
-        sys.executable,
-        str(train_script),
-        "--model_name_or_path", settings.llm_local_model_id,
-        "--output_dir", str(out_dir),
-        "--data_file", str(data_file),
-        "--num_epochs", "5",
-        "--per_device_train_batch_size", "2",
-    ]
-    if settings.llm_hf_token and settings.llm_hf_token.strip():
-        cmd.extend(["--hf_token", settings.llm_hf_token.strip()])
-
-    async def _run() -> None:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(scripts_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info("한국어 LoRA 파인튜닝 완료: %s", out_dir)
-            else:
-                logger.warning("한국어 LoRA 파인튜닝 종료 코드 %s. stderr: %s", proc.returncode, stderr.decode(errors="replace")[:500])
-        except Exception as e:
-            logger.warning("한국어 LoRA 파인튜닝 실행 중 오류: %s", e)
-
-    asyncio.create_task(_run())
-    logger.info("한국어 LoRA 파인튜닝 백그라운드 시작 (출력: %s)", out_dir)
+def _gpu_available() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: ensure static dir, load model. Shutdown: cleanup."""
+    """Startup: static dir, SD 1.5 only (Hugging Face 또는 로컬). Z-Image/SDXL API는 배제."""
     settings = get_settings()
     import sys
-    print(f"\n>>> Z-Image AI 서버 기동: http://0.0.0.0:{settings.port} (API: /api, 상태: /health)\n", file=sys.stderr, flush=True)
+    print(f"\n>>> SD 1.5 이미지 서버 기동: http://0.0.0.0:{settings.port} (API: /sd15, 상태: /health)\n", file=sys.stderr, flush=True)
     ensure_generated_dir()
     logger.info("Static directory ready: %s", settings.generated_dir)
-    # Load image model once at startup
-    try:
-        await get_pipeline()
-        logger.info("GPU available: %s", is_gpu_available())
-    except Exception as e:
-        logger.warning("Model not loaded at startup (will fail on first request): %s", e)
-    # LLM: vLLM(API) 사용 시 로컬 로드 생략; 로컬 사용 시에만 미리 로드
-    if settings.llm_enabled:
-        if settings.llm_use_local:
-            try:
-                await preload_local_model()
-                logger.info("LLM: 로컬 모델 로드 완료 (동시 1건, 대기 초과 시 503)")
-            except Exception as e:
-                logger.warning("LLM preload at startup failed: %s", e)
-        else:
-            logger.info("LLM: API 모드 → %s (동시 다수 사용 가능)", settings.llm_api_base or "(미설정)")
-
-    # LLM 로드 후 한국어 LoRA 파인튜닝을 백그라운드에서 시작 (설정 시)
-    if (
-        settings.llm_enabled
-        and settings.llm_use_local
-        and getattr(settings, "llm_lora_finetune_on_startup", False)
-    ):
-        _start_lora_finetune_background(settings)
-
+    # SD 1.5만 사용 — Hugging Face에서 다운로드 후 로컬에서 추론 (로컬 model_path 없으면 model_id 사용)
+    run_sd15_startup()
     yield
     logger.info("Shutting down")
 
@@ -172,8 +92,8 @@ def create_app() -> FastAPI:
         logger.info("%s %s %s %.3fs", request.method, request.url.path, response.status_code, duration)
         return response
 
-    # API와 /health 먼저 등록 (아래 프론트엔드 마운트보다 우선)
-    app.include_router(router)
+    # SD 1.5 API만 등록 (Z-Image/SDXL API는 배제)
+    app.include_router(sd15_router)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -191,17 +111,17 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str | bool]:
         return {
             "status": "ok",
-            "gpu_available": is_gpu_available(),
-            "model_loaded": is_pipeline_loaded(),
+            "gpu_available": _gpu_available(),
+            "model_loaded": sd15_model_loaded(),
         }
 
     @app.get("/api/info")
     async def api_info() -> dict[str, str | bool]:
-        """이미지 생성 모델이 Hugging Face에서 다운로드 후 이 컴퓨터에서만 실행되는지 확인."""
+        """SD 1.5: Hugging Face에서 다운로드 후 이 컴퓨터에서만 실행."""
         return {
-            "image_model_source": "Hugging Face (Tongyi-MAI/Z-Image-Turbo)",
+            "image_model_source": "Hugging Face (runwayml/stable-diffusion-v1-5)",
             "runs_locally": True,
-            "model_loaded": is_pipeline_loaded(),
+            "model_loaded": sd15_model_loaded(),
         }
 
     # 생성 이미지용 static (API 이미지 URL이 /static/generated/... 로 오므로 먼저 마운트)
@@ -252,7 +172,7 @@ def create_app() -> FastAPI:
             from fastapi.responses import HTMLResponse
             return HTMLResponse(
                 "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Z-Image AI</title></head><body>"
-                "<h1>Z-Image AI</h1><p>API 문서: <a href='/docs'>/docs</a></p>"
+                "<h1>SD 1.5 Image API</h1><p>API 문서: <a href='/docs'>/docs</a>, 이미지 생성: <a href='/sd15/health'>/sd15</a></p>"
                 "<p><strong>프론트가 안 뜨면:</strong> <code>./scripts/build_and_serve.sh</code> 실행 후 서버 재시작.</p>"
                 "<p>경로 확인: <code>%s</code></p></body></html>"
                 % (frontend_resolved,),
@@ -263,7 +183,7 @@ def create_app() -> FastAPI:
 
     # SPA fallback: 404 시에만 index.html. /assets, /api, /static 은 절대 HTML 로 폴백하지 않음 (MIME 오류 방지)
     index_for_spa = getattr(app.state, "frontend_index_path", None)
-    _NO_SPA_FALLBACK_PREFIXES = ("/assets", "/api", "/static", "/docs", "/openapi.json", "/redoc")
+    _NO_SPA_FALLBACK_PREFIXES = ("/assets", "/api", "/static", "/sd15", "/docs", "/openapi.json", "/redoc")
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -302,19 +222,19 @@ def _get_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 프록시가 /health, /api/* 만 보낼 때 404 방지: 루트에 동일 라우트 등록 (접두사 없이 호출 가능)
-    root.include_router(router)
+    # 프록시가 /health, /sd15/* 만 보낼 때 404 방지: 루트에 동일 라우트 등록 (접두사 없이 호출 가능)
+    root.include_router(sd15_router)
 
     @root.get("/health")
     async def _health() -> dict[str, str | bool]:
         return {
             "status": "ok",
-            "gpu_available": is_gpu_available(),
-            "model_loaded": is_pipeline_loaded(),
+            "gpu_available": _gpu_available(),
+            "model_loaded": sd15_model_loaded(),
         }
 
     root.mount(f"/{base}", _app)
-    logger.info("App mounted at /%s (also serving /health and /api/* without prefix)", base)
+    logger.info("App mounted at /%s (also serving /health and /sd15/* without prefix)", base)
     return root
 
 
