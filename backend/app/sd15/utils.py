@@ -68,3 +68,10 @@ def image_to_bytes_png(img: Image.Image) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def image_to_grayscale(img: Image.Image) -> Image.Image:
+    """Convert RGB PIL Image to L (grayscale); preserves mode for downstream PNG save."""
+    if img.mode != "L":
+        return img.convert("L").convert("RGB")
+    return img

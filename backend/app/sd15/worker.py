@@ -1,5 +1,5 @@
 """
-Single GPU worker, asyncio queue, strict clamps. torch.no_grad. Memory cleanup.
+Single GPU worker, asyncio queue. Style-aware inference: STYLE_REGISTRY, overrides, LoRA, scheduler.
 """
 from __future__ import annotations
 
@@ -11,9 +11,21 @@ from typing import NamedTuple
 from PIL import Image
 
 from app.sd15.config import get_settings
-from app.sd15.config import Settings
-from app.sd15.model_manager import ensure_lora, get_pipeline, is_model_loaded, resolve_lora_for_style, unload_lora
-from app.sd15.prompt_engine import build_prompt, get_negative_prompt
+from app.sd15.model_manager import (
+    ensure_lora,
+    get_pipeline,
+    is_model_loaded,
+    resolve_lora_for_style,
+    set_scheduler,
+    unload_lora,
+)
+from app.sd15.prompt_engine import (
+    build_negative_prompt,
+    build_positive_prompt,
+    get_effective_params,
+    style_enable_upscale,
+    style_output_grayscale,
+)
 from app.sd15.schemas import GenerateRequest, GenerateResponse
 from app.sd15.upscale import upscale_image_if_enabled
 from app.sd15.utils import (
@@ -21,6 +33,7 @@ from app.sd15.utils import (
     decode_image_and_validate,
     encode_bytes_to_base64,
     image_to_bytes_png,
+    image_to_grayscale,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,45 +46,56 @@ _queue: asyncio.Queue[_Task | None] = asyncio.Queue()
 _worker_started = False
 
 
-def _clamp_strength(x: float, s: Settings) -> float:
-    return max(s.strength_min, min(s.strength_max, x))
-
-
-def _clamp_cfg(x: float, s: Settings) -> float:
-    return max(s.cfg_min, min(s.cfg_max, x))
-
-
-def _clamp_steps(x: int, s: Settings) -> int:
-    return max(s.steps_min, min(s.steps_max, x))
-
-
 def _run_inference(req: GenerateRequest) -> GenerateResponse:
     import torch
     s = get_settings()
     pipe = get_pipeline()
     seed = random.randint(0, 2**32 - 1)
     generator = torch.Generator(device=pipe.device).manual_seed(seed)
-    final_prompt = build_prompt(req.prompt, req.style)
-    negative = get_negative_prompt(req.style)
-    strength = _clamp_strength(req.strength if req.strength is not None else s.default_strength, s)
-    steps = _clamp_steps(req.steps if req.steps is not None else s.default_steps, s)
-    cfg = _clamp_cfg(req.cfg if req.cfg is not None else s.default_cfg, s)
-    lora_path = resolve_lora_for_style(req.style)
+
+    style_key = req.style
+    # Merge prompts from STYLE_REGISTRY
+    final_prompt = build_positive_prompt(req.prompt, style_key)
+    negative = build_negative_prompt(style_key)
+
+    # Style overrides: if client did not send cfg/steps/strength, use style defaults; else respect and clamp
+    cfg, steps, strength, sampler_name = get_effective_params(
+        style_key,
+        req.cfg,
+        req.steps,
+        req.strength,
+        s,
+    )
+
+    # Per-style scheduler (e.g. Euler a for pixel_art)
+    set_scheduler(pipe, sampler_name)
+
+    # Optional LoRA by style (optional_lora key from registry)
+    from app.sd15.style_registry import get_style_config
+    config = get_style_config(style_key)
+    lora_key = config["optional_lora"]
+    lora_path = resolve_lora_for_style(lora_key)
     try:
         ensure_lora(pipe, lora_path)
     except FileNotFoundError as e:
         unload_lora(pipe)
         raise e
+
     if req.image_base64:
         raw = decode_base64_to_bytes(req.image_base64)
         init_image, _, _ = decode_image_and_validate(raw, max_side=s.max_resolution)
     else:
         init_image = Image.new("RGB", (512, 512), (0, 0, 0))
+
     try:
         with torch.no_grad():
             out = pipe(
-                prompt=final_prompt, negative_prompt=negative, image=init_image,
-                strength=strength, num_inference_steps=steps, guidance_scale=cfg,
+                prompt=final_prompt,
+                negative_prompt=negative,
+                image=init_image,
+                strength=strength,
+                num_inference_steps=steps,
+                guidance_scale=cfg,
                 generator=generator,
             )
     except torch.cuda.OutOfMemoryError:
@@ -81,13 +105,23 @@ def _run_inference(req: GenerateRequest) -> GenerateResponse:
         raise RuntimeError("CUDA out of memory")
     if not out.images:
         raise RuntimeError("No output image")
-    image_bytes = image_to_bytes_png(out.images[0])
-    upscale_requested = req.upscale if req.upscale is not None else s.enable_upscale
+
+    out_img = out.images[0]
+    if style_output_grayscale(style_key):
+        out_img = image_to_grayscale(out_img)
+    image_bytes = image_to_bytes_png(out_img)
+
+    upscale_requested = style_enable_upscale(style_key, req.upscale)
     image_bytes = upscale_image_if_enabled(image_bytes, upscale_requested=upscale_requested)
+
     del out, init_image, generator
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    return GenerateResponse(image_base64=encode_bytes_to_base64(image_bytes), seed=seed, style=req.style)
+    return GenerateResponse(
+        image_base64=encode_bytes_to_base64(image_bytes),
+        seed=seed,
+        style=style_key,
+    )
 
 
 async def _worker_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -100,7 +134,8 @@ async def _worker_loop(loop: asyncio.AbstractEventLoop) -> None:
         req, future = task
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda r=req: _run_inference(r)), timeout=timeout,
+                loop.run_in_executor(None, lambda r=req: _run_inference(r)),
+                timeout=timeout,
             )
             if not future.done():
                 future.set_result(result)

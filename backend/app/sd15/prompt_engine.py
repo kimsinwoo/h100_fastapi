@@ -1,60 +1,82 @@
 """
-Strict Prompt Enforcement. final_prompt = STYLE_PREFIX + user_prompt + QUALITY_SUFFIX.
-Style-specific negative. User prompt never overrides style.
+Prompt engine using STYLE_REGISTRY.
+Injects style-specific positive/negative templates and resolves effective cfg/steps/strength/sampler.
+If client does not send cfg/steps/strength, style defaults are used; otherwise user values are respected (clamped to global limits).
 """
 from __future__ import annotations
 
-from app.sd15.schemas import StyleKind
+from typing import Tuple
 
-REALISTIC_STYLE_PREFIX: str = (
-    "RAW professional photograph, "
-    "natural skin texture, "
-    "true-to-life color grading, "
-    "cinematic lighting, "
-    "high dynamic range, "
-    "subtle film grain, "
-    "natural imperfections, "
-    "realistic lens behavior, "
-)
-REALISTIC_QUALITY_SUFFIX: str = (
-    "ultra detailed, "
-    "sharp focus, "
-    "high resolution, "
-    "fine texture detail, "
-    "real skin pores, "
-    "balanced exposure"
-)
-REALISTIC_NEGATIVE: str = (
-    "cartoon, anime, illustration, painting, cgi, 3d render, "
-    "plastic skin, smooth skin, oversharpened, unrealistic lighting, "
-    "low quality, blurry, overprocessed, exaggerated features"
-)
+from app.sd15.config import Settings
+from app.sd15.config import get_settings
+from app.sd15.style_registry import StyleConfig
+from app.sd15.style_registry import get_style_config
 
-ANIME_STYLE_PREFIX: str = (
-    "STRICT 2D Japanese anime frame, "
-    "clean lineart, cel shading, flat color shading, "
-    "anime lighting, vibrant but controlled colors, "
-)
-ANIME_QUALITY_SUFFIX: str = (
-    "high detail lineart, crisp edges, "
-    "studio quality anime frame, sharp outlines"
-)
-ANIME_NEGATIVE: str = (
-    "photo, realistic, 3d render, skin texture, pore detail, "
-    "film grain, cinematic photography, lens blur"
-)
-
-STYLE_PREFIX: dict[str, str] = {"realistic": REALISTIC_STYLE_PREFIX, "anime": ANIME_STYLE_PREFIX}
-QUALITY_SUFFIX: dict[str, str] = {"realistic": REALISTIC_QUALITY_SUFFIX, "anime": ANIME_QUALITY_SUFFIX}
-NEGATIVE_PROMPT: dict[str, str] = {"realistic": REALISTIC_NEGATIVE, "anime": ANIME_NEGATIVE}
-DEFAULT_STYLE: StyleKind = "realistic"
+SUBJECT_PLACEHOLDER = "{subject}"
 
 
-def build_prompt(user_prompt: str, style: StyleKind) -> str:
-    prefix = STYLE_PREFIX.get(style, STYLE_PREFIX[DEFAULT_STYLE])
-    suffix = QUALITY_SUFFIX.get(style, QUALITY_SUFFIX[DEFAULT_STYLE])
-    return prefix + user_prompt.strip() + ", " + suffix
+def build_positive_prompt(user_prompt: str, style_key: str) -> str:
+    """Inject style-specific positive template; {subject} is replaced by user content."""
+    config = get_style_config(style_key)
+    template = config["positive_prompt_template"]
+    subject = user_prompt.strip() if user_prompt else "subject"
+    if SUBJECT_PLACEHOLDER not in template:
+        return f"{template}, {subject}"
+    return template.replace(SUBJECT_PLACEHOLDER, subject)
 
 
-def get_negative_prompt(style: StyleKind) -> str:
-    return NEGATIVE_PROMPT.get(style, NEGATIVE_PROMPT[DEFAULT_STYLE])
+def build_negative_prompt(style_key: str) -> str:
+    """Return style-specific negative template."""
+    config = get_style_config(style_key)
+    return config["negative_prompt_template"]
+
+
+def get_effective_params(
+    style_key: str,
+    user_cfg: float | None,
+    user_steps: int | None,
+    user_strength: float | None,
+    settings: Settings | None = None,
+) -> Tuple[float, int, float, str]:
+    """
+    Resolve effective cfg, steps, strength, sampler.
+    If user did not send a value, use style default; otherwise clamp user value to global limits.
+    Strength is further clamped to style's recommended_strength_range.
+    Returns: (cfg, steps, strength, sampler_name).
+    """
+    s = settings or get_settings()
+    config = get_style_config(style_key)
+    rec = config["recommended_strength_range"]
+    str_min, str_max = rec["min"], rec["max"]
+
+    cfg: float = (
+        float(config["default_cfg"])
+        if user_cfg is None
+        else max(1.0, min(20.0, user_cfg))
+    )
+    steps: int = (
+        config["default_steps"]
+        if user_steps is None
+        else max(1, min(100, user_steps))
+    )
+    strength: float = (
+        max(str_min, min(str_max, s.default_strength))
+        if user_strength is None
+        else max(str_min, min(str_max, max(0.0, min(1.0, user_strength))))
+    )
+    sampler: str = config["default_sampler"]
+    return (cfg, steps, strength, sampler)
+
+
+def style_enable_upscale(style_key: str, user_upscale: bool | None) -> bool:
+    """If user explicitly set upscale, respect it; else use style's enable_upscale (e.g. Pixel Art disables)."""
+    config = get_style_config(style_key)
+    if user_upscale is not None:
+        return user_upscale
+    return config["enable_upscale"]
+
+
+def style_output_grayscale(style_key: str) -> bool:
+    """Whether to convert output to grayscale (e.g. Sketch)."""
+    config = get_style_config(style_key)
+    return config["output_grayscale"]

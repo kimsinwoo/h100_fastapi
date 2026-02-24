@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.sd15.config import get_settings
+from app.sd15.style_registry import SAMPLER_DPMPP_2M_KARRAS
+from app.sd15.style_registry import SAMPLER_EULER_A
 
 if TYPE_CHECKING:
     from diffusers import StableDiffusionImg2ImgPipeline
@@ -76,6 +78,18 @@ def get_pipeline() -> StableDiffusionImg2ImgPipeline:
         if _pipeline is None:
             raise RuntimeError("SD 1.5 model not loaded")
         return _pipeline
+
+
+def set_scheduler(pipe: StableDiffusionImg2ImgPipeline, sampler_name: str) -> None:
+    """Set pipeline scheduler by style (e.g. Euler a for pixel_art, DPM++ 2M Karras default)."""
+    from diffusers import DPMSolverMultistepScheduler, EulerAncestralDiscreteScheduler
+    config = pipe.scheduler.config
+    if sampler_name == SAMPLER_EULER_A:
+        pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(config)
+    else:
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            config, use_karras_sigmas=True,
+        )
 
 
 def is_model_loaded() -> bool:

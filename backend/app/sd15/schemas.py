@@ -5,8 +5,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
-StyleKind = Literal["anime", "realistic"]
+# All supported styles; must match STYLE_REGISTRY keys in style_registry.py
+StyleKind = Literal[
+    "anime",
+    "realistic",
+    "watercolor",
+    "cyberpunk",
+    "oil_painting",
+    "sketch",
+    "cinematic",
+    "fantasy_art",
+    "pixel_art",
+    "3d_render",
+]
 
 
 class GenerateRequest(BaseModel):
