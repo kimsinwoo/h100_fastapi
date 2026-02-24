@@ -180,14 +180,17 @@ def _train_one_epoch(
         latent_list = list(noisy_typed.unsqueeze(2).unbind(dim=0))
         cap_feats = [enc[i].to(dtype) for i in range(bsz)]
         out = transformer_lora(latent_list, t, cap_feats)
-        if isinstance(out, tuple):
-            model_out_list = out[0]
+        raw = getattr(out, "sample", None)
+        if raw is None and isinstance(out, (tuple, list)):
+            raw = out[0]
+        if raw is None:
+            raw = out
+        if isinstance(raw, list):
+            pred = torch.stack([p.float() for p in raw], dim=0).squeeze(2)
+        elif isinstance(raw, torch.Tensor):
+            pred = raw.float().squeeze(2) if raw.dim() > 2 else raw.float()
         else:
-            model_out_list = out
-        if isinstance(model_out_list, list):
-            pred = torch.stack([p.float() for p in model_out_list], dim=0).squeeze(2)
-        else:
-            pred = model_out_list.float().squeeze(2) if model_out_list.dim() > 2 else model_out_list.float()
+            raise TypeError(f"Unexpected transformer output type: {type(raw).__name__}")
         # Pipeline uses -model_out as noise_pred; training target is noise
         loss = torch.nn.functional.mse_loss(-pred, noise.float(), reduction="mean") / grad_accum
         scaler.scale(loss).backward()
