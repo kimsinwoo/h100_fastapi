@@ -266,11 +266,15 @@ def run_training(style_key: str, batch_size: int = 1, grad_accum: int = 1) -> Pa
         if device == "cuda":
             torch.cuda.empty_cache()
 
-    # lora_output/{style}.safetensors 단일 파일로 저장
+    # lora_output/{style}.safetensors — diffusers load_lora_weights 호환: LoRA 어댑터만, 키는 "transformer." 접두사
     import safetensors.torch as st
-    state = transformer_lora.state_dict()
+    from peft import get_peft_model_state_dict
+    state = get_peft_model_state_dict(transformer_lora)
+    PEFT_PREFIX = "base_model.model."
+    DIFFUSERS_PREFIX = "transformer."
+    state = {DIFFUSERS_PREFIX + k.replace(PEFT_PREFIX, "", 1): v for k, v in state.items() if k.startswith(PEFT_PREFIX)}
     st.save_file(state, out_file)
-    logger.info("Saved: %s", out_file)
+    logger.info("Saved (diffusers-compatible): %s", out_file)
     return out_file
 
 
