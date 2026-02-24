@@ -56,11 +56,8 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
 
     queue = get_worker_queue()
 
-    def _run() -> GenerateResponse:
-        return run_inference(req, style_enum)
-
     try:
-        return await queue.submit(_run)
+        return await queue.submit(lambda: run_inference(req))
     except TimeoutError:
         raise HTTPException(status_code=504, detail="Inference timeout")
     except RuntimeError as e:

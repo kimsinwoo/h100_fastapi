@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     safety_checker: bool = Field(default=False)
 
     max_queue_size: int = Field(default=64, ge=1, le=256, description="Bounded queue; 20 concurrent users safe")
-    max_parallel_gpu_jobs: int = Field(default=3, ge=1, le=8)
+    max_parallel_gpu_jobs: int = Field(default=20, ge=1, le=32, description="H100: 20 workers, registry read-only")
     request_timeout_seconds: float = Field(default=60.0, ge=10.0, le=300.0)
     inference_timeout_seconds: float = Field(default=55.0, ge=10.0, le=120.0)
 

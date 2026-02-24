@@ -4,6 +4,7 @@ ModelRegistry: one pipeline per Style. No shared model. Read-only after startup.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,12 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 class ModelRegistry:
-    """One pipeline per Style. Same HF path can be loaded multiple times (separate instances)."""
+    """One pipeline per Style. Immutable after freeze(). No shared model."""
 
     def __init__(self) -> None:
         self._models: dict[Style, StableDiffusionXLPipeline] = {}
+        self._frozen = False
 
     def register(self, style: Style, model_path: str, lora_path: str | None = None) -> None:
+        if self._frozen:
+            raise RuntimeError("Registry is frozen")
         if style in self._models:
             raise RuntimeError(f"{style!r} already registered")
         import torch
@@ -71,6 +75,11 @@ class ModelRegistry:
 
         self._models[style] = pipe
         logger.info("Registered %s -> %s", style.value, model_path)
+        print(f"[REGISTRY] style={style.value} 사용중인 모델(로드됨)={model_path}", file=sys.stderr, flush=True)
+
+    def freeze(self) -> None:
+        """Freeze registry: no more register() allowed. Read-only forever."""
+        self._frozen = True
 
     def get(self, style: Style) -> StableDiffusionXLPipeline:
         if style not in self._models:
@@ -128,5 +137,6 @@ def initialize_registry() -> ModelRegistry:
     registry.register(Style.PIXEL, "nerijs/pixel-art-xl")
     registry.register(Style.RENDER3D, "stabilityai/stable-diffusion-xl-base-1.0")
 
+    registry.freeze()
     _registry = registry
     return registry
