@@ -68,6 +68,12 @@ STYLE_PROMPTS: dict[str, str] = {
         "high-polygon smooth subdivision surface, hyper-realistic detailed, studio HDRI environment lighting, "
         "photorealistic CGI, absolutely no 2D no flat illustration no sketch no painting no pixel art no hand-drawn no cartoon"
     ),
+    "omni": (
+        "masterpiece fotorealistic photograph, ultra high resolution, extreme detail, sharp vivid colors, "
+        "subject in sharp focus, natural background bokeh, 50mm lens look, depth and dimension, "
+        "fine skin hair fabric texture, soft natural light, balanced contrast, subtle shadows, "
+        "preserve original composition and structure, no excessive distortion"
+    ),
 }
 
 # ========== Negative: 최대 강화, 배제 항목 대폭 확대 ==========
@@ -133,6 +139,10 @@ STYLE_NEGATIVE_PROMPTS: dict[str, str] = {
         "watercolor, oil painting, photograph, photo, anime, "
         "lowres, blurry, ugly, duplicate, bad geometry"
     ),
+    "omni": (
+        "blurry face, wrong fingers, bad hands, text, watermark, excessive noise, distortion, "
+        "painting, cartoon, anime, lowres, plastic skin, oversharpened, overprocessed"
+    ),
 }
 
 BASE_NEGATIVE = (
@@ -153,6 +163,7 @@ STYLE_PRESETS: dict[str, str] = {
     "fantasy art": "Fantasy Art (Digital Illustration)",
     "pixel art": "Pixel Art (2D Flat Sprite)",
     "3d render": "3D Render (CGI)",
+    "omni": "Omni (Fotorealistic / High Detail)",
 }
 
 

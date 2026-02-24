@@ -117,6 +117,15 @@ class ImagePromptExpert:
             "cinematic dramatic lighting, "
             "rich color depth, highly detailed environment"
         ),
+
+        "omni": (
+            "FOTOREALISTIC HIGH-RESOLUTION PHOTOGRAPH. "
+            "((Ultra detailed, sharp focus, vivid colors)), {subject}, "
+            "50mm lens f/1.8 shallow depth of field, subject sharp with natural background bokeh, "
+            "fine skin texture, individual hair strands, fabric detail, natural soft lighting, "
+            "balanced contrast, subtle shadows, professional color science, "
+            "documentary quality, preserve original composition and structure"
+        ),
     }
 
     # ===== 스타일별 Negative =====
@@ -164,6 +173,12 @@ class ImagePromptExpert:
 
         "fantasy art": (
             "modern technology, sci-fi, pixel art, voxel, photograph"
+        ),
+
+        "omni": (
+            "blurry face, wrong fingers, bad hands, extra fingers, "
+            "text, watermark, logo, excessive noise, distortion, "
+            "painting, cartoon, anime, lowres, oversaturated, plastic skin"
         ),
     }
 

@@ -11,6 +11,7 @@ os.environ.setdefault("PYTORCH_JIT", "0")
 os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 
 import asyncio
+import contextlib
 import io
 import logging
 import time
@@ -55,9 +56,16 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "cinematic": (0.46, 0.54),
     "fantasy art": (0.48, 0.56),
     "3d render": (0.50, 0.58),
+    "omni": (0.65, 0.80),           # Omni-Image-Editor: 원본 유지 + 디테일 강화 (0.6~0.8)
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
+
+# Omni-Image-Editor 참고 (https://huggingface.co/spaces/selfit-camera/Omni-Image-Editor): num_inference_steps=50, guidance_scale=7.5
+OMNI_NUM_STEPS = 50                # Omni-Image-Editor pipeline 기본값 50
+OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
+OMNI_STEPS_MAX = 70
+OMNI_STRENGTH_MAX = 0.80
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -99,12 +107,14 @@ def _load_pipeline_sync():
         except Exception:
             pass
 
-    # xformers + Triton 3.x 호환 오류(JITCallable._set_src) 회피: xformers 미사용으로 로드
-    try:
-        import diffusers.utils.import_utils as diffusers_import_utils
-        diffusers_import_utils.is_xformers_available = lambda: False
-    except Exception:
-        pass
+    # xformers: 설정이 꺼져 있을 때만 비활성화 (H100 등에서 enable_xformers=True 시 attention 최적화)
+    _settings = get_settings()
+    if not getattr(_settings, "enable_xformers", False):
+        try:
+            import diffusers.utils.import_utils as diffusers_import_utils
+            diffusers_import_utils.is_xformers_available = lambda: False
+        except Exception:
+            pass
 
     try:
         from diffusers import ZImageImg2ImgPipeline
@@ -231,6 +241,7 @@ def _run_inference_sync(
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
+    # 전처리: EXIF 방향 적용 + 비율 유지 리사이즈 (Omni-Image-Editor 스타일: LANCZOS, 원본 구조 유지)
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
@@ -250,7 +261,34 @@ def _run_inference_sync(
         strength,
     )
 
-    with torch.inference_mode():
+    # Omni-Image-Editor 참고: optimized_inference_mode (cudnn benchmark, tf32, flash_sdp) + autocast bfloat16
+    @contextlib.contextmanager
+    def _optimized_inference_context():
+        if _device.type != "cuda":
+            yield
+            return
+        orig_benchmark = torch.backends.cudnn.benchmark
+        orig_tf32_matmul = torch.backends.cuda.matmul.allow_tf32
+        orig_tf32_cudnn = torch.backends.cudnn.allow_tf32
+        try:
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            if getattr(torch.backends.cuda, "enable_flash_sdp", None) is not None:
+                try:
+                    torch.backends.cuda.enable_flash_sdp(True)
+                except Exception:
+                    pass
+            yield
+        finally:
+            torch.backends.cudnn.benchmark = orig_benchmark
+            torch.backends.cuda.matmul.allow_tf32 = orig_tf32_matmul
+            torch.backends.cudnn.allow_tf32 = orig_tf32_cudnn
+
+    use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
+    ctx_autocast = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
+
+    with torch.inference_mode(), _optimized_inference_context(), ctx_autocast:
         result = _pipeline(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -259,7 +297,7 @@ def _run_inference_sync(
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
             generator=generator,
-            output_type="pil",   # 🔥 Let diffusers handle decoding
+            output_type="pil",
         )
 
     image = result.images[0]
@@ -336,15 +374,21 @@ async def run_image_to_image(
     if "pixel" in style_lower:
         negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX
 
-    # 스타일별 strength 상한·기본값
+    # 스타일별 strength 상한·기본값 (omni는 0.8까지 허용)
     default_st, max_st = STRENGTH_BY_STYLE.get(
         style_lower, (DEFAULT_STRENGTH_FALLBACK, STRENGTH_GLOBAL_MAX)
     )
     strength = strength if strength is not None else default_st
-    strength = max(0.0, min(STRENGTH_GLOBAL_MAX, min(1.0, strength), max_st))
+    strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
+    strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
 
-    num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
-    guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
+    # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: 기본값 또는 픽셀아트
+    if style_lower == "omni":
+        num_steps = max(1, min(OMNI_STEPS_MAX, num_steps or OMNI_NUM_STEPS))
+        guidance_scale = OMNI_GUIDANCE_SCALE
+    else:
+        num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
+        guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
 
     max_side = size or MODEL_RESOLUTION
     from PIL import Image
