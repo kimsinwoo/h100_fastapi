@@ -1,5 +1,5 @@
 """
-SDXL production routes: enum-based style only. Invalid style → 400. No fallback.
+SDXL production routes: Style Enum만 사용. 존재하지 않는 style → 400. Fallback 금지.
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from app.sdxl_prod.inference import run_inference
+from app.sdxl_prod.inference import inference_result_to_response, run_inference
 from app.sdxl_prod.model_registry import get_registry, initialize_registry
 from app.sdxl_prod.schemas import GenerateRequest, GenerateResponse
 from app.sdxl_prod.style_enum import Style, style_from_request_value
@@ -30,11 +30,11 @@ def get_worker_queue() -> WorkerQueue:
 
 
 def run_sdxl_prod_startup() -> None:
-    """Load one pipeline per style at startup. No shared model. Call once from lifespan."""
+    """서버 시작 시 1회: 모든 스타일 preload. 이후 모델 로딩 없음."""
     try:
         initialize_registry()
         get_worker_queue()
-        logger.info("SDXL production startup complete (enum-based registry)")
+        logger.info("SDXL production startup complete; registry frozen")
     except Exception as e:
         logger.exception("SDXL production startup failed: %s", e)
         raise
@@ -50,14 +50,15 @@ async def health() -> dict[str, Any]:
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
     try:
-        style_enum = style_from_request_value(req.style)
+        style_from_request_value(req.style)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     queue = get_worker_queue()
 
     try:
-        return await queue.submit(lambda: run_inference(req))
+        result = await queue.submit(lambda: run_inference(req))
+        return GenerateResponse(**inference_result_to_response(result))
     except TimeoutError:
         raise HTTPException(status_code=504, detail="Inference timeout")
     except RuntimeError as e:
