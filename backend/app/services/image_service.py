@@ -224,14 +224,16 @@ def _run_inference_sync(
 ) -> bytes:
 
     import torch
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     global _pipeline, _device
 
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
     target_w, target_h = width, height
     if img.width != target_w or img.height != target_h:
         img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)

@@ -18,7 +18,6 @@ _lock = threading.RLock()
 _loaded: dict[str, list[str]] = {}
 
 PEFT_PREFIX = "base_model.model."
-DIFFUSERS_PREFIX = "transformer."
 
 
 def _load_safetensors_state_dict(path: Path) -> dict[str, Any]:
@@ -35,16 +34,28 @@ def _is_old_peft_format(state_dict: dict[str, Any]) -> bool:
 
 
 def _convert_old_peft_to_diffusers(state_dict: dict[str, Any]) -> dict[str, Any]:
-    """PEFT 전체 state_dict에서 LoRA 키만 남기고 transformer. 접두사로 변환."""
+    """PEFT 전체 state_dict에서 LoRA 키만 남기고, transformer 내부 경로만 사용 (접두사 없음)."""
     out = {}
     for k, v in state_dict.items():
         if not k.startswith(PEFT_PREFIX):
             continue
         if "lora_A" not in k and "lora_B" not in k:
             continue
-        new_key = DIFFUSERS_PREFIX + k.replace(PEFT_PREFIX, "", 1)
+        new_key = k.replace(PEFT_PREFIX, "", 1)
         out[new_key] = v
     return out
+
+
+def _ensure_transformer_internal_keys(state_dict: dict[str, Any]) -> dict[str, Any]:
+    """LoRA 키에서 'transformer.' 접두사가 있으면 제거해 diffusers가 transformer 내부에서 매칭하도록 함."""
+    prefix = "transformer."
+    out = {}
+    for k, v in state_dict.items():
+        if "lora_A" not in k and "lora_B" not in k:
+            continue
+        new_key = k[len(prefix):] if k.startswith(prefix) else k
+        out[new_key] = v
+    return out if out else state_dict
 
 
 def load_lora(
@@ -93,13 +104,22 @@ def load_lora(
             lora_scale=scale,
         )
     else:
-        weight_name = path.name if path.suffix == ".safetensors" else None
-        pipe.load_lora_weights(
-            str(path.parent),
-            weight_name=weight_name or path.name,
-            adapter_name=name,
-            lora_scale=scale,
-        )
+        # 이미 diffusers 형식이어도 키에 "transformer." 접두사가 있으면 제거 (Target modules not found 방지)
+        state_dict = _ensure_transformer_internal_keys(raw_dict)
+        if state_dict:
+            pipe.load_lora_weights(
+                state_dict,
+                adapter_name=name,
+                lora_scale=scale,
+            )
+        else:
+            weight_name = path.name if path.suffix == ".safetensors" else None
+            pipe.load_lora_weights(
+                str(path.parent),
+                weight_name=weight_name or path.name,
+                adapter_name=name,
+                lora_scale=scale,
+            )
     with _lock:
         _loaded.setdefault(pid, []).append(name)
 

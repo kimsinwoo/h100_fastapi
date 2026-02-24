@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 PEFT_PREFIX = "base_model.model."
-DIFFUSERS_PREFIX = "transformer."
 
 
 def main() -> int:
@@ -41,7 +40,7 @@ def main() -> int:
             continue
         if "lora_A" not in k and "lora_B" not in k:
             continue
-        new_key = DIFFUSERS_PREFIX + k.replace(PEFT_PREFIX, "", 1)
+        new_key = k.replace(PEFT_PREFIX, "", 1)
         converted[new_key] = v
 
     if not converted:
