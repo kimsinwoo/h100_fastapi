@@ -106,7 +106,7 @@ def _load_pipeline(device: str, dtype: torch.dtype) -> Any:
 
 
 def _apply_lora(transformer: Any, target_modules: list[str], rank: int, alpha: int) -> Any:
-    from peft import LoraConfig, get_peft_model, TaskType
+    from peft import LoraConfig, PeftModel, TaskType
     if not target_modules:
         raise ValueError("target_modules empty")
     cfg = LoraConfig(
@@ -118,7 +118,10 @@ def _apply_lora(transformer: Any, target_modules: list[str], rank: int, alpha: i
         task_type=TaskType.FEATURE_EXTRACTION,
         inference_mode=False,
     )
-    return get_peft_model(transformer, cfg)
+    # DiT(ZImageTransformer2DModel)는 forward(x_list, timestep, cap_feats) 시그니처를 쓰므로
+    # PeftModelForFeatureExtraction을 쓰면 input_ids 등 NLP 전용 kwargs가 주입되어 에러 발생.
+    # base PeftModel을 사용해 forward(*args, **kwargs)가 그대로 base_model에 전달되도록 함.
+    return PeftModel(transformer, cfg)
 
 
 def _collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
