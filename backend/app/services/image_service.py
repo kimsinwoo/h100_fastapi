@@ -71,7 +71,7 @@ def _resolve_device():
 
 
 # ============================================================
-# Load Pipeline (단일 Z-Image-Turbo. style_router는 SDXL/Animagine 멀티 모델용으로 별도 경로에서만 사용)
+# Load Pipeline (단일 Z-Image-Turbo)
 # ============================================================
 
 def _load_pipeline_sync():
@@ -179,6 +179,11 @@ async def get_pipeline():
                 None, _load_pipeline_sync
             )
         return _pipeline
+
+
+def is_pipeline_loaded() -> bool:
+    """Z-Image-Turbo 파이프라인 로드 여부 (health 등에서 사용)."""
+    return _pipeline is not None
 
 
 # ============================================================

@@ -1,5 +1,5 @@
 """
-Application configuration. Pydantic v2 settings. SDXL image service.
+Application configuration. Pydantic v2 settings. Z-Image-Turbo 전용.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         protected_namespaces=("settings_",),
     )
 
-    app_name: str = Field(default="SDXL Image Service")
+    app_name: str = Field(default="Z-Image-Turbo Service")
     debug: bool = Field(default=False)
     environment: Literal["development", "staging", "production"] = Field(default="development")
 
@@ -41,9 +41,6 @@ class Settings(BaseSettings):
         default="Tongyi-MAI/Z-Image-Turbo",
         description="Hugging Face model ID for Z-Image img2img (로컬에서 실행)",
     )
-    # SDXL models (commercial-safe: Stability AI SDXL 1.0, Animagine XL)
-    sdxl_base_id: str = Field(default="stabilityai/stable-diffusion-xl-base-1.0")
-    animagine_xl_id: str = Field(default="cagliostrolab/animagine-xl-3.0")
 
     device: Literal["cuda", "cpu", "auto"] = Field(default="auto")
     torch_dtype: Literal["float16", "bfloat16"] = Field(default="bfloat16")
