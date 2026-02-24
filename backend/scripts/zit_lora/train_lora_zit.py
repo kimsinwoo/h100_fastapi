@@ -20,6 +20,26 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 os.environ.setdefault("PYTORCH_JIT", "0")
 
+# torch / torchvision 호환성 검사 (transformers가 torchvision을 쓰므로 먼저 검사)
+def _check_torch_torchvision() -> None:
+    import torch
+    try:
+        import torchvision  # noqa: F401
+    except RuntimeError as e:
+        if "torchvision::nms" in str(e) or "does not exist" in str(e):
+            print(
+                "ERROR: torch와 torchvision 버전이 맞지 않습니다.\n"
+                "다음 중 하나로 맞춰 설치한 뒤 다시 실행하세요:\n"
+                "  pip install torch torchvision --upgrade\n"
+                "또는 PyTorch 공식에 맞춰 (예: CUDA 12.1):\n"
+                "  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121\n",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
+
+_check_torch_torchvision()
+
 from config import (
     STYLE_CONFIGS,
     STYLE_DATASET,
