@@ -38,9 +38,9 @@ def _convert_old_peft_to_diffusers(state_dict: dict[str, Any]) -> dict[str, Any]
     """PEFT 전체 state_dict에서 LoRA 키만 남기고 transformer. 접두사로 변환."""
     out = {}
     for k, v in state_dict.items():
-        if "lora_A" not in k and "lora_B" not in k:
-            continue
         if not k.startswith(PEFT_PREFIX):
+            continue
+        if "lora_A" not in k and "lora_B" not in k:
             continue
         new_key = DIFFUSERS_PREFIX + k.replace(PEFT_PREFIX, "", 1)
         out[new_key] = v
@@ -72,13 +72,19 @@ def load_lora(
         if name in _loaded[pid]:
             return
 
-    state_dict = _load_safetensors_state_dict(path)
-    if _is_old_peft_format(state_dict):
-        state_dict = _convert_old_peft_to_diffusers(state_dict)
+    raw_dict = _load_safetensors_state_dict(path)
+    if _is_old_peft_format(raw_dict):
+        state_dict = _convert_old_peft_to_diffusers(raw_dict)
         if not state_dict:
+            sample = list(raw_dict.keys())[:15]
+            logger.warning(
+                "LoRA file has base_model.model.* but no lora_A/lora_B keys. "
+                "Sample keys: %s. Re-train with updated train_lora_zit.py.",
+                sample,
+            )
             raise ValueError(
-                "LoRA file is old PEFT format but has no lora_A/lora_B keys. "
-                "Re-train with the updated train_lora_zit.py and use the new .safetensors."
+                "LoRA file is old format without lora_A/lora_B. "
+                "Re-train with current train_lora_zit.py to save diffusers-compatible LoRA."
             )
         logger.info("Converted old PEFT LoRA to diffusers format (%d keys)", len(state_dict))
         pipe.load_lora_weights(
