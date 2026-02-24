@@ -1,18 +1,17 @@
 """
-FastAPI routes for SDXL production: POST /generate, GET /health.
-Structured errors, validation, queue submit with timeout.
+SDXL production routes: enum-based style only. Invalid style → 400. No fallback.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 
-from app.sdxl_prod.inference import _run_inference
-from app.sdxl_prod.lora_manager import preload_lora_paths
-from app.sdxl_prod.model_manager import initialize_all_pipelines
+from app.sdxl_prod.inference import run_inference
+from app.sdxl_prod.model_registry import get_registry, initialize_registry
 from app.sdxl_prod.schemas import GenerateRequest, GenerateResponse
+from app.sdxl_prod.style_enum import Style, style_from_request_value
 from app.sdxl_prod.worker_queue import WorkerQueue
 
 logger = logging.getLogger(__name__)
@@ -20,17 +19,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sdxl", tags=["sdxl"])
 
 _worker_queue: WorkerQueue | None = None
-
-
-def run_sdxl_prod_startup() -> None:
-    """Call from app lifespan: preload pipelines, LoRA paths, start worker queue."""
-    try:
-        initialize_all_pipelines()
-        preload_lora_paths(["watercolor", "oil_painting", "sketch"])
-        get_worker_queue()
-        logger.info("SDXL production startup complete")
-    except Exception as e:
-        logger.warning("SDXL production startup failed: %s", e)
 
 
 def get_worker_queue() -> WorkerQueue:
@@ -41,33 +29,44 @@ def get_worker_queue() -> WorkerQueue:
     return _worker_queue
 
 
+def run_sdxl_prod_startup() -> None:
+    """Load one pipeline per style at startup. No shared model. Call once from lifespan."""
+    try:
+        initialize_registry()
+        get_worker_queue()
+        logger.info("SDXL production startup complete (enum-based registry)")
+    except Exception as e:
+        logger.exception("SDXL production startup failed: %s", e)
+        raise
+
+
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    from app.sdxl_prod.model_manager import list_loaded_model_keys
-    return {
-        "status": "ok",
-        "models_loaded": list_loaded_model_keys(),
-    }
+    registry = get_registry()
+    loaded = [s.value for s in Style if s in registry]
+    return {"status": "ok", "styles_loaded": loaded}
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate(request: Request, req: GenerateRequest) -> GenerateResponse:
-    queue = get_worker_queue()
+async def generate(req: GenerateRequest) -> GenerateResponse:
     try:
-        result = await queue.submit(lambda r=req: _run_inference(r))
-        return result
+        style_enum = style_from_request_value(req.style)
     except ValueError as e:
-        logger.info("Validation error: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
-    except TimeoutError as e:
-        logger.warning("Inference timeout: %s", e)
+
+    queue = get_worker_queue()
+
+    def _run() -> GenerateResponse:
+        return run_inference(req, style_enum)
+
+    try:
+        return await queue.submit(_run)
+    except TimeoutError:
         raise HTTPException(status_code=504, detail="Inference timeout")
     except RuntimeError as e:
         if "OOM" in str(e) or "out of memory" in str(e).lower():
             raise HTTPException(status_code=503, detail="GPU OOM")
         raise HTTPException(status_code=500, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=503, detail=f"Model not available: {e}")
     except Exception as e:
         logger.exception("Generate failed: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
