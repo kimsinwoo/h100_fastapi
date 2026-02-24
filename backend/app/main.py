@@ -32,6 +32,14 @@ from app.sd15.model_manager import is_model_loaded as sd15_model_loaded
 from app.sd15.routes import router as sd15_router, run_sd15_startup
 from app.utils.file_handler import ensure_generated_dir
 
+try:
+    from app.sdxl_prod.routes import router as sdxl_prod_router, run_sdxl_prod_startup
+    SDXL_PROD_AVAILABLE = True
+except Exception:
+    SDXL_PROD_AVAILABLE = False
+    sdxl_prod_router = None
+    run_sdxl_prod_startup = None
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +67,9 @@ async def lifespan(app: FastAPI):
     logger.info("Static directory ready: %s", settings.generated_dir)
     # SD 1.5만 사용 — Hugging Face에서 다운로드 후 로컬에서 추론 (로컬 model_path 없으면 model_id 사용)
     run_sd15_startup()
+    # SDXL production (H100 multi-model): preload pipelines + worker queue
+    if SDXL_PROD_AVAILABLE and run_sdxl_prod_startup is not None:
+        run_sdxl_prod_startup()
     yield
     logger.info("Shutting down")
 
@@ -92,8 +103,10 @@ def create_app() -> FastAPI:
         logger.info("%s %s %s %.3fs", request.method, request.url.path, response.status_code, duration)
         return response
 
-    # SD 1.5 API만 등록 (Z-Image/SDXL API는 배제)
+    # SD 1.5 API + optional SDXL production (H100)
     app.include_router(sd15_router)
+    if SDXL_PROD_AVAILABLE and sdxl_prod_router is not None:
+        app.include_router(sdxl_prod_router)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -222,8 +235,10 @@ def _get_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 프록시가 /health, /sd15/* 만 보낼 때 404 방지: 루트에 동일 라우트 등록 (접두사 없이 호출 가능)
+    # 프록시가 /health, /sd15/*, /sdxl/* 만 보낼 때 404 방지: 루트에 동일 라우트 등록 (접두사 없이 호출 가능)
     root.include_router(sd15_router)
+    if SDXL_PROD_AVAILABLE and sdxl_prod_router is not None:
+        root.include_router(sdxl_prod_router)
 
     @root.get("/health")
     async def _health() -> dict[str, str | bool]:
