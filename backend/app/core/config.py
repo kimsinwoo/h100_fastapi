@@ -83,6 +83,11 @@ class Settings(BaseSettings):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    # LoRA 학습 결과 (train_lora_zit.py 출력) — 스타일별 추론 시 여기서 로드
+    @property
+    def lora_output_dir(self) -> Path:
+        return self.backend_dir / "lora_output"
+
     @property
     def upload_max_bytes(self) -> int:
         return self.upload_max_size_mb * 1024 * 1024

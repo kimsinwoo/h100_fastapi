@@ -18,8 +18,17 @@ import warnings
 from typing import Any
 
 from app.core.config import get_settings
+from app.lora.manager import load_lora
 from app.models.image_prompt_expert import ImagePromptExpert
 from app.models.style_presets import get_style_negative_prompt
+
+# 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
+STYLE_TO_LORA_FILENAME: dict[str, str] = {
+    "3d render": "3d_render.safetensors",
+    "cyberpunk": "cyberpunk.safetensors",
+    "pixel art": "pixel_art.safetensors",
+}
+LORA_SCALE = 0.85
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +287,31 @@ async def run_image_to_image(
 
     settings = get_settings()
     style_lower = style_key.lower().strip()
+
+    # 학습된 LoRA가 있으면 해당 스타일용으로 로드 후 추론 (3D Render, Cyberpunk, Pixel Art)
+    lora_filename = STYLE_TO_LORA_FILENAME.get(style_lower)
+    lora_path = settings.lora_output_dir / lora_filename if lora_filename else None
+    if lora_path and lora_path.exists():
+        adapter_name = "lora_" + style_lower.replace(" ", "_")
+        try:
+            load_lora(pipe, lora_path, scale=LORA_SCALE, adapter_name=adapter_name)
+            if hasattr(pipe, "set_adapters"):
+                pipe.set_adapters([adapter_name])
+            logger.info("LoRA loaded for style %s: %s", style_lower, lora_path)
+        except Exception as e:
+            logger.warning("LoRA load failed for %s (%s), using base model: %s", style_lower, lora_path, e)
+            if hasattr(pipe, "set_adapters"):
+                try:
+                    pipe.set_adapters([])
+                except Exception:
+                    pass
+    else:
+        # 해당 스타일에 LoRA 없음 또는 파일 없음 → base 모델만 사용
+        if hasattr(pipe, "set_adapters"):
+            try:
+                pipe.set_adapters([])
+            except Exception:
+                pass
 
     # ImagePromptExpert + 구성 유지 (복잡한 사진도 레이아웃 유지)
     compiled = ImagePromptExpert.compile(

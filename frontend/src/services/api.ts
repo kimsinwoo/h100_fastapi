@@ -40,7 +40,7 @@ const uploadApi = axios.create({
   timeout: 120_000,
 });
 
-/** SDXL API: prompt 필수, image 선택. 응답은 image_url, processing_time_seconds → 공통 형식으로 정규화 */
+/** Z-Image / SDXL: style + image. Z-Image 응답은 original_url, generated_url, processing_time */
 export async function generateImage(
   file: File,
   style: string,
@@ -60,12 +60,18 @@ export async function generateImage(
   form.append("width", "1024");
   form.append("height", "1024");
 
-  type SdxlResponse = { image_url: string; processing_time_seconds: number };
-  const { data } = await uploadApi.post<SdxlResponse>("/api/generate", form);
+  type ApiResponse = {
+    original_url?: string;
+    generated_url?: string;
+    image_url?: string;
+    processing_time?: number;
+    processing_time_seconds?: number;
+  };
+  const { data } = await uploadApi.post<ApiResponse>("/api/generate", form);
   return {
-    original_url: "",
-    generated_url: data.image_url,
-    processing_time: data.processing_time_seconds,
+    original_url: data.original_url ?? "",
+    generated_url: data.generated_url ?? data.image_url ?? "",
+    processing_time: data.processing_time ?? data.processing_time_seconds ?? 0,
   };
 }
 
