@@ -333,7 +333,8 @@ def _run_inference_omnigen_sync(
         generator.manual_seed(seed)
 
     omni_prompt = "<img><|image_1|></img> " + prompt
-    use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
+    # OmniGen VAE decode 시 bfloat16 autocast가 하얀 출력을 유발할 수 있어 비활성화
+    use_autocast = False
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
     logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f", num_steps, guidance_scale, img_guidance_scale)
@@ -345,9 +346,26 @@ def _run_inference_omnigen_sync(
             img_guidance_scale=img_guidance_scale,
             num_inference_steps=num_steps,
             use_input_image_size_as_output=True,
+            max_input_image_size=1024,
             generator=generator,
+            output_type="pil",
         )
-    out_pil = result.images[0]
+    images = result.images if hasattr(result, "images") else result
+    if isinstance(images, list):
+        out_pil = images[0] if images else None
+    else:
+        out_pil = images
+    if out_pil is None:
+        raise RuntimeError("OmniGen returned no image")
+    if isinstance(out_pil, Image.Image):
+        out_pil = out_pil.convert("RGB")
+    else:
+        import numpy as np
+        out_pil = Image.fromarray(np.asarray(out_pil)).convert("RGB")
+    import numpy as np
+    arr = np.asarray(out_pil)
+    if arr.size and (arr.max() == arr.min() and arr.max() in (0, 255)):
+        logger.warning("OmniGen output appears blank (min=%s max=%s). Try different seed or prompt.", arr.min(), arr.max())
     buf = io.BytesIO()
     out_pil.save(buf, format="PNG")
     return buf.getvalue()
