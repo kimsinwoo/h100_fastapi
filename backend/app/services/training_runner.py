@@ -63,6 +63,8 @@ def _run_lora_script_sync() -> tuple[bool, str]:
     env["TRAINING_IMAGES_DIR"] = str(images_dir)
     env["TRAINING_DATASET_JSON"] = str(training_dir / "dataset.json")
     env["TRAINING_CATEGORY"] = (_training_category or "").strip()
+    # 학습 완료 시 LoRA safetensors가 저장되는 경로 (zit_lora_training이 사용)
+    env["LORA_OUTPUT_DIR"] = str(settings.lora_dir)
 
     try:
         _training_running = True

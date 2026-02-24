@@ -72,7 +72,7 @@ def _run_training(prepared_dir: str, data_dir: str) -> bool:
     """
     LoRA 학습 실행.
     - LORA_TRAIN_CMD 환경변수가 있으면 해당 명령 실행 (PREPARED_DIR, TRAINING_DATA_DIR 전달).
-    - 없으면 준비만 완료로 간주하고 True 반환 (Kohya_ss 등으로 수동 학습 가능).
+    - 없으면 프로젝트 루트의 zit_lora_training(Z-Image-Turbo LoRA)을 호출. 없을 경우 준비만 완료.
     """
     import subprocess
     cmd = os.environ.get("LORA_TRAIN_CMD", "").strip()
@@ -90,8 +90,39 @@ def _run_training(prepared_dir: str, data_dir: str) -> bool:
             return False
         print("LoRA training command finished successfully.")
         return True
+
+    # zit_lora_training (Z-Image-Turbo LoRA) 경로: talktailForPet/zit_lora_training
+    # run_lora_training.py 위치: zimage_webapp/scripts/ -> parent.parent = zimage_webapp, parent.parent.parent = talktailForPet
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parent.parent  # talktailForPet
+    zit_lora_dir = repo_root / "zit_lora_training"
+    train_script = zit_lora_dir / "train_lora_zit.py"
+    lora_output_raw = os.environ.get("LORA_OUTPUT_DIR", "").strip() or str(Path(data_dir).parent / "lora")
+    lora_output = str(Path(lora_output_raw).resolve())
+    dataset_dir_abs = str(Path(prepared_dir).resolve())
+    Path(lora_output).mkdir(parents=True, exist_ok=True)
+
+    if train_script.exists():
+        try:
+            ret = subprocess.run(
+                [sys.executable, str(train_script), "--dataset_dir", dataset_dir_abs, "--output_dir", lora_output],
+                cwd=str(zit_lora_dir),
+                env=os.environ.copy(),
+                timeout=86400,
+            )
+            if ret.returncode != 0:
+                print("Z-Image-Turbo LoRA training failed with code", ret.returncode, file=sys.stderr)
+                return False
+            print("Z-Image-Turbo LoRA training finished. Output:", lora_output)
+            return True
+        except subprocess.TimeoutExpired:
+            print("LoRA training timed out.", file=sys.stderr)
+            return False
+        except Exception as e:
+            print("LoRA training error:", e, file=sys.stderr)
+            return False
     print("Prepared dataset at:", prepared_dir)
-    print("To run real training, set LORA_TRAIN_CMD (e.g. Kohya_ss train_network.py) or run your trainer manually.")
+    print("zit_lora_training not found at", zit_lora_dir, "- set LORA_TRAIN_CMD or run trainer manually.")
     return True
 
 

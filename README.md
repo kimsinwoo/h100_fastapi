@@ -47,6 +47,14 @@ zimage_webapp/
 └── README.md
 ```
 
+## LoRA 학습 (Z-Image-Turbo)
+
+웹에서 **학습 데이터**(이미지 + 캡션)를 올린 뒤 **POST /api/training/start** 를 호출하면, 백엔드가 백그라운드에서 **Z-Image-Turbo LoRA** 학습을 돌립니다.
+
+- **데이터**: `/api/training/items` 로 이미지·캡션·카테고리 추가. `POST /api/training/start` 시 `data/training/` 의 데이터를 `prepared_for_training/` (png+txt) 로 준비한 뒤, **talktailForPet/zit_lora_training** 의 `train_lora_zit.py` 를 `--dataset_dir` / `--output_dir` 로 실행합니다.
+- **저장 위치**: 학습이 끝나면 LoRA 가 **backend/data/lora** (또는 설정의 `lora_adapters_dir`) 에 safetensors 로 저장됩니다.
+- **필요 조건**: 프로젝트 루트에 **zit_lora_training** 폴더가 있어야 합니다 (같은 저장소의 `zit_lora_training`). 없으면 `LORA_TRAIN_CMD` 환경변수로 다른 학습 스크립트를 지정할 수 있습니다.
+
 ## Run instructions
 
 ### AI 서버 하나로 실행 (프론트 포함, MIME 오류 방지)
