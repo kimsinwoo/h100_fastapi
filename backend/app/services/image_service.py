@@ -21,7 +21,7 @@ from typing import Any
 from app.core.config import get_settings
 from app.lora.manager import load_lora
 from app.models.image_prompt_expert import ImagePromptExpert
-from app.models.style_presets import get_style_negative_prompt
+from app.models.style_presets import get_style_negative_prompt, get_style_prompt
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
@@ -519,13 +519,15 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen(Omni) 사용 시: 이미지 편집 지시만 전달 (긴 t2i 스타일 문장 쓰면 입력 이미지 무시·무관한 이미지 생성)
+    # OmniGen(Omni) 사용 시: 편집 지시 + 스타일 프롬프트 적용 (스타일이 실제로 반영되도록)
     if _use_omnigen:
         custom = (custom_prompt or "").strip()
+        style_desc = get_style_prompt(style_lower)
+        style_hint = style_desc[:220].strip() if len(style_desc) > 220 else style_desc
         prompt = (
             "Edit this image. Keep the same subject, composition, and layout. "
-            "Apply style: %s. Preserve original composition and subject, high detail, sharp focus."
-        ) % style_lower
+            "Apply this style: %s. Preserve original composition and subject, high detail, sharp focus."
+        ) % style_hint
         if custom:
             prompt = prompt + " " + custom[:200]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
