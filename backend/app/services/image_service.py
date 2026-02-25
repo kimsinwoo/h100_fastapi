@@ -68,9 +68,9 @@ OMNI_NUM_STEPS = 24
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# img edit: guidance 낮추면 속도↑ but img_guidance 너무 낮으면 입력 이미지 무시됨(흰화면/무관한 이미지). 1.5로 입력 이미지 강하게 반영
+# Omni-Image-Editor / OmniGen img2img: 원본 형태 유지하려면 img_guidance 충분히 높여야 함 (공식 예 1.6, 1.8~2.0 권장)
 OMNI_EDIT_GUIDANCE_SCALE = 1.7
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.5
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.8
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -409,7 +409,7 @@ def _run_inference_omnigen_sync(
     guidance_scale: float = OMNI_EDIT_GUIDANCE_SCALE,
     img_guidance_scale: float = OMNI_EDIT_IMG_GUIDANCE_SCALE,
 ) -> bytes:
-    """OmniGen(Omni) 이미지 편집: diffusers 요구 형식 <img><|image_1|></img> + input_images."""
+    """OmniGen(Omni) 이미지 편집: Omni-Image-Editor처럼 <img><|image_1|></img> + input_images, use_input_image_size_as_output로 원본 크기 유지."""
     import torch
     from PIL import Image, ImageOps
 
@@ -433,6 +433,7 @@ def _run_inference_omnigen_sync(
     if seed is not None:
         generator.manual_seed(seed)
 
+    # OmniGen 공식: placeholder를 문장 앞에 두고, "이 이미지"를 편집 지시로 참조 (img2img 품질 향상)
     omni_prompt = "<img><|image_1|></img> " + prompt
     # OmniGen VAE decode 시 bfloat16 autocast가 하얀 출력을 유발할 수 있어 비활성화
     use_autocast = False
@@ -519,14 +520,15 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen(Omni) 사용 시: 편집 지시 + 스타일 프롬프트 적용 (스타일이 실제로 반영되도록)
+    # OmniGen(Omni) 사용 시: Omni-Image-Editor처럼 이미지 우선 참조 + 원본 유지 지시 (img2img에 가깝게)
     if _use_omnigen:
         custom = (custom_prompt or "").strip()
         style_desc = get_style_prompt(style_lower)
-        style_hint = style_desc[:220].strip() if len(style_desc) > 220 else style_desc
+        style_hint = style_desc[:120].strip() if len(style_desc) > 120 else style_desc
+        # 공식: "이미지 placeholder를 문장 안에서 참조" + "원본 유지" 명시 → 입력 이미지 구조 유지
         prompt = (
-            "Edit this image. Keep the same subject, composition, and layout. "
-            "Apply this style: %s. Preserve original composition and subject, high detail, sharp focus."
+            "Preserve the exact composition, subject, and layout of this image. "
+            "Only change the style to: %s. Keep the same pose, structure, and scene."
         ) % style_hint
         if custom:
             prompt = prompt + " " + custom[:200]
