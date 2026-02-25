@@ -68,9 +68,9 @@ OMNI_NUM_STEPS = 24
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# OmniGen 이미지 편집: HF 데모와 동일하게 img_guidance 높여서 입력 이미지 강하게 반영 (2.0)
-OMNI_EDIT_GUIDANCE_SCALE = 1.7
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 2.0
+# OmniGen: HF에서 "pixel art"만 넣어도 동작하도록 guidance (공식 edit 예시 guidance_scale=2, img_guidance=1.6)
+OMNI_EDIT_GUIDANCE_SCALE = 2.0
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -433,8 +433,9 @@ def _run_inference_omnigen_sync(
     if seed is not None:
         generator.manual_seed(seed)
 
-    # OmniGen 공식: placeholder를 문장 앞에 두고, "이 이미지"를 편집 지시로 참조 (img2img 품질 향상)
+    # diffusers OmniGen: prompt에 placeholder 필수. HF처럼 "pixel art"만 넣으려면 여기서 "<img><|image_1|></img> " + prompt
     omni_prompt = "<img><|image_1|></img> " + prompt
+    logger.info("[프롬프트] %s", omni_prompt)
     # OmniGen VAE decode 시 bfloat16 autocast가 하얀 출력을 유발할 수 있어 비활성화
     use_autocast = False
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
@@ -520,28 +521,16 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen(Omni): HF 데모처럼 짧은 편집 지시만 사용. 긴 스타일 문장 쓰면 입력 무시되고 새 장면 생성됨(예: 픽셀→하늘/구름)
+    # ----- OmniGen 이미지 편집 (diffusers) -----
+    # [원인] 긴 프롬프트("Convert...", 스타일 문장 120자 등) → 입력 이미지 무시, 스타일 키워드만으로 새 장면 생성(예: 픽셀→하늘/구름).
+    # [참고] Omni-Image-Editor/pipeline.py는 별도 구현: placeholder 없이 input_images를 visual_encoder로 인코딩해 visual_conditions로 넣음.
+    # 우리는 diffusers OmniGenPipeline 사용 → 공식대로 placeholder "<img><|image_1|></img> " + 지시문. HF에서 "pixel art"만 넣으면 되므로 스타일 키워드만 전달.
     if _use_omnigen:
         custom = (custom_prompt or "").strip()
-        # 스타일 키만 또는 한 줄 힌트. get_style_prompt() 길게 넣으면 "픽셀아트"만으로 새 이미지 생성함
-        style_edit_hint = {
-            "pixel art": "pixel art style",
-            "realistic": "realistic photograph style",
-            "anime": "anime style",
-            "cyberpunk": "cyberpunk neon style",
-            "watercolor": "watercolor painting style",
-            "oil painting": "oil painting style",
-            "sketch": "pencil sketch style",
-            "cinematic": "cinematic film style",
-            "fantasy art": "fantasy art style",
-            "3d render": "3D render style",
-            "omni": "high detail photograph style",
-        }.get(style_lower, f"{style_lower} style")
-        prompt = (
-            "Convert this image to %s. Keep the same subject, composition, and layout. Do not change the scene or add new objects."
-        ) % style_edit_hint
+        # HF 데모와 동일하게 스타일 키워드만 (예: "pixel art"). 문장 길게 넣으면 입력 이미지 무시되고 새 장면 생성됨
+        prompt = style_lower
         if custom:
-            prompt = prompt + " " + custom[:150]
+            prompt = prompt + ", " + custom[:150]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
@@ -604,6 +593,9 @@ async def run_image_to_image(
         pass
     if "pixel" in style_lower:
         negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX
+
+    logger.info("[프롬프트] %s", prompt)
+    logger.info("[네거티브 프롬프트] %s", negative_prompt[:200] + ("..." if len(negative_prompt) > 200 else ""))
 
     # 스타일별 strength 상한·기본값 (omni는 0.8까지 허용)
     default_st, max_st = STRENGTH_BY_STYLE.get(
