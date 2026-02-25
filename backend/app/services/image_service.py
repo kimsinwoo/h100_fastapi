@@ -68,9 +68,9 @@ OMNI_NUM_STEPS = 24
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# OmniGen: HF에서 "pixel art"만 넣어도 동작하도록 guidance (공식 edit 예시 guidance_scale=2, img_guidance=1.6)
+# OmniGen: 텍스트보다 입력 이미지 우선하도록 img_guidance 높임 (낮으면 원본 무시·다른 장면 생성)
 OMNI_EDIT_GUIDANCE_SCALE = 2.0
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 2.5
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -521,12 +521,12 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen: 처음 모델 바꿨을 때처럼 ImagePromptExpert.compile() 사용 (픽셀아트/사이버펑크 등 스타일별 정상 동작)
+    # OmniGen: 긴 프롬프트는 "새 장면 생성"으로 해석돼 입력 이미지가 무시됨 → 짧은 스타일 지시만 사용
     if _use_omnigen:
-        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
-        prompt = compiled["final_prompt"] + (
-            ", high detail, sharp focus, preserve original composition and subject."
-        )
+        style_phrase = style_lower.replace("_", " ") if style_lower else "realistic"
+        prompt = f"{style_phrase} style. Keep the same subject, composition, and layout."
+        if (custom_prompt or "").strip():
+            prompt = prompt + " " + (custom_prompt or "").strip()[:120]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
