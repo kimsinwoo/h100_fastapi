@@ -64,13 +64,13 @@ DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
 # Omni 스타일 / OmniGen: H100 속도 우선 steps (24)
-OMNI_NUM_STEPS = 24
+OMNI_NUM_STEPS = 20
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# OmniGen: 텍스트보다 입력 이미지 우선하도록 img_guidance 높임 (낮으면 원본 무시·다른 장면 생성)
-OMNI_EDIT_GUIDANCE_SCALE = 2.0
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 2.5
+# OmniGen edit: 구조 유지(3~4.5) vs 강한 변형(1.5~2.5). 4.5로 구도/비율 유지, steps 20으로 과변형 억제
+OMNI_EDIT_GUIDANCE_SCALE = 1.6
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 4.5
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -521,12 +521,16 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen: 긴 프롬프트는 "새 장면 생성"으로 해석돼 입력 이미지가 무시됨 → 짧은 스타일 지시만 사용
+    # OmniGen: 구체적 제약 문장으로 구조 유지 (과장/왜곡 억제). img_guidance 4.5와 짝으로 사용
     if _use_omnigen:
         style_phrase = style_lower.replace("_", " ") if style_lower else "realistic"
-        prompt = f"{style_phrase} style. Keep the same subject, composition, and layout."
+        prompt = (
+            f"{style_phrase} style, "
+            "preserve exact subject identity, preserve exact anatomy, "
+            "no distortion, same composition, same camera framing"
+        )
         if (custom_prompt or "").strip():
-            prompt = prompt + " " + (custom_prompt or "").strip()[:120]
+            prompt = prompt + ", " + (custom_prompt or "").strip()[:100]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
