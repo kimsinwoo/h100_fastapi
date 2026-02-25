@@ -21,7 +21,7 @@ from typing import Any
 from app.core.config import get_settings
 from app.lora.manager import load_lora
 from app.models.image_prompt_expert import ImagePromptExpert
-from app.models.style_presets import get_style_negative_prompt, get_style_prompt
+from app.models.style_presets import get_style_negative_prompt
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
@@ -521,18 +521,12 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # ----- OmniGen 이미지 편집 (diffusers) -----
-    # style_presets.py 사용: 스타일마다 다른 프롬프트로 생성 결과가 구분되도록. "같은 구도 유지"를 앞에 두어 입력 이미지 보존.
+    # OmniGen: 처음 모델 바꿨을 때처럼 ImagePromptExpert.compile() 사용 (픽셀아트/사이버펑크 등 스타일별 정상 동작)
     if _use_omnigen:
-        custom = (custom_prompt or "").strip()
-        style_desc = get_style_prompt(style_lower)
-        # 스타일 설명이 너무 길면 입력 이미지가 무시될 수 있으므로 앞 220자만 사용
-        style_hint = (style_desc[:220].strip() + ".") if len(style_desc) > 220 else style_desc
-        prompt = (
-            "Keep the same subject, composition, and layout. Apply this style: %s"
-        ) % style_hint
-        if custom:
-            prompt = prompt + ". " + custom[:150]
+        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
+        prompt = compiled["final_prompt"] + (
+            ", high detail, sharp focus, preserve original composition and subject."
+        )
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
