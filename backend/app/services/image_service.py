@@ -67,14 +67,13 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# Omni 스타일 / OmniGen: H100 속도 우선 steps (24)
-OMNI_NUM_STEPS = 20
-OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
+# Omni-Image-Editor와 동일: num_inference_steps=50, guidance_scale=7.5, image_guidance_scale=1.5
+OMNI_NUM_STEPS = 50
+OMNI_GUIDANCE_SCALE = 7.5
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# OmniGen edit: 구조 유지(3~4.5) vs 강한 변형(1.5~2.5). 4.5로 구도/비율 유지, steps 20으로 과변형 억제
-OMNI_EDIT_GUIDANCE_SCALE = 1.6
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 4.5
+OMNI_EDIT_GUIDANCE_SCALE = 7.5   # Omni-Image-Editor 기본값 (텍스트/스타일 반영)
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.5   # Omni-Image-Editor 기본값 (과포화·과장 억제)
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -466,7 +465,7 @@ def _run_inference_omnigen_sync(
     image_bytes: bytes,
     prompt: str,
     seed: int | None,
-    num_steps: int = 20,
+    num_steps: int = OMNI_NUM_STEPS,
     guidance_scale: float = OMNI_EDIT_GUIDANCE_SCALE,
     img_guidance_scale: float = OMNI_EDIT_IMG_GUIDANCE_SCALE,
 ) -> bytes:
