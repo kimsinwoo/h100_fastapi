@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import sys
 import threading
 import time
 import warnings
@@ -489,11 +490,14 @@ def _run_inference_omnigen_sync(
         new_h = max(64, (int(h * scale) // 8) * 8)
         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
+    # seed 미지정 시 요청마다 다른 결과 (고정 seed면 프롬프트 바꿔도 비슷한 결과 반복)
+    actual_seed = seed
+    if actual_seed is None:
+        actual_seed = int((time.perf_counter() * 1e6) % (2**31))
     generator = torch.Generator(device=_device)
-    if seed is not None:
-        generator.manual_seed(seed)
+    generator.manual_seed(actual_seed)
 
-    # diffusers OmniGen: prompt에 placeholder 필수. HF처럼 "pixel art"만 넣으려면 여기서 "<img><|image_1|></img> " + prompt
+    # diffusers OmniGen: prompt에 placeholder 필수. 파이프라인에 들어가는 최종 문자열을 그대로 로그
     omni_prompt = "<img><|image_1|></img> " + prompt
     logger.info("[프롬프트] %s", omni_prompt)
     # OmniGen VAE decode 시 bfloat16 autocast가 하얀 출력을 유발할 수 있어 비활성화
@@ -532,13 +536,27 @@ def _run_inference_omnigen_sync(
         try:
             _pipeline.scheduler = wrapper
             wrapper.set_timesteps(num_steps_safe, device=_device)
+            # 진단: 파이프라인 호출 직전 최종 전달값 (덮어쓰기/미전달 확인용)
             logger.info(
-                "Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f | size=%dx%d",
-                num_steps_safe,
+                "OmniGen FINAL | prompt_len=%d | seed=%s | guidance=%.2f | img_guidance=%.2f | steps=%d | size=%dx%d",
+                len(omni_prompt),
+                actual_seed,
                 guidance_scale,
                 img_guidance_scale,
+                num_steps_safe,
                 img.width,
                 img.height,
+            )
+            print(
+                "FINAL PROMPT:",
+                omni_prompt[:200] + ("..." if len(omni_prompt) > 200 else ""),
+                file=sys.stderr,
+                flush=True,
+            )
+            print(
+                f"seed={actual_seed} img_guidance={img_guidance_scale} guidance={guidance_scale} steps={num_steps_safe}",
+                file=sys.stderr,
+                flush=True,
             )
             t0 = time.perf_counter()
             with torch.inference_mode(), _optimized_inference_context(), ctx:
