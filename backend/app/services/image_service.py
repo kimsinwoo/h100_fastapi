@@ -599,16 +599,12 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen: 구체적 제약 문장으로 구조 유지 (과장/왜곡 억제). img_guidance 4.5와 짝으로 사용
+    # OmniGen: 스타일별로 다른 결과가 나오도록 ImagePromptExpert 사용 (처음 모델 바꿨을 때처럼).
+    # 짧은 "pixel art style, preserve..."만 쓰면 모든 스타일이 비슷한 한 장만 나오는 문제 방지.
     if _use_omnigen:
-        style_phrase = style_lower.replace("_", " ") if style_lower else "realistic"
-        prompt = (
-            f"{style_phrase} style, "
-            "preserve exact subject identity, preserve exact anatomy, "
-            "no distortion, same composition, same camera framing"
-        )
-        if (custom_prompt or "").strip():
-            prompt = prompt + ", " + (custom_prompt or "").strip()[:100]
+        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
+        prompt = compiled["final_prompt"] + ", preserve same composition and camera framing."
+        logger.info("[OmniGen] style=%s | prompt_len=%d", style_lower, len(prompt))
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
