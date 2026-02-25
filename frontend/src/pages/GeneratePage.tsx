@@ -116,13 +116,9 @@ export default function GeneratePage() {
             <ImageUploader onFileSelect={setFile} selectedFile={file} disabled={isProcessing} />
           </section>
           <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">Style</h2>
-            <StyleSelector selected={style} onSelect={setStyle} disabled={isProcessing} />
-          </section>
-          <section>
             <div className="mb-2 flex items-center justify-between">
               <label htmlFor="custom-prompt" className="text-sm font-semibold text-gray-700">
-                프롬프트 (직접 입력)
+                편집 지시 (직접 입력)
               </label>
               {llmAvailable && (
                 <button
@@ -140,10 +136,14 @@ export default function GeneratePage() {
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               disabled={isProcessing}
-              placeholder="원하는 이미지 묘사를 입력하세요. 스타일과 함께 적용됩니다. 비우면 스타일만 적용됩니다."
+              placeholder="예: pixel art (HF 스페이스처럼 짧게 입력). 비우면 realistic 적용됩니다."
               rows={3}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />
+          </section>
+          <section>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">Style (Z-Image용 / 프롬프트 비었을 때 참고)</h2>
+            <StyleSelector selected={style} onSelect={setStyle} disabled={isProcessing} />
           </section>
           <section>
             <label htmlFor="strength" className="mb-2 block text-sm font-semibold text-gray-700">

@@ -67,13 +67,13 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# Omni-Image-Editor와 동일: num_inference_steps=50, guidance_scale=7.5, image_guidance_scale=1.5
-OMNI_NUM_STEPS = 50
+# HF 공식 이미지 편집 권장: guidance_scale=2, img_guidance_scale=1.6 (짧은 프롬프트와 함께 사용)
+OMNI_NUM_STEPS = 20
 OMNI_GUIDANCE_SCALE = 7.5
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-OMNI_EDIT_GUIDANCE_SCALE = 7.5   # Omni-Image-Editor 기본값 (텍스트/스타일 반영)
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.5   # Omni-Image-Editor 기본값 (과포화·과장 억제)
+OMNI_EDIT_GUIDANCE_SCALE = 2.0    # HF doc: image editing recommended 2
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6   # HF doc: image editing recommended 1.6
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -616,12 +616,13 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen: 스타일별로 다른 결과가 나오도록 ImagePromptExpert 사용 (처음 모델 바꿨을 때처럼).
-    # 짧은 "pixel art style, preserve..."만 쓰면 모든 스타일이 비슷한 한 장만 나오는 문제 방지.
+    # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
     if _use_omnigen:
-        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
-        prompt = compiled["final_prompt"] + ", preserve same composition and camera framing."
-        logger.info("[OmniGen] style=%s | prompt_len=%d", style_lower, len(prompt))
+        user_text = (custom_prompt or "").strip()
+        if not user_text:
+            raise ValueError("편집 지시를 입력해 주세요. (저장된 프롬프트는 사용하지 않습니다.)")
+        prompt = user_text[:500]
+        logger.info("[OmniGen] user_prompt=%s", prompt)
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
