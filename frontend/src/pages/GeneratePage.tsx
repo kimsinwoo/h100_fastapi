@@ -136,7 +136,7 @@ export default function GeneratePage() {
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               disabled={isProcessing}
-              placeholder="예: pixel art (HF 스페이스처럼 짧게 입력). 비우면 realistic 적용됩니다."
+              placeholder="예: pixel art, 8-bit, blocky pixels — 픽셀아트는 이렇게 구체적으로 적으면 더 잘 나옵니다. 비우면 오류."
               rows={3}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />

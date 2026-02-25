@@ -70,8 +70,8 @@ STRENGTH_GLOBAL_MAX = 0.58
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
 # https://huggingface.co/docs/diffusers/using-diffusers/omnigen
 # 예: pipe(prompt="<img><|image_1|></img> ...", input_images=[img], guidance_scale=2, img_guidance_scale=1.6, use_input_image_size_as_output=True)
-# 저장된 프롬프트 사용 금지. 사용자 직접 입력만 전달.
-OMNI_NUM_STEPS = 20
+# 저장된 프롬프트 사용 금지. 사용자 직접 입력만 전달. VAE는 float32로 디코딩(블러/핑크 방지).
+OMNI_NUM_STEPS = 28
 OMNI_GUIDANCE_SCALE = 7.5
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
@@ -182,6 +182,10 @@ def _load_pipeline_sync():
                             logger.warning("OmniGen Flash Attention 2 skip (pip install flash-attn): %s", e)
                     pipe = OmniGenPipeline.from_pretrained(model_id, **load_kw)
                     pipe = pipe.to(_device)
+                    # VAE만 float32 유지: bfloat16 디코딩 시 핑크 틴트·블러·가로줄 발생 → 색/선명도 복원
+                    if hasattr(pipe, "vae") and pipe.vae is not None:
+                        pipe.vae = pipe.vae.to(torch.float32)
+                        logger.info("OmniGen: VAE set to float32 for decode (avoid blur/pink cast)")
                     # UNet/Transformer compile: 추가 ~20% 감소. 첫 요청은 warmup 1회 느려도 됨.
                     if _device.type == "cuda" and getattr(settings, "enable_torch_compile", False):
                         target = getattr(pipe, "transformer", None) or getattr(pipe, "unet", None)
