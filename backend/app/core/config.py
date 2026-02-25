@@ -61,11 +61,13 @@ class Settings(BaseSettings):
     default_cfg: float = Field(default=7.5, ge=1.0, le=20.0)
     default_strength: float = Field(default=0.75, ge=0.0, le=1.0)
 
-    enable_xformers: bool = Field(default=True, description="H100 등에서 메모리 효율 어텐션 사용 (속도 향상)")
+    enable_xformers: bool = Field(default=True, description="Z-Image 전용. H100 등에서 메모리 효율 어텐션 (속도 향상)")
     enable_tf32: bool = Field(default=True)
-    enable_vae_slicing: bool = Field(default=True, description="False로 두면 H100 등 VRAM 넉넉할 때 더 빠를 수 있음")
-    enable_attention_slicing: bool = Field(default=True, description="False로 두면 H100 등에서 더 빠를 수 있음")
+    enable_vae_slicing: bool = Field(default=False, description="H100 등 VRAM 넉넉하면 False가 더 빠름. True면 VRAM 절약")
+    enable_attention_slicing: bool = Field(default=False, description="H100 등에서는 False가 더 빠름. True면 VRAM 절약")
     enable_vae_tiling: bool = Field(default=False, description="대형 해상도 시 VRAM 절약, 보통 비활성화")
+    enable_flash_attention_2: bool = Field(default=True, description="OmniGen 로드 시 attn_implementation=flash_attention_2 시도 (flash-attn 필요)")
+    omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. 768이면 더 빠름")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
 
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")

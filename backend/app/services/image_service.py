@@ -63,8 +63,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# Omni 스타일(Z-Image) / OmniGen 공통: steps 37
-OMNI_NUM_STEPS = 37
+# Omni 스타일 / OmniGen: H100 속도 우선 steps 축소 (20~24, 기존 37)
+OMNI_NUM_STEPS = 20
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
@@ -133,6 +133,22 @@ def _load_pipeline_sync():
             logger.info("CUDA device: %s", gpu_name)
         except Exception:
             pass
+        # H100 등: 전역 cudnn/TF32 설정 (첫 추론부터 유효)
+        if getattr(settings, "enable_tf32", True):
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+            except Exception:
+                pass
+        try:
+            torch.backends.cudnn.benchmark = True
+        except Exception:
+            pass
+        if getattr(torch.backends.cuda, "enable_flash_sdp", None) is not None:
+            try:
+                torch.backends.cuda.enable_flash_sdp(True)
+            except Exception:
+                pass
 
     # H100 등: OmniGen(Omni) 사용 (use_omnigen=True)
     if getattr(settings, "use_omnigen", False):
@@ -144,9 +160,18 @@ def _load_pipeline_sync():
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 try:
+                    load_kw: dict = {"torch_dtype": dtype}
+                    if getattr(settings, "enable_flash_attention_2", False):
+                        try:
+                            import importlib
+                            importlib.import_module("flash_attn")
+                            load_kw["attn_implementation"] = "flash_attention_2"
+                            logger.info("OmniGen: loading with attn_implementation=flash_attention_2")
+                        except Exception as e:
+                            logger.debug("OmniGen Flash Attention 2 skip: %s", e)
                     pipe = OmniGenPipeline.from_pretrained(
                         getattr(settings, "omnigen_model_id", "Shitao/OmniGen-v1-diffusers"),
-                        torch_dtype=dtype,
+                        **load_kw,
                     )
                     pipe = pipe.to(_device)
                     if getattr(settings, "enable_attention_slicing", True):
@@ -386,7 +411,7 @@ def _run_inference_omnigen_sync(
             img_guidance_scale=img_guidance_scale,
             num_inference_steps=num_steps,
             use_input_image_size_as_output=True,
-            max_input_image_size=1024,
+            max_input_image_size=get_settings().omnigen_max_input_size,
             generator=generator,
             output_type="pil",
         )
