@@ -54,10 +54,9 @@ export async function generateImage(
   seed: number | null
 ): Promise<GenerateResponse> {
   const form = new FormData();
-  const prompt = customPrompt?.trim() || "high quality image, detailed, sharp focus";
-  form.append("prompt", prompt);
   form.append("style", style);
   form.append("image", file);
+  form.append("custom_prompt", (customPrompt ?? "").trim());
   form.append("strength", String(strength ?? 0.75));
   form.append("steps", "37");
   form.append("cfg", "7.5");

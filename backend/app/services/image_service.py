@@ -155,8 +155,7 @@ def _load_pipeline_sync():
                         _opt(pipe, "enable_vae_slicing")
                     if getattr(settings, "enable_vae_tiling", False):
                         _opt(pipe, "enable_vae_tiling")
-                    if getattr(settings, "enable_xformers", False):
-                        _opt(pipe, "enable_xformers_memory_efficient_attention")
+                    # OmniGen은 image_rotary_emb 사용으로 xformers와 호환되지 않음 → xformers 미적용
                     _pipeline = pipe
                     _use_omnigen = True
                     logger.info("OmniGen (Omni) pipeline loaded on %s (dtype=%s)", _device, dtype)
