@@ -21,7 +21,7 @@ from typing import Any
 from app.core.config import get_settings
 from app.lora.manager import load_lora
 from app.models.image_prompt_expert import ImagePromptExpert
-from app.models.style_presets import get_style_negative_prompt, get_style_prompt
+from app.models.style_presets import get_style_negative_prompt
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
@@ -68,9 +68,9 @@ OMNI_NUM_STEPS = 24
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# Omni-Image-Editor / OmniGen img2img: 원본 형태 유지하려면 img_guidance 충분히 높여야 함 (공식 예 1.6, 1.8~2.0 권장)
+# OmniGen 이미지 편집: HF 데모와 동일하게 img_guidance 높여서 입력 이미지 강하게 반영 (2.0)
 OMNI_EDIT_GUIDANCE_SCALE = 1.7
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.8
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 2.0
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -520,18 +520,28 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen(Omni) 사용 시: Omni-Image-Editor처럼 이미지 우선 참조 + 원본 유지 지시 (img2img에 가깝게)
+    # OmniGen(Omni): HF 데모처럼 짧은 편집 지시만 사용. 긴 스타일 문장 쓰면 입력 무시되고 새 장면 생성됨(예: 픽셀→하늘/구름)
     if _use_omnigen:
         custom = (custom_prompt or "").strip()
-        style_desc = get_style_prompt(style_lower)
-        style_hint = style_desc[:120].strip() if len(style_desc) > 120 else style_desc
-        # 공식: "이미지 placeholder를 문장 안에서 참조" + "원본 유지" 명시 → 입력 이미지 구조 유지
+        # 스타일 키만 또는 한 줄 힌트. get_style_prompt() 길게 넣으면 "픽셀아트"만으로 새 이미지 생성함
+        style_edit_hint = {
+            "pixel art": "pixel art style",
+            "realistic": "realistic photograph style",
+            "anime": "anime style",
+            "cyberpunk": "cyberpunk neon style",
+            "watercolor": "watercolor painting style",
+            "oil painting": "oil painting style",
+            "sketch": "pencil sketch style",
+            "cinematic": "cinematic film style",
+            "fantasy art": "fantasy art style",
+            "3d render": "3D render style",
+            "omni": "high detail photograph style",
+        }.get(style_lower, f"{style_lower} style")
         prompt = (
-            "Preserve the exact composition, subject, and layout of this image. "
-            "Only change the style to: %s. Keep the same pose, structure, and scene."
-        ) % style_hint
+            "Convert this image to %s. Keep the same subject, composition, and layout. Do not change the scene or add new objects."
+        ) % style_edit_hint
         if custom:
-            prompt = prompt + " " + custom[:200]
+            prompt = prompt + " " + custom[:150]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
