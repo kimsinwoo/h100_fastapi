@@ -1,9 +1,12 @@
 import axios, { AxiosError } from "axios";
 import type { GenerateResponse, ErrorDetail, StylesResponse, TrainingItem } from "../types/api";
 
+/** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
+const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
+
 const api = axios.create({
   baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/vscode/h8212918284d84e9b348b302527193731-3228-0/proxy/7000",
-  timeout: 120_000,
+  timeout: FRONTEND_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -37,7 +40,7 @@ api.interceptors.request.use((config) => {
 /** FormData 전용: Content-Type 미설정 → multipart/form-data; boundary= 자동 설정 (422 방지) */
 const uploadApi = axios.create({
   baseURL: api.defaults.baseURL ?? "/",
-  timeout: 120_000,
+  timeout: FRONTEND_TIMEOUT_MS,
 });
 
 /** Z-Image / SDXL: style + image. Z-Image 응답은 original_url, generated_url, processing_time */
@@ -54,7 +57,7 @@ export async function generateImage(
   form.append("style", style);
   form.append("image", file);
   form.append("strength", String(strength ?? 0.75));
-  form.append("steps", "30");
+  form.append("steps", "37");
   form.append("cfg", "7.5");
   if (seed !== null) form.append("seed", String(seed));
   form.append("width", "1024");

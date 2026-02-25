@@ -42,7 +42,7 @@ _use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0
 PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
-DEFAULT_NUM_INFERENCE_STEPS = 8
+DEFAULT_NUM_INFERENCE_STEPS = 37
 MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
@@ -62,8 +62,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# Omni-Image-Editor 참고 (https://huggingface.co/spaces/selfit-camera/Omni-Image-Editor): num_inference_steps=50, guidance_scale=7.5
-OMNI_NUM_STEPS = 50                # Omni-Image-Editor pipeline 기본값 50
+# Omni 스타일(Z-Image) / OmniGen 공통: steps 37
+OMNI_NUM_STEPS = 37
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
@@ -312,7 +312,7 @@ def _run_inference_omnigen_sync(
     image_bytes: bytes,
     prompt: str,
     seed: int | None,
-    num_steps: int = 50,
+    num_steps: int = 37,
     guidance_scale: float = 2.0,
     img_guidance_scale: float = 1.6,
 ) -> bytes:
@@ -398,7 +398,7 @@ async def run_image_to_image(
         prompt = compiled["final_prompt"] + (
             ", high detail, sharp focus, preserve original composition and subject."
         )
-        num_steps_omni = max(1, min(50, num_steps or 50))
+        num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
         result = await loop.run_in_executor(
