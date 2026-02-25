@@ -42,7 +42,8 @@ _use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0
 PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
-DEFAULT_NUM_INFERENCE_STEPS = 37
+DEFAULT_NUM_INFERENCE_STEPS = 37  # Omni 스타일 등에서 참조
+Z_IMAGE_DEFAULT_STEPS = 8         # Z-Image-Turbo 터보 모델 권장(속도 우선), 필요 시 20~30으로 상향
 MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
@@ -108,6 +109,15 @@ def _load_pipeline_sync():
 
     settings = get_settings()
     _settings = settings
+
+    def _opt(pipe: Any, method_name: str) -> None:
+        fn = getattr(pipe, method_name, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception as e:
+                logger.debug("Pipeline.%s: %s", method_name, e)
+
     if not getattr(_settings, "enable_xformers", False):
         try:
             import diffusers.utils.import_utils as diffusers_import_utils
@@ -117,6 +127,12 @@ def _load_pipeline_sync():
 
     _device = _resolve_device()
     dtype = torch.bfloat16 if (_device.type == "cuda" and getattr(torch, "bfloat16", None)) else torch.float32
+    if _device.type == "cuda":
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+            logger.info("CUDA device: %s", gpu_name)
+        except Exception:
+            pass
 
     # H100 등: OmniGen(Omni) 사용 (use_omnigen=True)
     if getattr(settings, "use_omnigen", False):
@@ -133,13 +149,14 @@ def _load_pipeline_sync():
                         torch_dtype=dtype,
                     )
                     pipe = pipe.to(_device)
-                    for name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
-                        fn = getattr(pipe, name, None)
-                        if callable(fn):
-                            try:
-                                fn()
-                            except Exception:
-                                pass
+                    if getattr(settings, "enable_attention_slicing", True):
+                        _opt(pipe, "enable_attention_slicing")
+                    if getattr(settings, "enable_vae_slicing", True):
+                        _opt(pipe, "enable_vae_slicing")
+                    if getattr(settings, "enable_vae_tiling", False):
+                        _opt(pipe, "enable_vae_tiling")
+                    if getattr(settings, "enable_xformers", False):
+                        _opt(pipe, "enable_xformers_memory_efficient_attention")
                     _pipeline = pipe
                     _use_omnigen = True
                     logger.info("OmniGen (Omni) pipeline loaded on %s (dtype=%s)", _device, dtype)
@@ -171,13 +188,14 @@ def _load_pipeline_sync():
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
-        for method_name in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
-            method = getattr(pipe, method_name, None)
-            if callable(method):
-                try:
-                    method()
-                except Exception:
-                    pass
+        if getattr(settings, "enable_attention_slicing", True):
+            _opt(pipe, "enable_attention_slicing")
+        if getattr(settings, "enable_vae_slicing", True):
+            _opt(pipe, "enable_vae_slicing")
+        if getattr(settings, "enable_vae_tiling", False):
+            _opt(pipe, "enable_vae_tiling")
+        if getattr(settings, "enable_xformers", False):
+            _opt(pipe, "enable_xformers_memory_efficient_attention")
         pipe = pipe.to(_device)
 
     logger.info("Z-Image-Turbo pipeline loaded on %s (dtype=%s)", _device, dtype)
@@ -337,8 +355,31 @@ def _run_inference_omnigen_sync(
     use_autocast = False
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
+    @contextlib.contextmanager
+    def _optimized_inference_context():
+        if _device.type != "cuda":
+            yield
+            return
+        orig_benchmark = torch.backends.cudnn.benchmark
+        orig_tf32_matmul = torch.backends.cuda.matmul.allow_tf32
+        orig_tf32_cudnn = torch.backends.cudnn.allow_tf32
+        try:
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            if getattr(torch.backends.cuda, "enable_flash_sdp", None) is not None:
+                try:
+                    torch.backends.cuda.enable_flash_sdp(True)
+                except Exception:
+                    pass
+            yield
+        finally:
+            torch.backends.cudnn.benchmark = orig_benchmark
+            torch.backends.cuda.matmul.allow_tf32 = orig_tf32_matmul
+            torch.backends.cudnn.allow_tf32 = orig_tf32_cudnn
+
     logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f", num_steps, guidance_scale, img_guidance_scale)
-    with torch.inference_mode(), ctx:
+    with torch.inference_mode(), _optimized_inference_context(), ctx:
         result = _pipeline(
             prompt=omni_prompt,
             input_images=[img],
@@ -474,7 +515,7 @@ async def run_image_to_image(
         num_steps = max(1, min(OMNI_STEPS_MAX, num_steps or OMNI_NUM_STEPS))
         guidance_scale = OMNI_GUIDANCE_SCALE
     else:
-        num_steps = max(1, min(50, num_steps or DEFAULT_NUM_INFERENCE_STEPS))
+        num_steps = max(1, min(50, num_steps or Z_IMAGE_DEFAULT_STEPS))
         guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
 
     max_side = size or MODEL_RESOLUTION

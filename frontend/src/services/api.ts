@@ -7,7 +7,7 @@ const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
 // 로컬 개발: .env에 VITE_API_BASE_URL=http://localhost:7000 설정 (프론트 3000, 백엔드 7000)
 // 프로덕션: 같은 origin이면 비워두고, 프록시 쓰면 해당 URL 설정
 const api = axios.create({
-  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "",
+  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/95ce287337c3ad9f",
   timeout: FRONTEND_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
