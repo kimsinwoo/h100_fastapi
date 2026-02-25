@@ -63,11 +63,14 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# Omni 스타일 / OmniGen: H100 속도 우선 steps 축소 (20~24, 기존 37)
-OMNI_NUM_STEPS = 20
+# Omni 스타일 / OmniGen: H100 속도 우선 steps (24)
+OMNI_NUM_STEPS = 24
 OMNI_GUIDANCE_SCALE = 7.5           # 7~8 (Omni pipeline 기본 7.5)
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
+# img edit: guidance 낮추면 속도↑ but img_guidance 너무 낮으면 입력 이미지 무시됨(흰화면/무관한 이미지). 1.5로 입력 이미지 강하게 반영
+OMNI_EDIT_GUIDANCE_SCALE = 1.7
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.5
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -160,23 +163,51 @@ def _load_pipeline_sync():
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 try:
+                    model_id = getattr(settings, "omnigen_model_id", "Shitao/OmniGen-v1-diffusers")
                     load_kw: dict = {"torch_dtype": dtype}
-                    if getattr(settings, "enable_flash_attention_2", False):
+                    use_fa2 = getattr(settings, "enable_flash_attention_2", True)
+                    if use_fa2:
                         try:
                             import importlib
                             importlib.import_module("flash_attn")
                             load_kw["attn_implementation"] = "flash_attention_2"
-                            logger.info("OmniGen: loading with attn_implementation=flash_attention_2")
+                            logger.info("OmniGen: loading with attn_implementation=flash_attention_2 (H100 25~35%% 속도 향상)")
                         except Exception as e:
-                            logger.debug("OmniGen Flash Attention 2 skip: %s", e)
-                    pipe = OmniGenPipeline.from_pretrained(
-                        getattr(settings, "omnigen_model_id", "Shitao/OmniGen-v1-diffusers"),
-                        **load_kw,
-                    )
+                            logger.warning("OmniGen Flash Attention 2 skip (pip install flash-attn): %s", e)
+                    pipe = OmniGenPipeline.from_pretrained(model_id, **load_kw)
                     pipe = pipe.to(_device)
-                    if getattr(settings, "enable_attention_slicing", True):
+                    # UNet/Transformer compile: 추가 ~20% 감소. 첫 요청은 warmup 1회 느려도 됨.
+                    if _device.type == "cuda" and getattr(settings, "enable_torch_compile", False):
+                        target = getattr(pipe, "transformer", None) or getattr(pipe, "unet", None)
+                        if target is not None:
+                            prev_disable = os.environ.get("TORCH_COMPILE_DISABLE")
+                            try:
+                                os.environ["TORCH_COMPILE_DISABLE"] = "0"
+                                compiled = torch.compile(target, mode="max-autotune", fullgraph=True)
+                                if hasattr(pipe, "transformer"):
+                                    pipe.transformer = compiled
+                                else:
+                                    pipe.unet = compiled
+                                logger.info("OmniGen: transformer/unet torch.compile(mode=max-autotune) applied")
+                            except Exception:
+                                try:
+                                    compiled = torch.compile(target, mode="max-autotune", fullgraph=False)
+                                    if hasattr(pipe, "transformer"):
+                                        pipe.transformer = compiled
+                                    else:
+                                        pipe.unet = compiled
+                                    logger.info("OmniGen: transformer/unet torch.compile(fullgraph=False) applied")
+                                except Exception as e2:
+                                    logger.warning("OmniGen torch.compile skip: %s", e2)
+                            finally:
+                                if prev_disable is not None:
+                                    os.environ["TORCH_COMPILE_DISABLE"] = prev_disable
+                                elif "TORCH_COMPILE_DISABLE" in os.environ:
+                                    del os.environ["TORCH_COMPILE_DISABLE"]
+                    # H100 속도: 슬라이싱은 VRAM 부족할 때만. 기본 False로 끔 (getattr 기본값 False)
+                    if getattr(settings, "enable_attention_slicing", False):
                         _opt(pipe, "enable_attention_slicing")
-                    if getattr(settings, "enable_vae_slicing", True):
+                    if getattr(settings, "enable_vae_slicing", False):
                         _opt(pipe, "enable_vae_slicing")
                     if getattr(settings, "enable_vae_tiling", False):
                         _opt(pipe, "enable_vae_tiling")
@@ -184,6 +215,26 @@ def _load_pipeline_sync():
                     _pipeline = pipe
                     _use_omnigen = True
                     logger.info("OmniGen (Omni) pipeline loaded on %s (dtype=%s)", _device, dtype)
+                    # H100 cudnn benchmark + lazy init: 1회 warmup으로 첫 사용자 요청이 빨라짐
+                    if _device.type == "cuda":
+                        try:
+                            from PIL import Image as PILImage
+                            warmup_img = PILImage.new("RGB", (256, 256), (128, 128, 128))
+                            with torch.inference_mode():
+                                _ = pipe(
+                                    prompt="<img><|image_1|></img> edit",
+                                    input_images=[warmup_img],
+                                    guidance_scale=1.7,
+                                    img_guidance_scale=1.5,
+                                    num_inference_steps=1,
+                                    use_input_image_size_as_output=True,
+                                    max_input_image_size=256,
+                                    generator=torch.Generator(device=_device).manual_seed(42),
+                                    output_type="pil",
+                                )
+                            logger.info("OmniGen warmup done (cudnn benchmark applied)")
+                        except Exception as w:
+                            logger.debug("OmniGen warmup skip: %s", w)
                     return pipe
                 except Exception as e:
                     logger.exception("OmniGen load failed: %s", e)
@@ -212,9 +263,9 @@ def _load_pipeline_sync():
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
-        if getattr(settings, "enable_attention_slicing", True):
+        if getattr(settings, "enable_attention_slicing", False):
             _opt(pipe, "enable_attention_slicing")
-        if getattr(settings, "enable_vae_slicing", True):
+        if getattr(settings, "enable_vae_slicing", False):
             _opt(pipe, "enable_vae_slicing")
         if getattr(settings, "enable_vae_tiling", False):
             _opt(pipe, "enable_vae_tiling")
@@ -354,9 +405,9 @@ def _run_inference_omnigen_sync(
     image_bytes: bytes,
     prompt: str,
     seed: int | None,
-    num_steps: int = 37,
-    guidance_scale: float = 2.0,
-    img_guidance_scale: float = 1.6,
+    num_steps: int = 20,
+    guidance_scale: float = OMNI_EDIT_GUIDANCE_SCALE,
+    img_guidance_scale: float = OMNI_EDIT_IMG_GUIDANCE_SCALE,
 ) -> bytes:
     """OmniGen(Omni) 이미지 편집: diffusers 요구 형식 <img><|image_1|></img> + input_images."""
     import torch
@@ -369,6 +420,14 @@ def _run_inference_omnigen_sync(
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
+    # 입력 크기 제한: 파이프라인 내부 리사이즈 일관성 + 흰화면/이상 출력 방지
+    max_side = get_settings().omnigen_max_input_size
+    w, h = img.width, img.height
+    if max(w, h) > max_side:
+        scale = max_side / max(w, h)
+        new_w = max(64, (int(w * scale) // 8) * 8)
+        new_h = max(64, (int(h * scale) // 8) * 8)
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     generator = torch.Generator(device=_device)
     if seed is not None:
@@ -402,7 +461,8 @@ def _run_inference_omnigen_sync(
             torch.backends.cuda.matmul.allow_tf32 = orig_tf32_matmul
             torch.backends.cudnn.allow_tf32 = orig_tf32_cudnn
 
-    logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f", num_steps, guidance_scale, img_guidance_scale)
+    logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f | size=%dx%d", num_steps, guidance_scale, img_guidance_scale, img.width, img.height)
+    t0 = time.perf_counter()
     with torch.inference_mode(), _optimized_inference_context(), ctx:
         result = _pipeline(
             prompt=omni_prompt,
@@ -415,6 +475,8 @@ def _run_inference_omnigen_sync(
             generator=generator,
             output_type="pil",
         )
+    elapsed = time.perf_counter() - t0
+    logger.info("OmniGen inference done in %.2fs (%.2fs/step)", elapsed, elapsed / max(1, num_steps))
     images = result.images if hasattr(result, "images") else result
     if isinstance(images, list):
         out_pil = images[0] if images else None
@@ -457,12 +519,15 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen(Omni) 사용 시: placeholder + input_images 로 이미지 편집 (LoRA 미지원)
+    # OmniGen(Omni) 사용 시: 이미지 편집 지시만 전달 (긴 t2i 스타일 문장 쓰면 입력 이미지 무시·무관한 이미지 생성)
     if _use_omnigen:
-        compiled = ImagePromptExpert.compile(style_key, custom_prompt or "", aspect_ratio="1:1")
-        prompt = compiled["final_prompt"] + (
-            ", high detail, sharp focus, preserve original composition and subject."
-        )
+        custom = (custom_prompt or "").strip()
+        prompt = (
+            "Edit this image. Keep the same subject, composition, and layout. "
+            "Apply style: %s. Preserve original composition and subject, high detail, sharp focus."
+        ) % style_lower
+        if custom:
+            prompt = prompt + " " + custom[:200]
         num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
@@ -473,8 +538,8 @@ async def run_image_to_image(
                 prompt,
                 seed,
                 num_steps=num_steps_omni,
-                guidance_scale=2.0,
-                img_guidance_scale=1.6,
+                guidance_scale=OMNI_EDIT_GUIDANCE_SCALE,
+                img_guidance_scale=OMNI_EDIT_IMG_GUIDANCE_SCALE,
             ),
         )
         elapsed = time.perf_counter() - start
