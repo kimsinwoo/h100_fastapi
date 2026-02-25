@@ -4,8 +4,10 @@ import type { GenerateResponse, ErrorDetail, StylesResponse, TrainingItem } from
 /** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
 
+// 로컬 개발: .env에 VITE_API_BASE_URL=http://localhost:7000 설정 (프론트 3000, 백엔드 7000)
+// 프로덕션: 같은 origin이면 비워두고, 프록시 쓰면 해당 URL 설정
 const api = axios.create({
-  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/vscode/h8212918284d84e9b348b302527193731-3228-0/proxy/7000",
+  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "",
   timeout: FRONTEND_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
