@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import threading
 import time
 import warnings
 from typing import Any
@@ -37,6 +38,8 @@ _pipeline: Any = None
 _lock = asyncio.Lock()
 _device: Any = None
 _use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100 등)
+# OmniGen inference 시 scheduler 교체를 한 번에 하나만 하도록 (thread-safe)
+_omnigen_scheduler_lock = threading.Lock()
 
 # ===== Z-Image-Turbo 권장값 =====
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
@@ -401,6 +404,63 @@ def _run_inference_sync(
     return buf.getvalue()
 
 
+class _OmniGenSchedulerWrapper:
+    """
+    FlowMatchEulerDiscreteScheduler에서 파이프라인이 set_timesteps(sigmas=...)로 호출할 때
+    sigmas/timesteps 길이 불일치로 step()에서 sigma_idx+1 IndexError가 나는 것을 방지.
+    sigmas가 전달되면 num_inference_steps=len(sigmas)만 넘겨 len(sigmas)=num_steps+1, len(timesteps)=num_steps로 통일.
+    """
+
+    __slots__ = ("_scheduler",)
+
+    def __init__(self, scheduler: Any) -> None:
+        self._scheduler = scheduler
+
+    def set_timesteps(
+        self,
+        num_inference_steps: int | None = None,
+        device: str | None = None,
+        *,
+        sigmas: list[float] | None = None,
+        timesteps: list[float] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if sigmas is not None:
+            num_inference_steps = len(sigmas)
+        if num_inference_steps is not None:
+            self._scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        elif timesteps is not None:
+            self._scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        else:
+            self._scheduler.set_timesteps(
+                num_inference_steps=num_inference_steps, device=device, **kwargs
+            )
+
+    def step(self, model_output: Any, timestep: Any, sample: Any, **kwargs: Any) -> Any:
+        s = self._scheduler
+        step_index = getattr(s, "step_index", None)
+        sigmas = getattr(s, "sigmas", None)
+        if (
+            step_index is not None
+            and sigmas is not None
+            and (step_index + 1) >= len(sigmas)
+        ):
+            return (sample,)
+        try:
+            return s.step(model_output, timestep, sample, **kwargs)
+        except IndexError as e:
+            if "sigma" in str(e).lower() or "index" in str(e).lower():
+                logger.warning(
+                    "OmniGen scheduler step IndexError (sigmas/timesteps mismatch) avoided: %s",
+                    e,
+                )
+                return (sample,)
+            raise
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._scheduler, name)
+
+
 def _run_inference_omnigen_sync(
     image_bytes: bytes,
     prompt: str,
@@ -463,22 +523,40 @@ def _run_inference_omnigen_sync(
             torch.backends.cuda.matmul.allow_tf32 = orig_tf32_matmul
             torch.backends.cudnn.allow_tf32 = orig_tf32_cudnn
 
-    logger.info("Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f | size=%dx%d", num_steps, guidance_scale, img_guidance_scale, img.width, img.height)
-    t0 = time.perf_counter()
-    with torch.inference_mode(), _optimized_inference_context(), ctx:
-        result = _pipeline(
-            prompt=omni_prompt,
-            input_images=[img],
-            guidance_scale=guidance_scale,
-            img_guidance_scale=img_guidance_scale,
-            num_inference_steps=num_steps,
-            use_input_image_size_as_output=True,
-            max_input_image_size=get_settings().omnigen_max_input_size,
-            generator=generator,
-            output_type="pil",
-        )
+    # FlowMatchEulerDiscreteScheduler: pipeline 호출 전 timesteps 명시 설정 + 파이프라인 custom sigmas로 인한
+    # len(timesteps)=21 vs len(sigmas)=21 → step()에서 sigma_idx+1 IndexError 방지 (num_inference_steps만 전달하도록 래퍼 사용)
+    num_steps_safe = max(1, min(50, num_steps))
+    wrapper = _OmniGenSchedulerWrapper(_pipeline.scheduler)
+    with _omnigen_scheduler_lock:
+        original_scheduler = _pipeline.scheduler
+        try:
+            _pipeline.scheduler = wrapper
+            wrapper.set_timesteps(num_steps_safe, device=_device)
+            logger.info(
+                "Running OmniGen img edit | steps=%d | guidance=%.2f | img_guidance=%.2f | size=%dx%d",
+                num_steps_safe,
+                guidance_scale,
+                img_guidance_scale,
+                img.width,
+                img.height,
+            )
+            t0 = time.perf_counter()
+            with torch.inference_mode(), _optimized_inference_context(), ctx:
+                result = _pipeline(
+                    prompt=omni_prompt,
+                    input_images=[img],
+                    guidance_scale=guidance_scale,
+                    img_guidance_scale=img_guidance_scale,
+                    num_inference_steps=num_steps_safe,
+                    use_input_image_size_as_output=True,
+                    max_input_image_size=get_settings().omnigen_max_input_size,
+                    generator=generator,
+                    output_type="pil",
+                )
+        finally:
+            _pipeline.scheduler = original_scheduler
     elapsed = time.perf_counter() - t0
-    logger.info("OmniGen inference done in %.2fs (%.2fs/step)", elapsed, elapsed / max(1, num_steps))
+    logger.info("OmniGen inference done in %.2fs (%.2fs/step)", elapsed, elapsed / max(1, num_steps_safe))
     images = result.images if hasattr(result, "images") else result
     if isinstance(images, list):
         out_pil = images[0] if images else None
