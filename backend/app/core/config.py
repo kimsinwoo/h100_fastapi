@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     enable_attention_slicing: bool = Field(default=False, description="H100 등에서는 False가 더 빠름. True면 VRAM 절약")
     enable_vae_tiling: bool = Field(default=False, description="대형 해상도 시 VRAM 절약, 보통 비활성화")
     enable_flash_attention_2: bool = Field(default=True, description="OmniGen 로드 시 attn_implementation=flash_attention_2 시도 (flash-attn 필요)")
-    omnigen_max_input_size: int = Field(default=768, ge=512, le=1024, description="OmniGen 입력 최대 변. 768 기본(H100 속도), 1024면 품질 우선")
+    omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. HF와 동일하게 1024 기본")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
 
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")

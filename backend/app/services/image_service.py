@@ -67,13 +67,16 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# HF 공식 이미지 편집 권장: guidance_scale=2, img_guidance_scale=1.6 (짧은 프롬프트와 함께 사용)
+# ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
+# https://huggingface.co/docs/diffusers/using-diffusers/omnigen
+# 예: pipe(prompt="<img><|image_1|></img> ...", input_images=[img], guidance_scale=2, img_guidance_scale=1.6, use_input_image_size_as_output=True)
+# 저장된 프롬프트 사용 금지. 사용자 직접 입력만 전달.
 OMNI_NUM_STEPS = 20
 OMNI_GUIDANCE_SCALE = 7.5
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-OMNI_EDIT_GUIDANCE_SCALE = 2.0    # HF doc: image editing recommended 2
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6   # HF doc: image editing recommended 1.6
+OMNI_EDIT_GUIDANCE_SCALE = 2.0      # HF doc image editing: 2
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6  # HF doc image editing: 1.6
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
@@ -469,7 +472,7 @@ def _run_inference_omnigen_sync(
     guidance_scale: float = OMNI_EDIT_GUIDANCE_SCALE,
     img_guidance_scale: float = OMNI_EDIT_IMG_GUIDANCE_SCALE,
 ) -> bytes:
-    """OmniGen(Omni) 이미지 편집: Omni-Image-Editor처럼 <img><|image_1|></img> + input_images, use_input_image_size_as_output로 원본 크기 유지."""
+    """HF OmniGen 이미지 편집과 동일: placeholder + 사용자 프롬프트, guidance=2, img_guidance=1.6, use_input_image_size_as_output."""
     import torch
     from PIL import Image, ImageOps
 
