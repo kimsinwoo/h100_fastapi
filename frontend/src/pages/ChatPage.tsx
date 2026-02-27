@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   getLlmStatus,
   llmChat,
+  llmChatStream,
   getErrorMessage,
   getChatRooms,
   getChatRoom,
@@ -120,31 +121,69 @@ export default function ChatPage() {
         await loadRooms();
       }
       await addChatMessage(activeRoomId!, "user", text);
-      // 이어하기 시 항상 최신 메시지 목록 사용 (ref로 클로저 문제 방지)
       const latest = [...messagesRef.current, userMsg];
       const history = latest.map((m) => ({ role: m.role, content: m.content }));
-      let response: Awaited<ReturnType<typeof llmChat>>;
+      // 스트리밍 시도 → 청크마다 화면에 바로 표시 (체감 속도 개선)
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      let assistantContent: string;
       try {
-        response = await llmChat(history, 1024, 0.4);
-      } catch (firstErr) {
-        const msg = String((firstErr as Error)?.message ?? "").toLowerCase();
-        const isRetryable = msg.includes("network") || msg.includes("timeout") || msg.includes("초과") || msg.includes("econnaborted");
-        if (isRetryable) {
+        assistantContent = await llmChatStream(
+          history,
+          (chunk) => {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant")
+                next[next.length - 1] = { ...last, content: last.content + chunk };
+              return next;
+            });
+          },
+          1024,
+          0.4
+        );
+      } catch (streamErr) {
+        // 스트리밍 미지원 또는 실패 시 비스트리밍으로 재시도
+        setMessages((prev) => prev.slice(0, -1));
+        let response: Awaited<ReturnType<typeof llmChat>>;
+        try {
           response = await llmChat(history, 1024, 0.4);
-        } else {
-          throw firstErr;
+        } catch (firstErr) {
+          const msg = String((firstErr as Error)?.message ?? "").toLowerCase();
+          const isRetryable =
+            msg.includes("network") || msg.includes("timeout") || msg.includes("초과") || msg.includes("econnaborted");
+          if (isRetryable) {
+            response = await llmChat(history, 1024, 0.4);
+          } else {
+            throw firstErr;
+          }
         }
+        assistantContent =
+          response?.content != null && String(response.content).trim() !== ""
+            ? String(response.content).trim()
+            : "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+        if (response?.structured) {
+          assistantContent = assistantContent.replace(/\s*```(?:json)?\s*[\s\S]*?\s*```\s*$/, "").trim() || assistantContent;
+        }
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: assistantContent,
+          structured: response?.structured,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
       }
-      let assistantContent = response?.content != null && String(response.content).trim() !== "" ? String(response.content).trim() : "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
-      if (response?.structured) {
-        assistantContent = assistantContent.replace(/\s*```(?:json)?\s*[\s\S]*?\s*```\s*$/, "").trim() || assistantContent;
+      if (!assistantContent?.trim()) {
+        assistantContent = "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") next[next.length - 1] = { ...last, content: assistantContent };
+          return next;
+        });
       }
-      const assistantMsg: Message = { role: "assistant", content: assistantContent, structured: response?.structured };
-      setMessages((prev) => [...prev, assistantMsg]);
       if (activeRoomId) {
         try {
           await addChatMessage(activeRoomId, "assistant", assistantContent);
-        } catch (e) {
+        } catch {
           try {
             await addChatMessage(activeRoomId, "assistant", assistantContent);
           } catch {
@@ -189,13 +228,44 @@ export default function ChatPage() {
         await addChatMessage(activeRoomId!, "user", q);
         const latest = [...messagesRef.current, userMsg];
         const history = latest.map((m) => ({ role: m.role, content: m.content }));
-        const response = await llmChat(history, 1024, 0.4);
-        let assistantContent = response?.content != null && String(response.content).trim() !== "" ? String(response.content).trim() : "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
-        if (response?.structured) {
-          assistantContent = assistantContent.replace(/\s*```(?:json)?\s*[\s\S]*?\s*```\s*$/, "").trim() || assistantContent;
+        setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+        let assistantContent: string;
+        try {
+          assistantContent = await llmChatStream(
+            history,
+            (chunk) => {
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === "assistant")
+                  next[next.length - 1] = { ...last, content: last.content + chunk };
+                return next;
+              });
+            },
+            1024,
+            0.4
+          );
+        } catch {
+          setMessages((prev) => prev.slice(0, -1));
+          const response = await llmChat(history, 1024, 0.4);
+          assistantContent =
+            response?.content != null && String(response.content).trim() !== ""
+              ? String(response.content).trim()
+              : "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+          if (response?.structured) {
+            assistantContent = assistantContent.replace(/\s*```(?:json)?\s*[\s\S]*?\s*```\s*$/, "").trim() || assistantContent;
+          }
+          setMessages((prev) => [...prev, { role: "assistant", content: assistantContent, structured: response?.structured }]);
         }
-        const assistantMsg: Message = { role: "assistant", content: assistantContent, structured: response?.structured };
-        setMessages((prev) => [...prev, assistantMsg]);
+        if (!assistantContent?.trim()) {
+          assistantContent = "응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.role === "assistant") next[next.length - 1] = { ...last, content: assistantContent };
+            return next;
+          });
+        }
         if (activeRoomId) {
           try {
             await addChatMessage(activeRoomId, "assistant", assistantContent);

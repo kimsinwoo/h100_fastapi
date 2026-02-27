@@ -7,10 +7,11 @@ LLM: 로컬 모델(transformers) 로드·추론 또는 OpenAI 호환 API 호출.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from app.core.config import get_settings
 
@@ -535,6 +536,59 @@ async def _complete_via_api(
     return clean_output(raw) if raw else None
 
 
+async def stream_complete_via_api(
+    messages: list[dict[str, str]],
+    max_tokens: int,
+    temperature: float,
+    model_override: str | None = None,
+) -> AsyncIterator[str]:
+    """vLLM 등 OpenAI 호환 API 스트리밍. 청크(문자열)를 순차적으로 yield."""
+    import httpx
+
+    settings = get_settings()
+    base = settings.llm_api_base.rstrip("/")
+    url = f"{base}/chat/completions"
+    model = model_override or settings.llm_model
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+    }
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if settings.llm_api_key and settings.llm_api_key.strip():
+        headers["Authorization"] = f"Bearer {settings.llm_api_key.strip()}"
+
+    async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
+        r = await client.post(url, json=payload, headers=headers)
+        if r.status_code == 404:
+            served = await _fetch_served_model_id(base, settings.llm_timeout_seconds)
+            if served:
+                payload["model"] = served
+                r = await client.post(url, json=payload, headers=headers)
+        r.raise_for_status()
+        buffer = ""
+        async for chunk in r.aiter_text():
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                if line == "data: [DONE]":
+                    continue
+                try:
+                    data = json.loads(line[6:])
+                    for choice in data.get("choices") or []:
+                        delta = choice.get("delta") or {}
+                        part = delta.get("content")
+                        if isinstance(part, str) and part:
+                            yield part
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    continue
+
+
 async def complete(
     messages: list[dict[str, str]],
     *,
@@ -915,6 +969,28 @@ def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
         if (m.get("role") or "").lower() == "user":
             return bool(re.search(r"[가-힣]", (m.get("content") or "")))
     return False
+
+
+async def stream_complete_health_chat(
+    messages: list[dict[str, str]],
+    max_tokens: int = 1024,
+    temperature: float = 0.4,
+) -> AsyncIterator[str]:
+    """건강 질문 도우미 스트리밍. API(vLLM) 모드일 때만 스트리밍, 로컬은 한 번에 yield."""
+    settings = get_settings()
+    if settings.llm_use_local:
+        text, _ = await complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature)
+        if text:
+            yield text
+        return
+    if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
+        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + list(messages)
+    else:
+        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + [
+            m for m in messages if (m.get("role") or "").lower() != "system"
+        ]
+    async for chunk in stream_complete_via_api(msgs, max_tokens=max_tokens, temperature=temperature):
+        yield chunk
 
 
 async def complete_health_chat(

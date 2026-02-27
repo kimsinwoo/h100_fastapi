@@ -168,6 +168,82 @@ export type HealthChatStructured = {
 
 export type LlmChatResponse = { content: string; structured?: HealthChatStructured };
 
+const getBaseUrl = () =>
+  (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
+  "http://210.91.154.131:20443/95ce287337c3ad9f";
+
+/** 스트리밍 채팅: 청크마다 onChunk 호출, 완료 시 전체 content 반환. 표시가 빨리 되고 체감 속도 개선. */
+export async function llmChatStream(
+  messages: Array<{ role: string; content: string }>,
+  onChunk: (chunk: string) => void,
+  maxTokens = 1024,
+  temperature = 0.4
+): Promise<string> {
+  const base = getBaseUrl();
+  const url = base.replace(/\/$/, "") + "/api/llm/chat/stream";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": getOrCreateUserId(),
+    },
+    body: JSON.stringify({
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+    }),
+    signal: AbortSignal.timeout(LLM_CHAT_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const errBody = await res.text();
+    let msg = `HTTP ${res.status}`;
+    try {
+      const d = JSON.parse(errBody);
+      if (d.detail) msg = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail);
+    } catch {
+      if (errBody) msg = errBody.slice(0, 200);
+    }
+    throw new Error(msg);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const dec = new TextDecoder();
+  let full = "";
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const o = JSON.parse(t) as { content?: string };
+        if (typeof o.content === "string" && o.content) {
+          full += o.content;
+          onChunk(o.content);
+        }
+      } catch {
+        // ignore malformed line
+      }
+    }
+  }
+  if (buf.trim()) {
+    try {
+      const o = JSON.parse(buf.trim()) as { content?: string };
+      if (typeof o.content === "string" && o.content) {
+        full += o.content;
+        onChunk(o.content);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return full;
+}
+
 export async function llmChat(
   messages: Array<{ role: string; content: string }>,
   maxTokens = 1024,

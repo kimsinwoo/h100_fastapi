@@ -8,8 +8,10 @@ import logging
 import sys
 from typing import Annotated
 
+import json as _json
+
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
@@ -299,6 +301,40 @@ async def llm_chat(
     if structured is not None:
         out["structured"] = structured.model_dump()
     return out
+
+
+async def _stream_llm_chat_body(
+    messages: list,
+    max_tokens: int,
+    temperature: float,
+):
+    """스트리밍: 한 줄에 하나씩 JSON { \"content\": \"chunk\" } 전송."""
+    from app.services.llm_service import stream_complete_health_chat
+
+    async for chunk in stream_complete_health_chat(messages, max_tokens=max_tokens, temperature=temperature):
+        yield _json.dumps({"content": chunk}, ensure_ascii=False) + "\n"
+
+
+@router.post("/llm/chat/stream")
+async def llm_chat_stream(
+    request: Request,
+    body: Annotated[dict, Body()],
+):
+    """건강 질문 채팅 스트리밍. 응답은 NDJSON(한 줄당 {\"content\": \"chunk\"})."""
+    _check_rate_limit(request)
+    from app.services.llm_service import is_llm_available
+
+    if not is_llm_available():
+        raise HTTPException(status_code=503, detail="LLM not available")
+    messages = body.get("messages") or []
+    if not messages:
+        raise HTTPException(status_code=400, detail="messages required")
+    max_tokens = int(body.get("max_tokens", 1024) or 1024)
+    temperature = float(body.get("temperature", 0.4) or 0.4)
+    return StreamingResponse(
+        _stream_llm_chat_body(messages, max_tokens=max_tokens, temperature=temperature),
+        media_type="application/x-ndjson",
+    )
 
 
 @router.post("/llm/suggest-prompt")
