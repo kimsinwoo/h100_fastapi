@@ -15,6 +15,17 @@ MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # OOM 시: VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32 또는 VLLM_ENFORCE_EAGER=1
 # Qwen3.5 사용: bash scripts/upgrade_vllm_for_qwen35.sh 후 export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
 
+# 지정 포트가 이미 사용 중이면 "Port already in use, trying 7002" 방지: 선점 프로세스 종료
+if command -v fuser &>/dev/null; then
+  fuser -k "${PORT}/tcp" 2>/dev/null || true
+  sleep 1
+elif command -v ss &>/dev/null; then
+  ss -tlnp 2>/dev/null | grep -E ":${PORT}[^0-9]|:${PORT}\s" | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | sort -u | while read -r pid; do
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+  done
+  sleep 1
+fi
+
 if command -v vllm &>/dev/null; then
   exec vllm serve "$MODEL" \
     --port "$PORT" \
