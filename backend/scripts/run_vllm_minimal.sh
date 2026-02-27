@@ -15,7 +15,11 @@ MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # OOM 시: VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32 또는 VLLM_ENFORCE_EAGER=1
 # Qwen3.5 사용: bash scripts/upgrade_vllm_for_qwen35.sh 후 export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
 
-# 지정 포트가 이미 사용 중이면 "Port already in use, trying 7002" 방지: 선점 프로세스 종료
+# vLLM은 --port(API)와 VLLM_PORT(분산 통신)를 둘 다 씀. 같은 포트면 "Port 7001 is already in use, trying 7002" 발생.
+# 분산 통신용 포트를 API 포트와 분리해 두면 같은 실행 안에서 충돌하지 않음.
+export VLLM_PORT=$((PORT + 1))
+
+# 지정 포트가 이미 사용 중이면 선점 프로세스 종료 (이전 실행 잔여 시)
 if command -v fuser &>/dev/null; then
   fuser -k "${PORT}/tcp" 2>/dev/null || true
   sleep 1

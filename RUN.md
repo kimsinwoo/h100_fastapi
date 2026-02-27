@@ -53,7 +53,7 @@ bash scripts/run_vllm_minimal.sh
   bash scripts/run_vllm_minimal.sh
   ```
 - 콘솔에 vLLM 뜨고 모델 로딩 진행 → 완료되면 7001에서 채팅 가능.
-- **"Port 7001 is already in use, trying port 7002"** 가 나오면: 스크립트가 실행 시 7001을 쓰는 기존 프로세스를 자동으로 종료하도록 되어 있음. 그래도 7002로 넘어가면 `fuser -k 7001/tcp` 또는 `fuser -k 7002/tcp` 후 다시 실행해 보세요. (HTTP API는 보통 7001에 열리며, 7002는 내부 분산 통신용일 수 있음.)
+- **"Port 7001 is already in use, trying port 7002"**: 같은 실행 안에서 API(7001)와 분산 통신이 같은 포트를 쓰면 발생함. 스크립트에서 분산 통신용으로 **API 포트+1**(7002)을 쓰도록 해 두었으므로, 재실행 시 API는 7001, 분산은 7002로 나뉘어 충돌하지 않음.
 - H100 등: `scripts/start_vllm_h100.sh` (자세한 옵션: `backend/docs/RUN_VLLM.md`)
 - OOM 시: `VLLM_GPU_MEMORY_UTILIZATION=0.80` 또는 `VLLM_ENFORCE_EAGER=1`. Qwen3.5는 컨텍스트 262K 지원, OOM이면 `VLLM_MAX_MODEL_LEN=32768` 등으로 줄이기.
 
