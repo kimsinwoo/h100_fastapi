@@ -331,9 +331,17 @@ async def llm_chat_stream(
         raise HTTPException(status_code=400, detail="messages required")
     max_tokens = int(body.get("max_tokens", 1024) or 1024)
     temperature = float(body.get("temperature", 0.4) or 0.4)
+    # 프록시가 스트리밍 응답을 버퍼링하면 청크가 끊겨 ERR_INCOMPLETE_CHUNKED_ENCODING 발생.
+    # nginx: X-Accel-Buffering: no 로 버퍼링 비활성화.
+    headers = {
+        "Cache-Control": "no-cache, no-store",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
     return StreamingResponse(
         _stream_llm_chat_body(messages, max_tokens=max_tokens, temperature=temperature),
         media_type="application/x-ndjson",
+        headers=headers,
     )
 
 

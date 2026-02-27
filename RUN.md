@@ -141,3 +141,33 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 - 접속: **http://서버주소:7000**
 
 다중 사용자 LLM이 필요하면 위 **2)** 처럼 7001에서 vLLM을 먼저 띄운 뒤, 메인 실행 시 `LLM_USE_VLLM=true` 로 기동하면 됩니다.
+
+---
+
+## 5) 리버스 프록시 / Ingress 뒤에서 LLM 채팅 사용 시
+
+채팅이 **스트리밍**으로 동작하며, 프록시가 응답을 버퍼링하면 브라우저에서 `ERR_INCOMPLETE_CHUNKED_ENCODING`(200 OK인데 본문이 끊김)이 날 수 있습니다. 이때 스트리밍 실패 후 대체로 비스트리밍 `/api/llm/chat` 를 호출하는데, 게이트웨이 타임아웃(504)이 나면 CORS 헤더가 없어서 "No 'Access-Control-Allow-Origin'" 로 보일 수 있습니다.
+
+**필수 설정**
+
+- **스트리밍 경로** (`/api/llm/chat/stream` 또는 `/{base_path}/api/llm/chat/stream`)  
+  - **버퍼링 끄기**: nginx면 `proxy_buffering off;` (또는 백엔드에서 이미 `X-Accel-Buffering: no` 전송).  
+  - **읽기 타임아웃**: LLM 응답이 길어질 수 있으므로 `proxy_read_timeout` 300초 정도 권장.
+- **비스트리밍 LLM** (`/api/llm/chat`)  
+  - 게이트웨이/Ingress의 **read timeout** 을 백엔드 LLM 타임아웃(기본 300초) 이상으로 설정.  
+  - 504 등 **에러 응답에도 CORS 헤더**가 붙도록 Ingress/프록시 설정 (에러 시에도 `Access-Control-Allow-Origin` 등 전달).
+
+**nginx 예시** (이 프로젝트 `frontend/nginx.conf` 에 스트림 전용 location 추가됨)
+
+```nginx
+location /api/llm/chat/stream {
+    proxy_pass http://backend;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+    # ... 나머지 proxy_set_header 등
+}
+```
+
+Kubernetes Ingress 사용 시에는 해당 경로에 동일하게 버퍼링 비활성화·타임아웃 연장을 적용하고, 5xx 응답에도 CORS가 나가도록 설정하세요.

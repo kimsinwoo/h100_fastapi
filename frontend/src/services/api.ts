@@ -340,10 +340,12 @@ export function isApiError(error: unknown): error is AxiosError<ErrorDetail> {
 
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    if (error.response?.status === 504)
+      return "게이트웨이 타임아웃(504)입니다. 프록시/Ingress의 read_timeout을 늘리거나, 스트리밍이 끊기지 않도록 해당 경로에 버퍼링 끄기를 적용해 주세요.";
     if (error.code === "ECONNABORTED" || (error.message && /timeout/i.test(error.message)))
       return "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
     if (error.code === "ERR_NETWORK" || (error.message && /network error/i.test(error.message)))
-      return "연결이 끊겼습니다. LLM 응답에 1~2분 이상 걸릴 수 있어 중간에 끊겼을 수 있습니다. 다시 시도해 주세요.";
+      return "연결이 끊겼습니다. (스트리밍 끊김 후 대체 요청이 504이면 CORS가 막혀 보일 수 있습니다. 게이트웨이에서 스트리밍 경로 버퍼링 끄기 및 타임아웃·CORS 설정을 확인하세요.)";
     if (error.response?.data !== undefined) {
       const detail = error.response.data?.detail;
       if (typeof detail === "string") return detail;
