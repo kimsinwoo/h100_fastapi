@@ -43,7 +43,15 @@ export VLLM_PORT=7001
 bash scripts/run_vllm_minimal.sh
 ```
 
-- 기본 모델: **Qwen/Qwen3.5-35B-A3B** ([Hugging Face](https://huggingface.co/Qwen/Qwen3.5-35B-A3B)). 다른 모델은 `export VLLM_MODEL=openai/gpt-oss-20b` 등으로 지정.
+- **기본 모델: openai/gpt-oss-20b** (vLLM 0.16에서 그대로 동작). 환경변수 없이 `bash scripts/run_vllm_minimal.sh` 만 실행하면 됩니다.
+- **Qwen3.5-35B-A3B** 쓰려면 `qwen3_5_moe` 지원이 필요해, vLLM 0.16에서는 오류가 납니다. **한 번만** 업그레이드 스크립트 실행 후 모델 지정:
+  ```bash
+  cd zimage_webapp/backend && source venv/bin/activate
+  bash scripts/upgrade_vllm_for_qwen35.sh
+  export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
+  export VLLM_PORT=7001
+  bash scripts/run_vllm_minimal.sh
+  ```
 - 콘솔에 vLLM 뜨고 모델 로딩 진행 → 완료되면 7001에서 채팅 가능.
 - H100 등: `scripts/start_vllm_h100.sh` (자세한 옵션: `backend/docs/RUN_VLLM.md`)
 - OOM 시: `VLLM_GPU_MEMORY_UTILIZATION=0.80` 또는 `VLLM_ENFORCE_EAGER=1`. Qwen3.5는 컨텍스트 262K 지원, OOM이면 `VLLM_MAX_MODEL_LEN=32768` 등으로 줄이기.
