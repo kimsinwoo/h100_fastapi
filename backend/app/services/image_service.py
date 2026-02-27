@@ -75,9 +75,9 @@ OMNI_NUM_STEPS = 20
 OMNI_GUIDANCE_SCALE = 7.5
 OMNI_STEPS_MAX = 70
 OMNI_STRENGTH_MAX = 0.80
-# 텍스트 반영을 살짝 올려 선명도 확보 (img_guidance 낮추면 입력에 덜 묶여 더 선명할 수 있음)
-OMNI_EDIT_GUIDANCE_SCALE = 2.5
-OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.4
+# HF 공식 이미지 편집 권장값 (이 값에서 벗어나면 블러/과노출 악화됨)
+OMNI_EDIT_GUIDANCE_SCALE = 2.0
+OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6
 
 # 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
 PIXEL_ART_NEGATIVE_SUFFIX = (
