@@ -761,14 +761,22 @@ HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 반려동물 건강 질문에 답�
 - 약물·처방·복용·투여·경구·주사·mg 등 약과 관련한 언급은 절대 하지 않습니다. "병원에서 확인 후 처방받으세요" 같은 문장도 쓰지 마세요. 질문을 이어갈 수 있도록 다음에 물어볼 만한 것을 안내해 주세요."""
 
 # 구조화 건강 상담: JSON만 출력, 4순위 필수. 의료 앱이 아닌 '참고 안내' 톤.
-HEALTH_ASSISTANT_STRUCTURED_PROMPT = """당신은 반려동물 건강 질문에 참고 안내를 해 주는 도우미입니다. 의료·수의 진단 앱이 아니며, "집에서 확인할 것·병원 갈 타이밍·이어서 물어볼 질문"만 안내합니다. 전문가 진단을 대체하지 않습니다.
+HEALTH_ASSISTANT_STRUCTURED_PROMPT = """[강제 규칙 - 최우선]
+중요: 사용자 질문이 한국어인 경우, 출력되는 JSON 내부의 모든 텍스트는 반드시 한국어만 사용한다.
+영어 단어, 영어 문장, 영어 메타 설명, 사고 과정 문구(Thinking Process, Analyze the Request, Clinical Reasoning 등)를 절대 출력하지 않는다.
+출력은 오직 하나의 ```json``` 블록만 허용된다.
+JSON 앞뒤에 어떠한 설명, 사고 과정, 분석 텍스트도 출력하지 않는다.
+사고 과정은 내부적으로만 수행하고 절대 출력하지 않는다.
+Thinking, Reasoning, Analyze 등의 단어가 포함된 줄이 출력되면 안 된다.
+
+당신은 반려동물 건강 질문에 참고 안내를 해 주는 도우미입니다. 의료·수의 진단 앱이 아니며, "집에서 확인할 것·병원 갈 타이밍·이어서 물어볼 질문"만 안내합니다. 전문가 진단을 대체하지 않습니다.
 
 [언어]
 - 사용자 질문이 한국어이면 JSON 안 모든 텍스트(질환명, reason, home_check, key_questions, emergency_criteria, recommended_categories 등)를 반드시 한국어로만 작성.
 - 사용자 질문이 영어 등이면 해당 언어로 작성. 질문 언어와 응답 언어를 동일하게 유지.
 
 [절대 규칙]
-- Thinking Process, Analyze the Request, Clinical Reasoning, Drafting Content 등 사고 과정·단계 설명을 출력하지 마세요. 오직 아래 형식의 ```json ... ``` 블록 하나만 출력. 블록 앞뒤에 다른 글 없음.
+- 오직 아래 형식의 ```json ... ``` 블록 하나만 출력. 블록 앞뒤에 다른 글 없음.
 - 감별 진단은 4순위(rank 1~4)까지 반드시 모두 출력. 1~3개만 쓰면 오류.
 - 각 감별 항목의 reason·home_check는 각각 2~3문장 분량. 한두 단어만 쓰면 오류.
 - reason에는 "왜 이 증상이 이 가능성과 연결되는지" 보호자가 이해할 수 있게 2~3문장으로.
@@ -983,6 +991,35 @@ def _last_user_content_has_hangul(messages: list[dict[str, str]]) -> bool:
     return False
 
 
+def _health_system_prompt_for_messages(messages: list[dict[str, str]]) -> str:
+    """한국어 질문이면 세션 규칙을 붙인 시스템 프롬프트 반환."""
+    base = HEALTH_ASSISTANT_STRUCTURED_PROMPT
+    if _last_user_content_has_hangul(messages):
+        base = base + "\n\n[현재 세션 규칙]\n현재 질문은 한국어이다. 반드시 한국어만 사용하라."
+    return base
+
+
+def _structured_contains_english(structured: Any) -> bool:
+    """구조화 응답의 텍스트 필드(reason, home_check, key_questions 등)에 라틴 알파벳이 있으면 True."""
+    from app.schemas.health_chat_schema import HealthChatStructured
+
+    if not isinstance(structured, HealthChatStructured):
+        return False
+    d = structured.model_dump()
+    for key, val in d.items():
+        if isinstance(val, str) and re.search(r"[A-Za-z]", val):
+            return True
+        if isinstance(val, list):
+            for item in val:
+                if isinstance(item, str) and re.search(r"[A-Za-z]", item):
+                    return True
+                if isinstance(item, dict):
+                    for v in item.values():
+                        if isinstance(v, str) and re.search(r"[A-Za-z]", v):
+                            return True
+    return False
+
+
 async def stream_complete_health_chat(
     messages: list[dict[str, str]],
     max_tokens: int = 1024,
@@ -995,10 +1032,11 @@ async def stream_complete_health_chat(
         if text:
             yield text
         return
+    system_content = _health_system_prompt_for_messages(messages)
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + list(messages)
+        msgs = [{"role": "system", "content": system_content}] + list(messages)
     else:
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + [
+        msgs = [{"role": "system", "content": system_content}] + [
             m for m in messages if (m.get("role") or "").lower() != "system"
         ]
     async for chunk in stream_complete_via_api(msgs, max_tokens=max_tokens, temperature=temperature):
@@ -1010,29 +1048,39 @@ async def complete_health_chat(
     max_tokens: int = 1024,
     temperature: float = 0.4,
 ) -> tuple[str | None, Any | None]:
-    """건강 질문 도우미(구조화). (본문 텍스트, HealthChatStructured | None) 반환."""
+    """건강 질문 도우미(구조화). (본문 텍스트, HealthChatStructured | None) 반환. 한국어 질문 시 구조화 내 영어 포함이면 1회 재시도."""
+    system_content = _health_system_prompt_for_messages(messages)
     if not messages or (messages and (messages[0].get("role") or "").lower() != "system"):
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + list(messages)
+        msgs = [{"role": "system", "content": system_content}] + list(messages)
     else:
-        msgs = [{"role": "system", "content": HEALTH_ASSISTANT_STRUCTURED_PROMPT}] + [
+        msgs = [{"role": "system", "content": system_content}] + [
             m for m in messages if (m.get("role") or "").lower() != "system"
         ]
-    result = await complete(msgs, max_tokens=max_tokens, temperature=temperature)
-    if not result:
-        return (result, None)
-    if _last_user_content_has_hangul(msgs):
-        result = _strip_alphabet(result)
-        if result:
-            result = _dedupe_and_fix_disclaimer(result)
-    result = _strip_medication_mentions(result)
-    structured = _extract_health_structured(result)
-    if structured is not None:
-        # 사고 과정(Thinking Process 등)이 JSON 앞에 나와도 사용자에게는 보이지 않게, 짧은 안내만 노출
-        result = "아래 감별 가능성과 집에서 확인할 점을 참고하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요."
-    # 구조화 실패 시에도 빈 응답 방지: 원문이 없거나 너무 짧으면 안내 문구로 대체
+    max_attempts = 2
+    last_structured: Any = None
+    for attempt in range(max_attempts):
+        result = await complete(msgs, max_tokens=max_tokens, temperature=temperature)
+        if not result:
+            return (result, None)
+        if _last_user_content_has_hangul(msgs):
+            result = _strip_alphabet(result)
+            if result:
+                result = _dedupe_and_fix_disclaimer(result)
+        result = _strip_medication_mentions(result)
+        structured = _extract_health_structured(result)
+        if structured is not None:
+            last_structured = structured
+            # 한국어 질문인데 구조화 필드에 영어가 포함되면 1회 재시도
+            if _last_user_content_has_hangul(messages) and _structured_contains_english(structured):
+                if attempt < max_attempts - 1:
+                    continue
+            # 사고 과정(Thinking Process 등)이 JSON 앞에 나와도 사용자에게는 보이지 않게, 짧은 안내만 노출
+            result = "아래 감별 가능성과 집에서 확인할 점을 참고하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요."
+            return (result, structured)
+    # 구조화 실패 또는 재시도 후에도 영어 포함 시: 마지막 결과라도 반환
     if not result or not result.strip():
         result = "응답을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요. (감별 진단은 4순위까지, 각 항목에 이유·관찰 포인트를 2문장 이상 적어 주시면 더 잘 나옵니다.)"
-    return (result, structured)
+    return (result, last_structured)
 
 
 async def suggest_prompt_for_style(style_key: str, user_hint: str | None = None) -> str | None:
