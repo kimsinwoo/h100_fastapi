@@ -50,7 +50,7 @@ _omnigen_scheduler_lock = threading.Lock()
 DEFAULT_GUIDANCE_SCALE = 0.0
 PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
 DEFAULT_NUM_INFERENCE_STEPS = 37  # Omni 스타일 등에서 참조
-Z_IMAGE_DEFAULT_STEPS = 8         # Z-Image-Turbo 터보 모델 권장(속도 우선), 필요 시 20~30으로 상향
+Z_IMAGE_DEFAULT_STEPS = 20       # Z-Image-Turbo 기본 스텝
 MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
