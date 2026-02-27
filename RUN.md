@@ -68,6 +68,12 @@ bash scripts/run_vllm_minimal.sh
 - H100 등: `scripts/start_vllm_h100.sh` (자세한 옵션: `backend/docs/RUN_VLLM.md`)
 - OOM 시: `VLLM_GPU_MEMORY_UTILIZATION=0.80` 또는 `VLLM_ENFORCE_EAGER=1`. Qwen3.5는 컨텍스트 262K 지원, OOM이면 `VLLM_MAX_MODEL_LEN=32768` 등으로 줄이기.
 
+**H100인데 LLM이 수십 초 걸릴 때**  
+H100이면 짧은 답변은 보통 몇 초 안에 나와야 합니다. 느리다면:  
+1. **`--enforce-eager` 사용 여부**: 이 옵션이 켜져 있으면 CUDA 그래프를 끄므로 **2~5배 이상 느려질 수 있습니다**. `run_vllm_minimal.sh`는 이제 기본으로 끔(`VLLM_ENFORCE_EAGER=0`). OOM 때문에 켰다면 `VLLM_ENFORCE_EAGER=1`만 유지하고, 그게 아니면 **vLLM 재시작 시 `VLLM_ENFORCE_EAGER=0` 또는 미설정**으로 실행하세요.  
+2. **실제로 GPU 사용 중인지**: vLLM 실행 중 다른 터미널에서 `nvidia-smi`로 GPU 사용률이 요청 시 올라가는지 확인.  
+3. **H100 전용 스크립트 사용**: `scripts/start_vllm_h100.sh`는 기본이 `VLLM_ENFORCE_EAGER=0`(빠른 추론)입니다.
+
 *`uvicorn vllm_server.main:app --port 7001` 은 게이트웨이만 띄우는 거라 **모델 로딩이 콘솔에 안 뜹니다.** 예전처럼 로딩 보이게 하려면 위처럼 **vllm serve** 를 7001에서 실행하세요.*
 
 **터미널 2: 메인 서버 (7000)**

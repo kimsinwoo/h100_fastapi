@@ -14,6 +14,8 @@ GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # OOM 시: VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32 또는 VLLM_ENFORCE_EAGER=1
+# H100 등에서 속도 중요: VLLM_ENFORCE_EAGER=0(기본) → CUDA 그래프 사용(빠름). 1이면 끔(메모리/호환용, 느림).
+ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-0}"
 # Qwen3.5 사용: bash scripts/upgrade_vllm_for_qwen35.sh 후 export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
 
 # VLLM_PORT를 unset해 두면 분산 통신은 자동 포트를 쓰고, API만 --port 로 7001 사용 (API가 7002로 열리는 현상 방지)
@@ -36,6 +38,9 @@ elif command -v ss &>/dev/null; then
   sleep 1
 fi
 
+EAGER_ARG=()
+[ "$ENFORCE_EAGER" = "1" ] && EAGER_ARG=( --enforce-eager )
+
 if command -v vllm &>/dev/null; then
   exec vllm serve "$MODEL" \
     --port "$PORT" \
@@ -45,7 +50,7 @@ if command -v vllm &>/dev/null; then
     --max-model-len "$MAX_MODEL_LEN" \
     --dtype bfloat16 \
     --trust-remote-code \
-    --enforce-eager \
+    "${EAGER_ARG[@]}" \
     "$@"
 else
   DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,6 +63,6 @@ else
     --max-model-len "$MAX_MODEL_LEN" \
     --dtype bfloat16 \
     --trust-remote-code \
-    --enforce-eager \
+    "${EAGER_ARG[@]}" \
     "$@"
 fi

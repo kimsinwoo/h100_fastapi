@@ -84,9 +84,9 @@ export async function getStyles(): Promise<StylesResponse> {
   return data;
 }
 
-/** 백엔드가 SDXL( main_sdxl )이면 /api/health, Z-Image( main )이면 /health — SDXL 기준으로 통일 */
+/** Z-Image( main ) 백엔드는 /health, SDXL은 /api/health. 이 앱은 Z-Image 기준이므로 /health 사용 */
 export async function getHealth(): Promise<{ status: string; gpu_available: boolean }> {
-  const { data } = await api.get<{ status: string; gpu_available: boolean }>("/api/health");
+  const { data } = await api.get<{ status: string; gpu_available: boolean }>("/health");
   return data;
 }
 
