@@ -36,8 +36,11 @@ class VLLMServerSettings(BaseSettings):
         description="If True, return mock completions without calling vLLM (for testing without GPU/vLLM).",
     )
 
-    # Model (for embedded engine)
-    model_id: str = Field(default="openai/gpt-oss-20b", description="Hugging Face model ID.")
+    # Model (for embedded engine / vLLM serve)
+    model_id: str = Field(
+        default="Qwen/Qwen3.5-35B-A3B",
+        description="Hugging Face model ID. 기본: Qwen3.5-35B-A3B (VLM, 35B params, 3B active).",
+    )
 
     # Concurrency and timeouts
     max_concurrent_requests: int = Field(

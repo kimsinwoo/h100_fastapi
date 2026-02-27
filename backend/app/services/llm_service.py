@@ -117,7 +117,7 @@ def _load_local_model_sync() -> tuple[Any, Any]:
     if device == "cpu":
         model = model.to(device)
     # 파인튜닝된 한국어 LoRA가 있으면 적용 (채팅 품질 향상)
-    lora_dir = Path(get_settings().korean_lora_output_dir)
+    lora_dir = get_settings().korean_lora_output_dir_path
     if (lora_dir / "adapter_config.json").exists():
         try:
             from peft import PeftModel

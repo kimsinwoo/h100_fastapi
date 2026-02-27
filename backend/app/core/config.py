@@ -72,6 +72,35 @@ class Settings(BaseSettings):
 
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")
 
+    # LLM: Qwen3.5-35B-A3B (텍스트/멀티모달 채팅·프롬프트 추천)
+    llm_enabled: bool = Field(default=True, description="LLM 채팅/프롬프트 추천 사용 여부")
+    llm_use_local: bool = Field(
+        default=True,
+        description="True면 transformers로 로컬 로드, False면 llm_api_base 호출",
+    )
+    llm_local_model_id: str = Field(
+        default="Qwen/Qwen3.5-35B-A3B",
+        description="로컬 LLM Hugging Face 모델 ID (기본: Qwen3.5-35B-A3B)",
+    )
+    llm_model: str = Field(
+        default="Qwen/Qwen3.5-35B-A3B",
+        description="API 모드일 때 요청에 넣을 model 이름",
+    )
+    llm_api_base: str = Field(
+        default="",
+        description="OpenAI 호환 API 베이스 URL (예: http://localhost:8000/v1). 비면 로컬만 사용.",
+    )
+    llm_api_key: str = Field(default="", description="API 키 (Bearer)")
+    llm_max_concurrent: int = Field(default=4, ge=1, le=32)
+    llm_queue_wait_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
+    llm_timeout_seconds: float = Field(default=120.0, ge=30.0, le=600.0)
+    llm_use_flash_attention: bool = Field(default=True, description="로컬 로드 시 flash_attention_2/sdpa 시도")
+    llm_hf_token: str = Field(default="", description="게이트 모델용 Hugging Face 토큰")
+    korean_lora_output_dir: str = Field(
+        default="korean_lora_output",
+        description="한국어 LoRA 어댑터 디렉터리(backend_dir 기준 상대 경로)",
+    )
+
     cors_origins: str = Field(default="*")
     cors_allow_credentials: bool = Field(default=True)
     rate_limit_requests: int = Field(default=100, ge=1, le=500)
@@ -100,6 +129,11 @@ class Settings(BaseSettings):
     @property
     def lora_output_dir(self) -> Path:
         return self.backend_dir / "lora_output"
+
+    @property
+    def korean_lora_output_dir_path(self) -> Path:
+        """한국어 LLM LoRA 어댑터 경로 (adapter_config.json 위치)."""
+        return self.backend_dir / self.korean_lora_output_dir
 
     @property
     def upload_max_bytes(self) -> int:
