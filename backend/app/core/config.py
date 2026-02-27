@@ -105,7 +105,12 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", description="API 키 (Bearer)")
     llm_max_concurrent: int = Field(default=4, ge=1, le=32)
     llm_queue_wait_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
-    llm_timeout_seconds: float = Field(default=120.0, ge=30.0, le=600.0)
+    llm_timeout_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=600.0,
+        description="vLLM/API 요청 타임아웃(초). 긴 대화·큰 모델이면 300 이상 권장.",
+    )
     llm_use_flash_attention: bool = Field(default=True, description="로컬 로드 시 flash_attention_2/sdpa 시도")
     llm_hf_token: str = Field(default="", description="게이트 모델용 Hugging Face 토큰")
     korean_lora_output_dir: str = Field(

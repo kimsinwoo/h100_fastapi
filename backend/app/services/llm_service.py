@@ -509,6 +509,13 @@ async def _complete_via_api(
             e,
         )
         return None
+    except httpx.TimeoutException as e:
+        logger.warning(
+            "LLM API 타임아웃 (%ss). vLLM 응답이 느리면 LLM_TIMEOUT_SECONDS 를 늘리세요 (예: 300). 오류=%s",
+            settings.llm_timeout_seconds,
+            e,
+        )
+        return None
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             logger.warning(
@@ -580,7 +587,11 @@ async def complete(
         try:
             return await _complete_via_api(messages, max_tokens, temperature)
         except Exception as e:
-            logger.warning("LLM API request failed: %s", e)
+            logger.warning(
+                "LLM API request failed: %s: %s",
+                type(e).__name__,
+                e or "(no message)",
+            )
             return None
     finally:
         sem.release()
