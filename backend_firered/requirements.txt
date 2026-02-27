@@ -1,13 +1,14 @@
-# FireRed-Image-Edit-1.0 backend. Python 3.11.
-# diffusers from main for QwenImageEditPlusPipeline (FireRed)
-diffusers @ git+https://github.com/huggingface/diffusers
-transformers>=4.40.0
-accelerate>=0.33.0
-safetensors>=0.4.0
-torch>=2.0.0
-fastapi>=0.115.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-python-multipart>=0.0.9
-pillow>=10.0.0
+# HunyuanImage-3.0-Instruct backend. Python 3.11+. CUDA 12.8.
+# Install PyTorch first: pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0
+torchvision==0.23.0
+torchaudio==2.8.0
+transformers>=4.35.0
+flashinfer-python==0.5.0
+safetensors
+Pillow
+FastAPI
+uvicorn[standard]
+pydantic>=2.0
+pydantic-settings>=2.0
+python-multipart

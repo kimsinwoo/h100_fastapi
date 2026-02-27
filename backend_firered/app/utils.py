@@ -1,12 +1,15 @@
 """
-Shared utilities: image loading, request IDs, GPU memory, resolution normalization.
+Shared utilities: image loading, request IDs, GPU memory, temp file for model input.
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import os
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import UploadFile
@@ -33,6 +36,20 @@ async def load_image_rgb(upload: UploadFile) -> Image.Image:
     except Exception as e:
         raise ValueError(f"Invalid image: {e}") from e
     return img
+
+
+async def save_upload_to_temp_file(upload: UploadFile, suffix: str = ".png") -> Path:
+    """
+    Save uploaded file to a temporary file. Caller must unlink when done.
+    Returns path for use with model (e.g. HunyuanImage expects file paths).
+    """
+    content = await upload.read()
+    if not content:
+        raise ValueError("Empty file")
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    Path(path).write_bytes(content)
+    os.close(fd)
+    return Path(path)
 
 
 def get_gpu_memory_mb() -> float | None:

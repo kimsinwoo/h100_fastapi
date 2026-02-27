@@ -1,125 +1,95 @@
-# FireRed-Image-Edit-1.0 Backend
+# HunyuanImage-3.0-Instruct Backend
 
-Production-ready FastAPI backend for **FireRedTeam/FireRed-Image-Edit-1.0**. 기존과 동일하게 **uvicorn**으로 실행, 포트 **7000**. Single endpoint `POST /edit`: upload image + text prompt, get PNG stream.
+Production FastAPI backend for **tencent/HunyuanImage-3.0-Instruct**: single image generation/editing endpoint. H100-optimized with FlashInfer MoE.
 
-## Project structure
+## 1. Remove previous models
 
-```
-backend_firered/
-├── app/
-│   ├── __init__.py
-│   ├── main.py      # FastAPI app, POST /edit, lifespan, error handlers
-│   ├── model.py     # Singleton pipeline load + run_edit (factory-friendly)
-│   ├── schemas.py   # ErrorResponse, error_payload
-│   ├── config.py    # Pydantic Settings (env)
-│   └── utils.py     # load_image_rgb, request_id, gpu_memory_mb
-├── requirements.txt
-├── Dockerfile
-├── README.md
-├── run_local.sh
-└── scripts/
-    └── concurrency_test.sh
-```
+This codebase contains **only** HunyuanImage-3.0-Instruct. All prior editing/generation code (FireRed, SDXL, Flux, Qwen, etc.) and related config/schedulers have been removed.
 
-## Run locally
+## 2. Dependencies
 
-1. **Python 3.11**, CUDA, and pip:
+- **requirements.txt**: torch 2.8, torchvision 0.23, torchaudio 2.8, transformers ≥4.35, flashinfer-python 0.5.0, FastAPI, uvicorn, pydantic v2, python-multipart, Pillow, safetensors.
+- CUDA: use system CUDA 12.8 and install PyTorch from the cu128 index:
+  ```bash
+  pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+  pip install -r requirements.txt
+  ```
 
-   ```bash
-   cd zimage_webapp/backend_firered
-   python3.11 -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+## 3. Model integration (app/model.py)
 
-2. **Optional env** (create `.env` or export):
+- Load with `transformers.AutoModelForCausalLM.from_pretrained()`:
+  - `attn_implementation="sdpa"`
+  - `moe_impl="flashinfer"` for H100 MoE acceleration
+  - `device_map="auto"`
+  - `trust_remote_code=True`, `torch_dtype="auto"`, `moe_drop_tokens=True`
+- Directory name must **not** contain dots (use e.g. `HunyuanImage-3-Instruct`).
+- After loading: `model.load_tokenizer(model_id)`.
 
-   - `MODEL_ID` — default `FireRedTeam/FireRed-Image-Edit-1.0`
-   - `MAX_CONCURRENT_JOBS` — default `2`
-   - `TIMEOUT_SECONDS` — default `120`
-   - `DEFAULT_STEPS` — default `28`
-   - `DEFAULT_GUIDANCE` — default `7.0`
+## 4. Image inference (app/model.py)
 
-3. **Start server** (기존처럼 uvicorn, 포트 7000):
+- `generate_image(prompt, image_paths, seed, image_size, use_system_prompt, bot_task, infer_align_image_size, diff_infer_steps, verbose, request_id)`:
+  - **image_paths**: list of paths (max 3 for multi-image; /edit uses 1).
+  - Defaults: steps=28, use_system_prompt="en_unified", infer_align_image_size=True, bot_task="think_recaption".
+- Returns first generated PIL image; logging (inference time, GPU memory) done outside hot path.
 
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 7000 --workers 1 --loop uvloop
-   ```
+## 5. FastAPI endpoint
 
-   Or use the helper script:
+- **POST /edit**
+  - Body: `image` (file), `prompt` (string), optional `seed`, `steps`, `resolution`.
+  - Validates upload, converts to temp file path, calls model inference, returns **PNG binary** via `StreamingResponse` (no base64).
 
-   ```bash
-   chmod +x run_local.sh
-   ./run_local.sh
-   ```
+## 6. Performance (H100)
 
-## Run with Docker
+- FlashInfer (`moe_impl="flashinfer"`) for MoE.
+- No `.cpu()` or unnecessary transfers in hot path; batch size 1.
+- First run may be slower due to FlashInfer kernel compilation.
 
-1. **Build** (from repo root or from `backend_firered`):
+## 7. Error handling
 
-   ```bash
-   cd zimage_webapp/backend_firered
-   docker build -t firered-backend .
-   ```
+- JSON body: `{"error": "...", "message": "...", "request_id": "..."}`.
+- 400: invalid image or prompt.
+- 503: GPU OOM / inference failure.
+- 504: timeout.
 
-2. **Run** (기존처럼 포트 7000, uvicorn, GPU):
+## 8. Logging
 
-   ```bash
-   docker run --gpus all -p 7000:7000 firered-backend
-   ```
+- Structured logs: prompt length, seed, num images, resolution, steps, inference duration, GPU memory before/after.
 
-   With env:
+## 9. Dockerfile
 
-   ```bash
-   docker run --gpus all -p 7000:7000 \
-     -e MAX_CONCURRENT_JOBS=2 \
-     -e TIMEOUT_SECONDS=120 \
-     firered-backend
-   ```
+- Base: CUDA 12.8.
+- Installs dependencies, sets `MODEL_ID`, exposes 8000, runs uvicorn with uvloop.
 
-## Example curl
+## 10. Testing
 
-**POST /edit** — image file + form fields; response is raw PNG.
-
-   ```bash
-   curl -X POST "http://localhost:7000/edit" \
-  -F "image=@/path/to/your/image.jpg" \
-  -F "prompt=Add a red hat on the dog" \
-  -F "seed=42" \
-  -F "guidance_scale=7.0" \
-  -F "steps=28" \
-  --output result.png
-```
-
-- `image`: required (file)
-- `prompt`: required (string)
-- `seed`: optional (int)
-- `guidance_scale`: optional (float, default from config)
-- `steps`: optional (int, default from config)
-
-Response: `image/png` binary. On error: JSON `{"error":"...","detail":"...","request_id":"..."}` with status 400 / 503 / 504.
-
-## Concurrency test script
-
-From project root:
-
+**Curl example:**
 ```bash
-chmod +x zimage_webapp/backend_firered/scripts/concurrency_test.sh
-zimage_webapp/backend_firered/scripts/concurrency_test.sh
+curl -X POST -F "image=@img1.png" -F "prompt=Make the background blue" \
+  -F "seed=42" -F "steps=28" \
+  http://localhost:8000/edit --output result.png
 ```
 
-Uses a sample image path and sends multiple concurrent requests; adjust `IMAGE_PATH` and `BASE_URL` inside the script if needed.
+**Scripts:**
+- `scripts/curl_edit.sh` — single /edit call.
+- `scripts/benchmark_h100.sh` — latency benchmark (multiple requests).
 
-## Errors (JSON)
+On failure, the response body is JSON (error/message/request_id).
 
-| Status | error (example) | When |
-|--------|------------------|------|
-| 400 | invalid_file / invalid_image | Wrong file type or unreadable image |
-| 503 | gpu_oom / inference_error | GPU OOM or runtime error |
-| 504 | timeout | Queue or inference timeout (e.g. 120s) |
+## 11. Deployment
 
-All responses include `request_id` for logging.
+**Local (after downloading the model):**
+```bash
+# Download model (no dots in dir name)
+huggingface-cli download tencent/HunyuanImage-3.0-Instruct --local-dir ./HunyuanImage-3-Instruct
 
-## Extensibility
+export MODEL_ID=./HunyuanImage-3-Instruct
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --loop uvloop
+```
 
-- **model.py**: `load_pipeline(model_id=...)` supports passing a different HuggingFace ID (e.g. future FireRed-Image-Edit-1.0-Distilled). LoRA loading can be added in the same module without changing **main.py** or the `/edit` contract.
+**Docker:**
+- Build image, mount or copy model into container at `/app/HunyuanImage-3-Instruct` (or set `MODEL_ID` accordingly).
+- Run with GPU: `docker run --gpus all -p 8000:8000 ...`
+
+**Distilled checkpoint (faster, 8 steps):**  
+Use HunyuanImage-3.0-Instruct-Distil and set `MODEL_ID` to that path; reduce default steps (e.g. 8) in config if desired.

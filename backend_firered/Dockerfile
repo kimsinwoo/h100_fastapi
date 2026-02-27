@@ -1,29 +1,28 @@
-# FireRed-Image-Edit-1.0 backend. CUDA, Python 3.11, single worker (GPU safe).
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+# HunyuanImage-3.0-Instruct backend. CUDA 12.8, production.
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
     python3.11-dev \
     git \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# PyTorch with CUDA 12.8
+RUN python3.11 -m pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
+    --index-url https://download.pytorch.org/whl/cu128
 
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
-EXPOSE 7000
+ENV MODEL_ID=/app/HunyuanImage-3-Instruct
+EXPOSE 8000
 
-# 기존과 동일하게 uvicorn 사용, workers=1 (GPU), 포트 7000
-CMD ["python3.11", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7000", "--workers", "1", "--loop", "uvloop"]
+CMD ["python3.11", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop"]

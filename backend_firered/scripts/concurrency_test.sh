@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 IMAGE_PATH="${IMAGE_PATH:-$ROOT_DIR/../sdxl_dog_editor/outputs/out_1.png}"
-BASE_URL="${BASE_URL:-http://localhost:7000}"
+BASE_URL="${BASE_URL:-http://localhost:8000}"
 CONCURRENCY="${CONCURRENCY:-3}"
 
 if [ ! -f "$IMAGE_PATH" ]; then
@@ -20,6 +20,7 @@ for i in $(seq 1 "$CONCURRENCY"); do
     -F "image=@$IMAGE_PATH" \
     -F "prompt=Make the background blue" \
     -F "seed=$(( 1000 + i ))" \
+    -F "steps=28" \
     --output "result_$i.png" &
 done
 wait
