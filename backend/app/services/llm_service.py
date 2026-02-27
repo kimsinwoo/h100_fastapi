@@ -231,6 +231,13 @@ def _run_local_inference_sync(
         model, tokenizer = _load_local_model_sync()
     except Exception as e:
         logger.exception("Local LLM load failed: %s", e)
+        err_str = str(e).lower()
+        if "qwen3_5_moe" in err_str or "does not recognize this architecture" in err_str:
+            logger.warning(
+                "Qwen3.5-35B-A3B 사용 시: (1) vLLM 사용 권장 — 터미널에서 7001에 vLLM 띄운 뒤 "
+                "메인 서버는 LLM_USE_VLLM=true uvicorn ... 로 기동. "
+                "(2) 로컬만 쓰려면: pip install --upgrade 'git+https://github.com/huggingface/transformers.git'"
+            )
         return None
 
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None:
@@ -438,18 +445,38 @@ def _messages_to_plain(messages: list[dict[str, str]]) -> str:
     return "".join(parts)
 
 
+async def _fetch_served_model_id(base_url: str, timeout: float) -> str | None:
+    """OpenAI 호환 /v1/models 에서 서빙 중인 첫 번째 모델 ID 반환 (vLLM 등)."""
+    import httpx
+
+    models_url = f"{base_url.rstrip('/')}/models"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(models_url)
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return None
+    for item in data.get("data") or []:
+        if isinstance(item, dict) and item.get("id"):
+            return str(item["id"])
+    return None
+
+
 async def _complete_via_api(
     messages: list[dict[str, str]],
     max_tokens: int,
     temperature: float,
 ) -> str | None:
-    """외부 OpenAI 호환 API 호출."""
+    """외부 OpenAI 호환 API 호출. 404(모델 없음) 시 vLLM 서빙 모델로 재시도."""
     import httpx
 
     settings = get_settings()
-    url = f"{settings.llm_api_base.rstrip('/')}/chat/completions"
+    base = settings.llm_api_base.rstrip("/")
+    url = f"{base}/chat/completions"
+    model = settings.llm_model
     payload: dict[str, Any] = {
-        "model": settings.llm_model,
+        "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -462,6 +489,16 @@ async def _complete_via_api(
     try:
         async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
             r = await client.post(url, json=payload, headers=headers)
+            if r.status_code == 404:
+                served = await _fetch_served_model_id(base, settings.llm_timeout_seconds)
+                if served and served != model:
+                    logger.info(
+                        "LLM API 404: 설정 모델 '%s' 없음 → vLLM 서빙 모델 '%s' 로 재요청.",
+                        model,
+                        served,
+                    )
+                    payload["model"] = served
+                    r = await client.post(url, json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
     except httpx.ConnectError as e:
@@ -471,6 +508,16 @@ async def _complete_via_api(
             url,
             e,
         )
+        return None
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning(
+                "LLM API 404: 요청 모델 '%s' 이(가) vLLM에 없습니다. "
+                "7001에서 VLLM_MODEL=해당모델 로 띄우거나, 메인 서버에서 LLM_MODEL 을 vLLM이 서빙하는 모델명과 맞추세요.",
+                model,
+            )
+        else:
+            logger.warning("LLM API request failed: %s", e)
         return None
     choices = data.get("choices") or []
     if not choices:

@@ -79,6 +79,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 ```
 
 - 접속: http://localhost:7000 (LLM 요청은 7001로 전달)
+- **Qwen3.5-35B-A3B** 를 **로컬(transformers)** 로만 쓰려면: `pip install --upgrade 'git+https://github.com/huggingface/transformers.git'` 후 메인만 실행. 기본은 vLLM(7001) 사용을 권장.
 
 ---
 
