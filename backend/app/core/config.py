@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     upload_max_size_mb: int = Field(default=20, ge=1, le=100)
     training_dir_name: str = Field(default="data/training")
     lora_adapters_dir: str = Field(default="data/lora", description="LoRA safetensors")
+    chat_rooms_dir_name: str = Field(
+        default="data/chat_rooms",
+        description="채팅방 JSON 저장 디렉터리(backend_dir 기준 상대 경로).",
+    )
 
     # 이미지 생성 백엔드: OmniGen(Omni) 사용 시 H100 등에서 Omni 모델 로드
     use_omnigen: bool = Field(
@@ -114,18 +118,16 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=100, ge=1, le=500)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
 
-    @model_validator(mode="after")
-    def _apply_vllm_multi_user(self) -> "Settings":
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_vllm_multi_user(cls, data: dict | object) -> dict | object:
         """다중 사용자: LLM_USE_VLLM=true 이면 vLLM API 사용(로컬 비활성화, api_base 기본값)."""
-        if getattr(self, "llm_use_vllm", False):
-            api_base = (getattr(self, "llm_api_base", "") or "").strip()
-            if not api_base:
-                api_base = "http://127.0.0.1:7001/v1"
-            return self.model_copy(
-                update={"llm_use_local": False, "llm_api_base": api_base},
-                deep=False,
-            )
-        return self
+        if isinstance(data, dict) and data.get("llm_use_vllm"):
+            updates = {"llm_use_local": False}
+            if not (data.get("llm_api_base") or "").strip():
+                updates["llm_api_base"] = "http://127.0.0.1:7001/v1"
+            data = {**data, **updates}
+        return data
 
     @property
     def backend_dir(self) -> Path:
@@ -143,6 +145,13 @@ class Settings(BaseSettings):
     @property
     def lora_dir(self) -> Path:
         p = self.backend_dir / self.lora_adapters_dir
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def chat_rooms_dir(self) -> Path:
+        """채팅방 JSON 저장 루트 (user_id별 하위 디렉터리)."""
+        p = self.backend_dir / self.chat_rooms_dir_name
         p.mkdir(parents=True, exist_ok=True)
         return p
 
