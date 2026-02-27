@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # vLLM 서버 최소 옵션으로 실행 (Linux, H100 NVL 호환). 환경변수로 오버라이드 가능.
 # 사용법: cd backend && source venv/bin/activate && bash scripts/run_vllm_minimal.sh
-# 프로덕션 H100 NVL 권장: scripts/start_vllm_h100.sh (env로 GPU/메모리 조정)
+# 참고: 공식 사용법은 pip install vllm && vllm serve "Qwen/Qwen3.5-35B-A3B" (기본 포트 8000).
+#       이 스크립트는 메인 앱(7000)과 구분해 포트 7001 사용. 프로덕션: scripts/start_vllm_h100.sh
 
 set -e
 export PYTHONUNBUFFERED=1
 
-# 기본값 gpt-oss-20b (vLLM 0.16에서 동작). Qwen3.5 쓰려면 scripts/upgrade_vllm_for_qwen35.sh 실행 후 VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
+# 기본값 gpt-oss-20b (vLLM 0.16에서 동작). Qwen3.5: VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
 MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 PORT="${VLLM_PORT:-7001}"
 GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
@@ -17,6 +18,12 @@ MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 
 # VLLM_PORT를 unset해 두면 분산 통신은 자동 포트를 쓰고, API만 --port 로 7001 사용 (API가 7002로 열리는 현상 방지)
 unset VLLM_PORT
+
+# Qwen3.5: V1 엔진에서 RMSNormGated 'activation' AttributeError 발생 시 우회 (V0 엔진 사용)
+# 사용자가 VLLM_USE_V1=1 로 오버라이드하면 V1 사용 가능(버그 수정된 nightly 이후)
+if [[ "$MODEL" == *Qwen3.5* ]]; then
+  export VLLM_USE_V1="${VLLM_USE_V1:-0}"
+fi
 
 # 지정 포트가 이미 사용 중이면 선점 프로세스 종료 (이전 실행 잔여 시)
 if command -v fuser &>/dev/null; then

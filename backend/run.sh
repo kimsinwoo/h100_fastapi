@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # 설정 없이 바로 실행: 라이브러리 설치 후 서버 시작
+# 사용법: cd backend && ./run.sh
 set -e
 cd "$(dirname "$0")"
+
+if [ -d "venv" ]; then
+  source venv/bin/activate
+fi
 
 echo "Installing dependencies..."
 pip install -q -r requirements.txt

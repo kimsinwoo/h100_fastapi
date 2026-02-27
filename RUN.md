@@ -35,6 +35,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 
 **터미널 1: LLM 서버 (7001) — vllm serve (모델 로딩 콘솔에 뜸)**
 
+vLLM 공식: `pip install vllm` 후 `vllm serve "Qwen/Qwen3.5-35B-A3B"` (기본 포트 8000). 여기서는 메인(7000)과 구분해 **7001** 사용.
+
 ```bash
 cd zimage_webapp/backend
 source venv/bin/activate
@@ -52,6 +54,7 @@ bash scripts/run_vllm_minimal.sh
   export VLLM_PORT=7001
   bash scripts/run_vllm_minimal.sh
   ```
+  - **"RMSNormGated has no attribute 'activation'"** 오류가 나면: 스크립트가 Qwen3.5일 때 자동으로 `VLLM_USE_V1=0`(V0 엔진)을 씁니다. 수동으로 쓰려면 `export VLLM_USE_V1=0` 후 다시 실행하세요.
 - 콘솔에 vLLM 뜨고 모델 로딩 진행 → 완료되면 7001에서 채팅 가능.
 - **"Port 7001 is already in use, trying port 7002"**: 같은 실행 안에서 API(7001)와 분산 통신이 같은 포트를 쓰면 발생함. 스크립트에서 분산 통신용으로 **API 포트+1**(7002)을 쓰도록 해 두었으므로, 재실행 시 API는 7001, 분산은 7002로 나뉘어 충돌하지 않음.
 - H100 등: `scripts/start_vllm_h100.sh` (자세한 옵션: `backend/docs/RUN_VLLM.md`)
@@ -73,6 +76,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 
 - 접속: **http://localhost:7000**
 - 메인은 7000, LLM 요청은 내부에서 **7001**로 전달됨
+
+**vLLM 서버 직접 호출 (OpenAI 호환 API, 포트 7001)**
+
+```bash
+curl -X POST "http://localhost:7001/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  --data '{"model": "Qwen/Qwen3.5-35B-A3B", "messages": [{"role": "user", "content": "Hello."}]}'
+```
+
+이미지 입력 예시: [Hugging Face Qwen3.5-35B-A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) 의 vLLM 사용법 참고 (동일하게 `content`에 `image_url` 포함 가능).
 
 ---
 
