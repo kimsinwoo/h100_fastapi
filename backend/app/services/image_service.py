@@ -22,8 +22,11 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.lora.manager import load_lora
-from app.models.image_prompt_expert import ImagePromptExpert
-from app.models.style_presets import get_style_negative_prompt
+from app.utils.prompt_builder import (
+    build_negative_prompt,
+    build_prompt,
+    get_allowed_style_keys,
+)
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
@@ -79,13 +82,6 @@ OMNI_STRENGTH_MAX = 0.80
 OMNI_EDIT_GUIDANCE_SCALE = 2.0
 OMNI_EDIT_IMG_GUIDANCE_SCALE = 1.6
 
-# 픽셀 아트 선택 시 네거티브에 추가로 넣어 3D/복셀 완전 차단
-PIXEL_ART_NEGATIVE_SUFFIX = (
-    ", voxel art, 3D pixel art, blocky 3D, Minecraft style, lego style, "
-    "sweater made of blocks, dog made of cubes, volumetric blocks, 2.5D, only 2D image and picture"
-)
-
-# 순수 2D 픽셀 아트만 (마인크래프트/복셀/3D 블록 완전 배제)
 # ============================================================
 # Device
 # ============================================================
@@ -607,6 +603,7 @@ async def run_image_to_image(
     image_bytes: bytes,
     style_key: str,
     custom_prompt: str | None = None,
+    raw_prompt: bool = False,
     strength: float | None = None,
     num_steps: int | None = None,
     size: int | None = None,
@@ -669,29 +666,16 @@ async def run_image_to_image(
             except Exception:
                 pass
 
-    # ImagePromptExpert + 구성 유지 (복잡한 사진도 레이아웃 유지)
-    compiled = ImagePromptExpert.compile(
-        style_key, custom_prompt or "", aspect_ratio="1:1"
+    prompt = build_prompt(
+        custom_prompt or "", style_lower if not raw_prompt else None, raw_prompt=raw_prompt
     )
-    prompt = compiled["final_prompt"]
-    prompt += (
-        ", high detail, sharp focus, preserve fine details and texture, "
-        "preserve original composition, same layout and pose, keep subject arrangement, "
-        "same subject(s) as reference image, same number of figures or animals, do not change to human or one character"
+    negative_prompt = build_negative_prompt(
+        style_lower if not raw_prompt else None, raw_prompt=raw_prompt
     )
-    negative_prompt = compiled["negative_prompt"]
-    # style_presets 보강: 스타일별 네거티브 추가 (ImagePromptExpert + style_presets 동시 사용)
-    try:
-        style_presets_neg = get_style_negative_prompt(style_lower)
-        if style_presets_neg:
-            negative_prompt = f"{negative_prompt}, {style_presets_neg}"
-    except Exception:
-        pass
-    if "pixel" in style_lower:
-        negative_prompt = negative_prompt + PIXEL_ART_NEGATIVE_SUFFIX
-
-    logger.info("[프롬프트] %s", prompt)
-    logger.info("[네거티브 프롬프트] %s", negative_prompt[:200] + ("..." if len(negative_prompt) > 200 else ""))
+    negative_prompt = (negative_prompt or "").strip() or None
+    logger.info("final_prompt=%s", prompt)
+    if negative_prompt:
+        logger.info("final_negative_prompt=%s", negative_prompt)
 
     # 스타일별 strength 상한·기본값 (omni는 0.8까지 허용)
     default_st, max_st = STRENGTH_BY_STYLE.get(

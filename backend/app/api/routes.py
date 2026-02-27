@@ -12,8 +12,8 @@ from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request,
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
-from app.models.image_prompt_expert import ImagePromptExpert
 from app.models.style_presets import STYLE_PRESETS
+from app.utils.prompt_builder import get_allowed_style_keys
 from app.schemas.image_schema import GenerateResponse
 from app.services.image_service import run_image_to_image
 from app.services.training_store import (
@@ -84,6 +84,7 @@ async def generate(
     image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
     style: Annotated[str, Form(description="Style preset key")] = "realistic",
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
+    raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     strength: Annotated[str | None, Form()] = None,
     seed: Annotated[str | None, Form()] = None,
 ) -> GenerateResponse:
@@ -100,7 +101,8 @@ async def generate(
     seed_i: int | None = _parse_optional_int(seed)
     settings = get_settings()
     style_lower = style.strip().lower()
-    allowed = set(ImagePromptExpert.get_allowed_style_keys())
+    allowed_list = get_allowed_style_keys()
+    allowed = set(allowed_list) | {k.replace(" ", "_") for k in allowed_list}
     if style_lower not in allowed:
         raise HTTPException(
             status_code=400,
@@ -123,12 +125,14 @@ async def generate(
         logger.exception("Failed to save upload: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save uploaded image")
     original_url = get_generated_url(original_filename)
+    raw_prompt_bool = (raw_prompt or "").strip().lower() in ("true", "1", "yes")
     print("[이미지 생성] 로컬에서 생성 중...", file=sys.stderr, flush=True)
     try:
         out_bytes, processing_time = await run_image_to_image(
             image_bytes=content,
             style_key=style_lower,
             custom_prompt=custom_prompt,
+            raw_prompt=raw_prompt_bool,
             strength=strength_f,
             seed=seed_i,
         )
@@ -153,8 +157,8 @@ async def generate(
 
 @router.get("/styles")
 async def list_styles() -> dict[str, str]:
-    """Return available style presets (key -> description). ImagePromptExpert와 동기화된 키만 노출."""
-    allowed = ImagePromptExpert.get_allowed_style_keys()
+    """Return available style presets (key -> description). prompt_builder와 동기화된 키만 노출."""
+    allowed = get_allowed_style_keys()
     return {k: STYLE_PRESETS.get(k, k) for k in allowed}
 
 
