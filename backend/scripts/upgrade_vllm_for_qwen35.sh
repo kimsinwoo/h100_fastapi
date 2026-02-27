@@ -12,9 +12,10 @@ pip install --upgrade "git+https://github.com/huggingface/transformers.git"
 echo ">>> vLLM nightly 설치 중 (qwen3_5_moe 지원)..."
 pip install vllm --pre --upgrade --extra-index-url https://wheels.vllm.ai/nightly
 
+echo ">>> Qwen3.5 'RMSNormGated activation' 오류 패치 적용 (한 번만 실행)"
+python scripts/patch_vllm_rmsnorm_gated.py || true
+
 echo ">>> 완료. 다음으로 7001에서 Qwen3.5 실행:"
 echo "    export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B"
 echo "    export VLLM_PORT=7001"
 echo "    bash scripts/run_vllm_minimal.sh"
-echo ""
-echo "  (V1 엔진에서 'RMSNormGated activation' 오류 나면 스크립트가 자동으로 VLLM_USE_V1=0 적용)"

@@ -39,7 +39,7 @@ bash scripts/run_vllm_minimal.sh
   export VLLM_PORT=7001
   bash scripts/run_vllm_minimal.sh
   ```
-  (스크립트가 `VLLM_USE_V1=0` 자동 적용 — RMSNormGated 오류 방지)
+  **"RMSNormGated has no attribute 'activation'"** 나오면 한 번만: `python scripts/patch_vllm_rmsnorm_gated.py` 실행 후 다시 `run_vllm_minimal.sh`. (`upgrade_vllm_for_qwen35.sh` 실행 시 패치 자동 적용)
 
 **OpenAI 호환 API 테스트 (curl, 포트 7001)**
 

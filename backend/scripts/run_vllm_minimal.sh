@@ -19,11 +19,8 @@ MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # VLLM_PORT를 unset해 두면 분산 통신은 자동 포트를 쓰고, API만 --port 로 7001 사용 (API가 7002로 열리는 현상 방지)
 unset VLLM_PORT
 
-# Qwen3.5: V1 엔진에서 RMSNormGated 'activation' AttributeError 발생 시 우회 (V0 엔진 사용)
-# 사용자가 VLLM_USE_V1=1 로 오버라이드하면 V1 사용 가능(버그 수정된 nightly 이후)
-if [[ "$MODEL" == *Qwen3.5* ]]; then
-  export VLLM_USE_V1="${VLLM_USE_V1:-0}"
-fi
+# Qwen3.5: vLLM 0.16.x nightly 에서 RMSNormGated 가 self.activation 을 갖지 않아 오류 발생.
+# 해결: scripts/patch_vllm_rmsnorm_gated.py 한 번 실행 (upgrade_vllm_for_qwen35.sh 가 자동 실행함).
 
 # 지정 포트가 이미 사용 중이면 선점 프로세스 종료 (이전 실행 잔여 시)
 if command -v fuser &>/dev/null; then

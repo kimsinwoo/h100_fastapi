@@ -54,7 +54,15 @@ bash scripts/run_vllm_minimal.sh
   export VLLM_PORT=7001
   bash scripts/run_vllm_minimal.sh
   ```
-  - **"RMSNormGated has no attribute 'activation'"** 오류가 나면: 스크립트가 Qwen3.5일 때 자동으로 `VLLM_USE_V1=0`(V0 엔진)을 씁니다. 수동으로 쓰려면 `export VLLM_USE_V1=0` 후 다시 실행하세요.
+  - **"RMSNormGated has no attribute 'activation'"** 오류: vLLM 0.16.x nightly 버그. **한 번만** 패치 실행 후 재기동:
+    ```bash
+    cd zimage_webapp/backend && source venv/bin/activate
+    python scripts/patch_vllm_rmsnorm_gated.py
+    export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
+    export VLLM_PORT=7001
+    bash scripts/run_vllm_minimal.sh
+    ```
+    (`upgrade_vllm_for_qwen35.sh` 실행 시 위 패치를 자동 적용함)
 - 콘솔에 vLLM 뜨고 모델 로딩 진행 → 완료되면 7001에서 채팅 가능.
 - **"Port 7001 is already in use, trying port 7002"**: 같은 실행 안에서 API(7001)와 분산 통신이 같은 포트를 쓰면 발생함. 스크립트에서 분산 통신용으로 **API 포트+1**(7002)을 쓰도록 해 두었으므로, 재실행 시 API는 7001, 분산은 7002로 나뉘어 충돌하지 않음.
 - H100 등: `scripts/start_vllm_h100.sh` (자세한 옵션: `backend/docs/RUN_VLLM.md`)
