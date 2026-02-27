@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import get_settings
-from app.model import generate_image, is_loaded, load_model
+from app.model import _assert_cuda_and_log, generate_image, is_loaded, load_model
 from app.schemas import error_payload
 from app.utils import generate_request_id, get_gpu_memory_mb, get_gpu_info, save_upload_to_temp_file
 
@@ -41,8 +41,10 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: load HunyuanImage-3.0-Instruct once. Shutdown: log."""
+    """Startup: validate CUDA, then load HunyuanImage-3.0-Instruct once. Shutdown: log."""
     global _gpu_semaphore
+    # Fail fast if no GPU (crash startup)
+    await asyncio.to_thread(_assert_cuda_and_log)
     settings = get_settings()
     _gpu_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_JOBS)
     logger.info("MAX_CONCURRENT_JOBS=%s TIMEOUT_SECONDS=%s", settings.MAX_CONCURRENT_JOBS, settings.TIMEOUT_SECONDS)
