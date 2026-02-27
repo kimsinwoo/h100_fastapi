@@ -58,7 +58,7 @@ export async function generateImage(
   form.append("image", file);
   form.append("custom_prompt", (customPrompt ?? "").trim());
   form.append("strength", String(strength ?? 0.75));
-  form.append("steps", "37");
+  form.append("steps", "20");
   form.append("cfg", "7.5");
   if (seed !== null) form.append("seed", String(seed));
   form.append("width", "1024");

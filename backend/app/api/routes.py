@@ -85,6 +85,7 @@ async def generate(
     style: Annotated[str, Form(description="Style preset key")] = "realistic",
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
+    steps: Annotated[str | None, Form(description="Inference steps (default 20)")] = None,
     strength: Annotated[str | None, Form()] = None,
     seed: Annotated[str | None, Form()] = None,
 ) -> GenerateResponse:
@@ -99,6 +100,9 @@ async def generate(
         raise HTTPException(status_code=422, detail="Missing required file. Send as multipart field 'file' or 'image'.")
     strength_f: float | None = _parse_optional_float(strength)
     seed_i: int | None = _parse_optional_int(seed)
+    steps_i = _parse_optional_int(steps) if steps is not None else 20
+    if steps_i is None or steps_i < 1 or steps_i > 50:
+        steps_i = 20
     settings = get_settings()
     style_lower = style.strip().lower()
     allowed_list = get_allowed_style_keys()
@@ -133,6 +137,7 @@ async def generate(
             style_key=style_lower,
             custom_prompt=custom_prompt,
             raw_prompt=raw_prompt_bool,
+            num_steps=steps_i,
             strength=strength_f,
             seed=seed_i,
         )
