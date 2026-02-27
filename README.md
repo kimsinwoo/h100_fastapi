@@ -57,6 +57,8 @@ zimage_webapp/
 
 ## Run instructions
 
+**상세 실행 방법(포트 7000/7001, 단일/다중 사용자)** → **[RUN.md](RUN.md)** 참고.
+
 ### AI 서버 하나로 실행 (프론트 포함, MIME 오류 방지)
 
 브라우저에서 **AI 서버 주소 하나**로 쓰려면, **빌드된 프론트**를 백엔드가 서빙해야 합니다. 그래야 JS 요청에 HTML이 아닌 실제 `.js`가 가서 "Expected a JavaScript module but got text/html" 오류가 나지 않습니다.
@@ -76,7 +78,7 @@ cd backend
 ./run.sh
 ```
 
-이후 브라우저에서 **http://서버:8000** 으로 접속하면 됩니다. (프론트는 Vite로 따로 띄우지 않아도 됩니다.)
+이후 브라우저에서 **http://서버:7000** 으로 접속하면 됩니다. (프론트는 Vite로 따로 띄우지 않아도 됩니다.)
 
 **배포 후에도 "Expected JavaScript but got text/html" 오류가 나면:** 서버에 **빌드 결과물**(`frontend/dist` 안의 내용)만 올렸는지 확인하세요. 자세한 내용은 [DEPLOY.md](DEPLOY.md) 참고.
 
@@ -99,10 +101,10 @@ run.bat
 또는 한 줄로:
 
 ```bash
-cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000
+cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 7000
 ```
 
-- 서버: http://0.0.0.0:8000 (API 문서: http://localhost:8000/docs)
+- 서버: http://0.0.0.0:7000 (API 문서: http://localhost:7000/docs)
 - 첫 요청 시 Hugging Face에서 모델 자동 다운로드 (수 GB). GPU 있으면 자동 사용, 없으면 CPU로 동작
 
 ### Local (venv 사용 시)
@@ -114,7 +116,7 @@ cd backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 7000
 ```
 
 - GPU 사용: `pip install torch --index-url https://download.pytorch.org/whl/cu121` 후 위 명령 재실행
@@ -127,7 +129,7 @@ npm install
 npm run dev
 ```
 
-- Opens at http://localhost:3000; Vite proxies `/api` and `/static` to the backend (port 8000).
+- Opens at http://localhost:3000; Vite proxies `/api` and `/static` to the backend (port 7000).
 
 ### Docker
 
@@ -136,7 +138,7 @@ npm run dev
 ```bash
 cd backend
 docker build -t zimage-backend .
-docker run -p 8000:8000 --gpus all zimage-backend
+docker run -p 7000:7000 --gpus all zimage-backend
 ```
 
 **Full stack (backend + frontend)**
@@ -146,7 +148,7 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:80  
-- Backend API: http://localhost:8000 (used by nginx proxy from frontend)
+- Backend API: http://localhost:7000 (used by nginx proxy from frontend)
 
 ## API
 

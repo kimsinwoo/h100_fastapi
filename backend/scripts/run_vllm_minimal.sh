@@ -6,12 +6,13 @@
 set -e
 export PYTHONUNBUFFERED=1
 
-MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
+MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-35B-A3B}"
 PORT="${VLLM_PORT:-7001}"
 GPU_UTIL="${VLLM_GPU_MEMORY_UTILIZATION:-0.88}"
 MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-96}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"
 # OOM 시: VLLM_GPU_MEMORY_UTILIZATION=0.80 VLLM_MAX_NUM_SEQS=32 또는 VLLM_ENFORCE_EAGER=1
+# Qwen3.5: vLLM main 브랜치면 --reasoning-parser qwen3 추가 가능. 예: bash scripts/run_vllm_minimal.sh --reasoning-parser qwen3
 
 if command -v vllm &>/dev/null; then
   exec vllm serve "$MODEL" \

@@ -23,7 +23,7 @@ else
   PYTHON="${PYTHON:-python3}"
 fi
 
-MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
+MODEL="${VLLM_MODEL:-Qwen/Qwen3.5-35B-A3B}"
 PORT="${VLLM_PORT:-7001}"
 
 echo ">>> 모델: $MODEL, 포트: $PORT (로드에 1~2분 걸릴 수 있음)"

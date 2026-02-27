@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")
 
     # LLM: Qwen3.5-35B-A3B (텍스트/멀티모달 채팅·프롬프트 추천)
+    # 다중 사용자: LLM_USE_VLLM=true 로 두면 vLLM(7001) 사용. 단일 사용자/개발은 로컬(transformers) 기본.
+    llm_use_vllm: bool = Field(
+        default=False,
+        description="True면 다중 사용자용 vLLM API 사용(LLM_USE_LOCAL=false, LLM_API_BASE 기본 7001/v1)",
+    )
     llm_enabled: bool = Field(default=True, description="LLM 채팅/프롬프트 추천 사용 여부")
     llm_use_local: bool = Field(
         default=True,
@@ -108,6 +113,19 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = Field(default=True)
     rate_limit_requests: int = Field(default=100, ge=1, le=500)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+
+    @model_validator(mode="after")
+    def _apply_vllm_multi_user(self) -> "Settings":
+        """다중 사용자: LLM_USE_VLLM=true 이면 vLLM API 사용(로컬 비활성화, api_base 기본값)."""
+        if getattr(self, "llm_use_vllm", False):
+            api_base = (getattr(self, "llm_api_base", "") or "").strip()
+            if not api_base:
+                api_base = "http://127.0.0.1:7001/v1"
+            return self.model_copy(
+                update={"llm_use_local": False, "llm_api_base": api_base},
+                deep=False,
+            )
+        return self
 
     @property
     def backend_dir(self) -> Path:

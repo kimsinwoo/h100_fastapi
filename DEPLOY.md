@@ -1,3 +1,30 @@
+# 배포 가이드
+
+## 다중 사용자 LLM (vLLM)
+
+**여러 유저가 동시에 채팅/프롬프트 추천을 쓰려면** 로컬 transformers 대신 **vLLM**을 써야 합니다.  
+로컬 모델은 한 번에 한 요청만 안전하고, vLLM은 continuous batching으로 동시 요청을 처리합니다.
+
+1. **vLLM 서버**를 띄웁니다 (예: 포트 7001).
+   ```bash
+   cd zimage_webapp/backend && source venv/bin/activate
+   vllm serve Qwen/Qwen3.5-35B-A3B --port 7001 --host 0.0.0.0
+   ```
+   (H100 등은 `backend/scripts/start_vllm_h100.sh`, 문서는 `backend/docs/RUN_VLLM.md` 참고.)
+
+2. **메인 앱**에서 vLLM을 쓰도록 설정합니다.
+   ```bash
+   export LLM_USE_VLLM=true
+   # 같은 호스트면 기본이 http://127.0.0.1:7001/v1. 다른 호스트면:
+   # export LLM_API_BASE=http://vllm서버IP:7001/v1
+   uvicorn app.main:app --host 0.0.0.0 --port 7000
+   ```
+   `LLM_USE_VLLM=true` 한 번만 두면 `LLM_USE_LOCAL=false` + `LLM_API_BASE=http://127.0.0.1:7001/v1` 가 적용됩니다.
+
+3. (선택) vLLM 없이 **API 흐름만** 테스트하려면 `backend/run_vllm_gateway.py` 에서 `VLLM_USE_MOCK=1` 로 게이트웨이를 띄우고, 메인 앱은 `LLM_USE_VLLM=true` 또는 `LLM_API_BASE=http://127.0.0.1:7001/v1` 로 그쪽을 바라보게 하면 됩니다.
+
+---
+
 # 배포 시 MIME 오류 (main.tsx / text/html) 해결
 
 브라우저에 **"Expected a JavaScript module but server responded with text/html"** 가 나오면,  

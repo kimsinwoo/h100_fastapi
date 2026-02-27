@@ -131,6 +131,10 @@ class VLLMService:
             if settings.use_mock:
                 logger.debug("Mock completion (no vLLM backend)")
                 return _mock_completion_response(req)
+            if not (settings.backend_url or "").strip():
+                raise VLLMQueueTimeoutError(
+                    "VLLM 백엔드가 없습니다. VLLM_USE_MOCK=1 (테스트) 또는 VLLM_BACKEND_URL=http://127.0.0.1:8000 (vllm serve 포트) 설정 후 재실행하세요."
+                )
             client = self._get_client()
             body = self._build_body(req)
             start = time.perf_counter()
@@ -174,6 +178,10 @@ class VLLMService:
                 async for chunk in _mock_completion_stream(req):
                     yield chunk
                 return
+            if not (settings.backend_url or "").strip():
+                raise VLLMQueueTimeoutError(
+                    "VLLM 백엔드가 없습니다. VLLM_USE_MOCK=1 (테스트) 또는 VLLM_BACKEND_URL=http://127.0.0.1:8000 (vllm serve 포트) 설정 후 재실행하세요."
+                )
             client = self._get_client()
             body = self._build_body(req)
             async with client.stream(

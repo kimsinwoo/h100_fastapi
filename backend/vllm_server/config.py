@@ -22,10 +22,11 @@ class VLLMServerSettings(BaseSettings):
         protected_namespaces=("settings_",),
     )
 
-    # Backend: use external vLLM OpenAI server (recommended) or embedded engine
+    # Backend: use external vLLM OpenAI server (recommended) or embedded engine.
+    # Gateway가 7001에서 떠 있을 때 기본값 7001이면 자기 자신을 가리키므로, 반드시 다른 포트 또는 VLLM_USE_MOCK=1 설정.
     backend_url: str = Field(
-        default="http://127.0.0.1:7001",
-        description="vLLM OpenAI-compatible server URL. Empty = use embedded engine.",
+        default="",
+        description="vLLM OpenAI 호환 서버 URL. 비우면 embedded. 게이트웨이 7001 사용 시 여기엔 vLLM이 도는 다른 포트(예 8000) 지정.",
     )
     use_embedded_engine: bool = Field(
         default=False,
