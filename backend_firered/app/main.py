@@ -10,6 +10,7 @@ import io
 import logging
 import random
 import time
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -17,9 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.config import get_settings
-from app.model import is_loaded, load_pipeline, run_edit
+from app.model import is_loaded, load_pipeline, run_edit, run_warmup
 from app.schemas import error_payload
-from app.utils import generate_request_id, get_gpu_memory_mb, load_image_rgb
+from app.utils import generate_request_id, get_gpu_memory_mb, get_gpu_info, load_image_rgb
 
 # Structured logging
 logging.basicConfig(
@@ -41,7 +42,7 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: load model once. Shutdown: log."""
+    """Startup: load model once, run warmup (dummy 512, 4 steps). Shutdown: log."""
     global _gpu_semaphore
     settings = get_settings()
     _gpu_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_JOBS)
@@ -49,6 +50,16 @@ async def lifespan(app: FastAPI):
     # Load model in thread so event loop is not blocked
     await asyncio.to_thread(load_pipeline)
     logger.info("Model loaded: %s", is_loaded())
+    # Warmup: dummy inference to force CUDA kernel compile and torch.compile graph capture
+    warmup_sec = await asyncio.to_thread(run_warmup)
+    logger.info(
+        "Startup benchmark: warmup=%.2fs | default_steps=%s default_guidance=%.1f max_resolution=%s steps_cap=%s",
+        warmup_sec,
+        settings.DEFAULT_STEPS,
+        settings.DEFAULT_GUIDANCE,
+        settings.MAX_RESOLUTION,
+        settings.PRODUCTION_STEPS_CAP,
+    )
     yield
     logger.info("Shutting down")
 
@@ -101,6 +112,9 @@ async def edit(
     settings = get_settings()
     seed_val = seed if seed is not None else random.randint(0, 2**31 - 1)
     guidance = guidance_scale if guidance_scale is not None else settings.DEFAULT_GUIDANCE
+    # Force proper guidance: if <= 0 and not debug, override to default
+    if guidance <= 0 and not settings.DEBUG_MODE:
+        guidance = settings.DEFAULT_GUIDANCE
     steps_val = steps if steps is not None else settings.DEFAULT_STEPS
 
     sem = _get_semaphore()
@@ -177,6 +191,31 @@ async def health() -> dict[str, str | bool | float | None]:
         "status": "ok",
         "model_loaded": is_loaded(),
         "gpu_memory_mb": gpu_mb,
+    }
+
+
+@app.get("/health/gpu")
+async def health_gpu() -> dict[str, str | bool | float | None]:
+    """
+    Debug endpoint: GPU utilization. Ensures model is on CUDA.
+    Returns device name, allocated/reserved memory, compute capability.
+    """
+    info = get_gpu_info()
+    if info is None:
+        return {
+            "status": "ok",
+            "cuda_available": False,
+            "model_loaded": is_loaded(),
+            "message": "CUDA not available",
+        }
+    return {
+        "status": "ok",
+        "cuda_available": True,
+        "model_loaded": is_loaded(),
+        "device_name": info["device_name"],
+        "allocated_mb": info["allocated_mb"],
+        "reserved_mb": info["reserved_mb"],
+        "compute_capability": info["compute_capability"],
     }
 
 

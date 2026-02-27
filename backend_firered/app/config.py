@@ -33,9 +33,17 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_JOBS: int = Field(default=2, ge=1, le=16)
     TIMEOUT_SECONDS: int = Field(default=120, ge=10, le=300)
 
-    # Inference defaults
-    DEFAULT_STEPS: int = Field(default=28, ge=1, le=100)
-    DEFAULT_GUIDANCE: float = Field(default=7.0, ge=1.0, le=20.0)
+    # Inference defaults (H100 target: sub-2s at 768, 8–12 steps)
+    DEFAULT_STEPS: int = Field(default=12, ge=1, le=100)
+    DEFAULT_GUIDANCE: float = Field(default=6.5, ge=1.0, le=20.0)
+    DEFAULT_STRENGTH: float = Field(default=0.65, ge=0.0, le=1.0)
+    # Resolution: if any side > MAX_RESOLUTION_INPUT, downscale to max MAX_RESOLUTION (keep aspect)
+    MAX_RESOLUTION: int = Field(default=768, ge=512, le=1024)
+    MAX_RESOLUTION_INPUT: int = Field(default=1024, ge=512, le=2048)
+    # Production: cap steps to avoid slow requests
+    PRODUCTION_STEPS_CAP: int = Field(default=20, ge=8, le=50)
+    # If guidance_scale <= 0 and not DEBUG, override to DEFAULT_GUIDANCE
+    DEBUG_MODE: bool = Field(default=False)
 
     # Server (uvicorn 기존 사용 방식과 동일)
     host: str = Field(default="0.0.0.0")
