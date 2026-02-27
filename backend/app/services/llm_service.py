@@ -697,6 +697,15 @@ _HEALTH_INSTRUCTION_MARKERS = (
     "한 번만 쓴다",
     "정확히 한 번만",
     "정확적으로 한 번만",
+    "Thinking Process",
+    "Analyze the Request",
+    "Clinical Reasoning",
+    "Drafting Content",
+    "Drafting content",
+    "Role:",
+    "Input:",
+    "Constraints:",
+    "Output MUST",
     "수의사와 상의",
     "상의하시길 바랍니다",
     "과정을 거쳐야",
@@ -751,23 +760,26 @@ HEALTH_ASSISTANT_SYSTEM_PROMPT = """당신은 반려동물 건강 질문에 답�
 - 위 문장 외에 지시문, 인용부호 난입, 반복 금지. 반려동물 건강 질문이 아니면 답하지 않음.
 - 약물·처방·복용·투여·경구·주사·mg 등 약과 관련한 언급은 절대 하지 않습니다. "병원에서 확인 후 처방받으세요" 같은 문장도 쓰지 마세요. 질문을 이어갈 수 있도록 다음에 물어볼 만한 것을 안내해 주세요."""
 
-# 구조화 건강 상담: JSON만 출력, 4순위 필수, 감별 2~3문장·병태생리·관찰 포인트 필수
-HEALTH_ASSISTANT_STRUCTURED_PROMPT = """당신은 반려동물 질병 상담 AI입니다. 임상 추론 수준을 중급 이상으로 유지하세요.
+# 구조화 건강 상담: JSON만 출력, 4순위 필수. 의료 앱이 아닌 '참고 안내' 톤.
+HEALTH_ASSISTANT_STRUCTURED_PROMPT = """당신은 반려동물 건강 질문에 참고 안내를 해 주는 도우미입니다. 의료·수의 진단 앱이 아니며, "집에서 확인할 것·병원 갈 타이밍·이어서 물어볼 질문"만 안내합니다. 전문가 진단을 대체하지 않습니다.
+
+[언어]
+- 사용자 질문이 한국어이면 JSON 안 모든 텍스트(질환명, reason, home_check, key_questions, emergency_criteria, recommended_categories 등)를 반드시 한국어로만 작성.
+- 사용자 질문이 영어 등이면 해당 언어로 작성. 질문 언어와 응답 언어를 동일하게 유지.
 
 [절대 규칙]
-- 절대 한 줄로 끝내지 말 것. 모든 답변은 반드시 아래 JSON 구조로만 출력한다. JSON 외 본문·설명·소제목을 쓰지 마세요.
-- 감별 진단은 4순위까지 반드시 모두 출력. 1~3개만 쓰면 오류로 간주.
-- 각 감별 진단(differential 항목)은 최소 2~3문장으로 설명. reason과 home_check에 한두 단어만 쓰면 오류.
-- 병태생리 연결 필수: reason에는 "왜 이 증상이 이 질환과 연결되는지" 병태생리적 근거를 2~3문장으로 쓸 것.
-- 보호자가 이해할 수 있는 관찰 포인트 필수: home_check에는 집에서 바로 확인할 수 있는 행동·징후를 구체적으로 쓸 것.
-- 설명 누락 시 오류로 간주됨.
+- Thinking Process, Analyze the Request, Clinical Reasoning, Drafting Content 등 사고 과정·단계 설명을 출력하지 마세요. 오직 아래 형식의 ```json ... ``` 블록 하나만 출력. 블록 앞뒤에 다른 글 없음.
+- 감별 진단은 4순위(rank 1~4)까지 반드시 모두 출력. 1~3개만 쓰면 오류.
+- 각 감별 항목의 reason·home_check는 각각 2~3문장 분량. 한두 단어만 쓰면 오류.
+- reason에는 "왜 이 증상이 이 가능성과 연결되는지" 보호자가 이해할 수 있게 2~3문장으로.
+- home_check에는 집에서 바로 확인할 수 있는 행동·징후를 구체적으로 2~3문장으로.
 
 [금지]
 - 단순 질환 나열·한 줄 요약 금지. 5순위 이상 출력 금지.
-- 추상적 표현 금지 (예: "혈압이 낮으면" X). 행동 기준으로 명확히.
+- 추상적 표현 금지. 행동·관찰 기준으로 명확히.
 - 약물·처방·복용·투여·mg 등 약 관련 언급 금지. 이어갈 질문(recommended_categories)으로 보호자를 도와주세요.
 
-[출력 형식 - 이 JSON만 출력]
+[출력 형식 - 이 JSON 블록만 출력]
 응답 전체는 반드시 아래 형식의 JSON 블록 하나만 출력하세요. ```json 앞뒤에 다른 글 없이, 블록만 출력.
 
 ```json
@@ -1015,8 +1027,8 @@ async def complete_health_chat(
     result = _strip_medication_mentions(result)
     structured = _extract_health_structured(result)
     if structured is not None:
-        narrative = re.sub(r"\s*```(?:json)?\s*[\s\S]*?\s*```\s*$", "", result).strip()
-        result = narrative if narrative else "감별 진단과 관찰 포인트를 확인하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요."
+        # 사고 과정(Thinking Process 등)이 JSON 앞에 나와도 사용자에게는 보이지 않게, 짧은 안내만 노출
+        result = "아래 감별 가능성과 집에서 확인할 점을 참고하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요."
     # 구조화 실패 시에도 빈 응답 방지: 원문이 없거나 너무 짧으면 안내 문구로 대체
     if not result or not result.strip():
         result = "응답을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요. (감별 진단은 4순위까지, 각 항목에 이유·관찰 포인트를 2문장 이상 적어 주시면 더 잘 나옵니다.)"

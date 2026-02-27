@@ -10,6 +10,8 @@ import {
   createChatRoom,
   addChatMessage,
   deleteChatRoom,
+  parseStructuredFromContent,
+  HEALTH_CHAT_SHORT_INTRO,
 } from "../services/api";
 import type { ChatRoomSummary, HealthChatStructured } from "../services/api";
 
@@ -126,6 +128,7 @@ export default function ChatPage() {
       // 스트리밍 시도 → 청크마다 화면에 바로 표시 (체감 속도 개선)
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
       let assistantContent: string;
+      let streamSucceeded = false;
       try {
         assistantContent = await llmChatStream(
           history,
@@ -141,7 +144,8 @@ export default function ChatPage() {
           1024,
           0.4
         );
-      } catch (streamErr) {
+        streamSucceeded = true;
+      } catch {
         // 스트리밍 미지원 또는 실패 시 비스트리밍으로 재시도
         setMessages((prev) => prev.slice(0, -1));
         let response: Awaited<ReturnType<typeof llmChat>>;
@@ -170,6 +174,20 @@ export default function ChatPage() {
           structured: response?.structured,
         };
         setMessages((prev) => [...prev, assistantMsg]);
+      }
+      if (streamSucceeded) {
+        // 스트리밍 성공: 본문에서 JSON 파싱해 구조화 있으면 사고 과정 숨기고 짧은 안내만 노출
+        const parsed = parseStructuredFromContent(assistantContent);
+        if (parsed) {
+          assistantContent = HEALTH_CHAT_SHORT_INTRO;
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.role === "assistant")
+              next[next.length - 1] = { ...last, content: HEALTH_CHAT_SHORT_INTRO, structured: parsed };
+            return next;
+          });
+        }
       }
       if (!assistantContent?.trim()) {
         assistantContent = "응답을 생성하지 못했습니다. 다시 시도해 주세요.";

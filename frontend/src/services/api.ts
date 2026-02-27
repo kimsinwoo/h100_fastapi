@@ -168,6 +168,26 @@ export type HealthChatStructured = {
 
 export type LlmChatResponse = { content: string; structured?: HealthChatStructured };
 
+/** 스트리밍 응답 본문에서 ```json ... ``` 블록을 파싱해 구조화 데이터 반환. 실패 시 null */
+export function parseStructuredFromContent(content: string): HealthChatStructured | null {
+  if (!content?.trim()) return null;
+  const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (!match?.[1]) return null;
+  try {
+    const data = JSON.parse(match[1].trim()) as Record<string, unknown>;
+    if (!Array.isArray(data.differential)) return null;
+    return data as unknown as HealthChatStructured;
+  } catch {
+    return null;
+  }
+}
+
+const HEALTH_CHAT_INTRO =
+  "아래 감별 가능성과 집에서 확인할 점을 참고하세요. 정확한 판단은 의료·수의 전문가에게 확인하세요.";
+
+/** 구조화 응답일 때 사용할 짧은 안내 문구 (사고 과정 노출 방지) */
+export const HEALTH_CHAT_SHORT_INTRO = HEALTH_CHAT_INTRO;
+
 const getBaseUrl = () =>
   (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
   "http://210.91.154.131:20443/95ce287337c3ad9f";
