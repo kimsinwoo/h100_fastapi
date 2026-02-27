@@ -27,7 +27,10 @@ class Settings(BaseSettings):
 
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=7000, ge=1, le=65535)
-    base_path: str = Field(default="")
+    base_path: str = Field(
+        default="95ce287337c3ad9f",
+        description="리버스 프록시 하위 경로. 프론트 baseURL과 맞추면 /base_path/api/generate 로 요청 처리.",
+    )
 
     static_dir: Path = Field(default=Path("static"))
     generated_dir_name: str = Field(default="generated")
