@@ -1022,7 +1022,7 @@ def _structured_contains_english(structured: Any) -> bool:
 
 async def stream_complete_health_chat(
     messages: list[dict[str, str]],
-    max_tokens: int = 1024,
+    max_tokens: int = 2048,
     temperature: float = 0.4,
 ) -> AsyncIterator[str]:
     """건강 질문 도우미 스트리밍. API(vLLM) 모드일 때만 스트리밍, 로컬은 한 번에 yield."""
@@ -1045,7 +1045,7 @@ async def stream_complete_health_chat(
 
 async def complete_health_chat(
     messages: list[dict[str, str]],
-    max_tokens: int = 1024,
+    max_tokens: int = 2048,
     temperature: float = 0.4,
 ) -> tuple[str | None, Any | None]:
     """건강 질문 도우미(구조화). (본문 텍스트, HealthChatStructured | None) 반환. 한국어 질문 시 구조화 내 영어 포함이면 1회 재시도."""
