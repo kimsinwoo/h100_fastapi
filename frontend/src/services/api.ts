@@ -57,12 +57,9 @@ export async function generateImage(
   form.append("style", style);
   form.append("image", file);
   form.append("custom_prompt", (customPrompt ?? "").trim());
-  form.append("strength", String(strength ?? 0.75));
-  form.append("steps", "30");
-  form.append("cfg", "7.5");
+  form.append("strength", String(strength ?? 0.5));
   if (seed !== null) form.append("seed", String(seed));
-  form.append("width", "1024");
-  form.append("height", "1024");
+  // steps는 생략 시 백엔드 generation_rules에서 스타일별로 적용 (pixel_art 32, 그 외 28~30)
 
   type ApiResponse = {
     original_url?: string;

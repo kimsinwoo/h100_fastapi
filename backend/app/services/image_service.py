@@ -26,6 +26,7 @@ from app.utils.prompt_builder import (
     build_negative_prompt,
     build_prompt,
     get_allowed_style_keys,
+    get_generation_rules,
 )
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
@@ -53,9 +54,17 @@ DEFAULT_NUM_INFERENCE_STEPS = 37  # Omni 스타일 등에서 참조
 Z_IMAGE_DEFAULT_STEPS = 30       # Z-Image-Turbo 기본 스텝
 MODEL_RESOLUTION = 1024
 
-# 스타일별 strength: 픽셀아트는 낮춰야 3D 블록/복셀 방지, 나머지는 각 특성 유지
+# 스타일별 strength: 2D 재해석용 (픽셀아트는 낮게 유지)
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel art": (0.23, 0.38),      # 매우 낮게 유지해야 순수 2D 스프라이트만 나옴
+    "pixel_art": (0.23, 0.38),
+    "pixel art": (0.23, 0.38),
+    "dragonball": (0.45, 0.56),
+    "slamdunk": (0.45, 0.56),
+    "sailor_moon": (0.45, 0.56),
+    "pokemon": (0.45, 0.56),
+    "dooly": (0.42, 0.54),
+    "mazinger": (0.46, 0.56),
+    "shinchan": (0.42, 0.54),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -65,10 +74,13 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "cinematic": (0.46, 0.54),
     "fantasy art": (0.48, 0.56),
     "3d render": (0.50, 0.58),
-    "omni": (0.65, 0.80),           # Omni-Image-Editor: 원본 유지 + 디테일 강화 (0.6~0.8)
+    "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
+
+# pixel_art 업스케일: 128 생성 후 nearest-neighbor로만 확대 (표시용)
+PIXEL_ART_UPSCALE_FACTOR = 4  # 128 -> 512
 
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
 # https://huggingface.co/docs/diffusers/using-diffusers/omnigen
@@ -305,6 +317,19 @@ def is_omnigen_in_use() -> bool:
 # ============================================================
 # Inference
 # ============================================================
+
+def _upscale_nearest(image_bytes: bytes, factor: int) -> bytes:
+    """Upscale image using nearest-neighbor only (for pixel_art). Returns PNG bytes."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.convert("RGB")
+    w, h = img.size
+    new_w, new_h = w * factor, h * factor
+    out = img.resize((new_w, new_h), Image.Resampling.NEAREST)
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue()
+
 
 def _resize_keep_ratio(in_w: int, in_h: int, max_side: int) -> tuple[int, int]:
     """입력 비율 유지하며 긴 변이 max_side 이하, 8의 배수로 (out_w, out_h) 계산."""
@@ -684,15 +709,16 @@ async def run_image_to_image(
     strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
     strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
 
-    # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: 기본값 또는 픽셀아트
+    # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: generation_rules 사용
     if style_lower == "omni":
         num_steps = max(1, min(OMNI_STEPS_MAX, num_steps or OMNI_NUM_STEPS))
         guidance_scale = OMNI_GUIDANCE_SCALE
+        max_side = size or MODEL_RESOLUTION
     else:
-        num_steps = max(1, min(50, num_steps or Z_IMAGE_DEFAULT_STEPS))
-        guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
-
-    max_side = size or MODEL_RESOLUTION
+        rules = get_generation_rules(style_lower)
+        max_side = size or rules["max_side"]
+        num_steps = max(1, min(50, num_steps or rules["steps"]))
+        guidance_scale = rules["guidance_scale"]
 
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
@@ -710,6 +736,11 @@ async def run_image_to_image(
             seed,
         ),
     )
+
+    # pixel_art: 128 생성 후 nearest-neighbor 업스케일만 허용 (표시용)
+    is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
+    if is_pixel_art and result:
+        result = _upscale_nearest(result, PIXEL_ART_UPSCALE_FACTOR)
 
     elapsed = time.perf_counter() - start
     return result, elapsed

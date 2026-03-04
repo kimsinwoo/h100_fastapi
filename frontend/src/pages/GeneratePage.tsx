@@ -4,8 +4,8 @@ import { ImageUploader } from "../components/ImageUploader";
 import { LoadingOverlay } from "../components/LoadingSpinner";
 import { ResultViewer } from "../components/ResultViewer";
 import { StyleSelector } from "../components/StyleSelector";
-import { generateImage, getHealth, getLlmStatus, getErrorMessage, suggestPrompt, getApiResourceUrl } from "../services/api";
-import type { GenerateResponse } from "../types/api";
+import { generateImage, getHealth, getStyles, getLlmStatus, getErrorMessage, suggestPrompt, getApiResourceUrl } from "../services/api";
+import type { GenerateResponse, StylesResponse } from "../types/api";
 
 type AppState =
   | { phase: "idle" }
@@ -15,9 +15,10 @@ type AppState =
 
 export default function GeneratePage() {
   const [file, setFile] = useState<File | null>(null);
-  const [style, setStyle] = useState<string>("realistic");
+  const [styles, setStyles] = useState<StylesResponse | null>(null);
+  const [style, setStyle] = useState<string>("pokemon");
   const [customPrompt, setCustomPrompt] = useState<string>("");
-  const [strength, setStrength] = useState<number>(0.6);
+  const [strength, setStrength] = useState<number>(0.5);
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
   const [llmAvailable, setLlmAvailable] = useState<boolean>(false);
   const [llmModel, setLlmModel] = useState<string | null>(null);
@@ -34,7 +35,22 @@ export default function GeneratePage() {
         setLlmModel(r.model ?? null);
       })
       .catch(() => setLlmAvailable(false));
+    getStyles()
+      .then((s) => {
+        setStyles(s);
+        return s;
+      })
+      .catch(() => setStyles({}));
   }, []);
+
+  // 스타일 목록 로드 후 현재 선택이 목록에 없으면 첫 번째 스타일로
+  useEffect(() => {
+    const keys = styles ? Object.keys(styles) : [];
+    if (keys.length === 0) return;
+    if (!Object.prototype.hasOwnProperty.call(styles!, style)) {
+      setStyle(keys[0]!);
+    }
+  }, [styles, style]);
 
   const handleSuggestPrompt = useCallback(async () => {
     setSuggesting(true);
@@ -159,8 +175,8 @@ export default function GeneratePage() {
             />
           </section>
           <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">Style (Z-Image용 / 프롬프트 비었을 때 참고)</h2>
-            <StyleSelector selected={style} onSelect={setStyle} disabled={isProcessing} />
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">Style (2D 캐릭터 재해석)</h2>
+            <StyleSelector styles={styles} selected={style} onSelect={setStyle} disabled={isProcessing} />
           </section>
           <section>
             <label htmlFor="strength" className="mb-2 block text-sm font-semibold text-gray-700">

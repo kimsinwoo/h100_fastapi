@@ -11,17 +11,17 @@ export interface ErrorDetail {
   code?: string;
 }
 
+/** 백엔드 허용 스타일 (prompt-config와 동기화). API /api/styles 응답 키와 일치 */
 export type StyleKey =
-  | "anime"
-  | "realistic"
-  | "watercolor"
-  | "cyberpunk"
-  | "oil painting"
-  | "sketch"
-  | "cinematic"
-  | "fantasy art"
-  | "pixel art"
-  | "3d render";
+  | "dragonball"
+  | "slamdunk"
+  | "sailor_moon"
+  | "pokemon"
+  | "dooly"
+  | "mazinger"
+  | "shinchan"
+  | "pixel_art"
+  | "pixel art";
 
 export interface StylesResponse {
   [key: string]: string;

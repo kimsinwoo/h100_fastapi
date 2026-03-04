@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
-from app.utils.prompt_builder import get_allowed_style_keys
+from app.utils.prompt_builder import get_allowed_style_keys, get_prompt_config
 from app.schemas.image_schema import GenerateResponse
 from app.services.image_service import run_image_to_image
 from app.services.training_store import (
@@ -85,7 +85,7 @@ async def generate(
     request: Request,
     file: Annotated[UploadFile | None, File(description="Image file (field: file or image)")] = None,
     image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
-    style: Annotated[str, Form(description="Style preset key")] = "realistic",
+    style: Annotated[str, Form(description="Style preset key")] = "pokemon",
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     steps: Annotated[str | None, Form(description="Inference steps (default 30)")] = None,
@@ -171,6 +171,12 @@ async def list_styles() -> dict[str, str]:
     """Return available style presets (key -> description). prompt_builder와 동기화된 키만 노출."""
     allowed = get_allowed_style_keys()
     return {k: STYLE_PRESETS.get(k, k) for k in allowed}
+
+
+@router.get("/prompt-config")
+async def get_prompt_config_route() -> dict:
+    """Return full prompt config: base_prompt, base_negative, styles, generation_rules."""
+    return get_prompt_config()
 
 
 # ---------- LLM (gpt-oss-20b) API ----------
