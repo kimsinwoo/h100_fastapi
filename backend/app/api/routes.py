@@ -28,6 +28,7 @@ from app.services.training_store import (
     update_item as training_update_item,
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +156,13 @@ async def generate(
         logger.exception("Failed to save generated image: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save generated image")
     generated_url = get_generated_url(generated_filename)
+    # 멀티 Pod/K8s: GET /static/generated/xxx 가 다른 Pod로 가면 404. 응답에 base64 포함해 두 번째 요청 없이 표시 가능하게 함.
+    generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
     return GenerateResponse(
         original_url=original_url,
         generated_url=generated_url,
         processing_time=round(processing_time, 2),
+        generated_image_base64=generated_b64,
     )
 
 
