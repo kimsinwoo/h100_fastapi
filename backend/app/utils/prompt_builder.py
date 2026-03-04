@@ -24,6 +24,19 @@ BASE_NEGATIVE = (
     "hyper detailed, realistic anatomy, real muscle structure, high frequency texture, HDR"
 )
 
+# ========== POSE PRESERVATION (참조 이미지 자세 유지: 누움/앉음/서 있음 등) ==========
+# img2img 시 원본 사진의 자세·구도를 바꾸지 않도록 명시
+POSE_PRESERVATION = (
+    "exact same pose and body position as reference image, "
+    "preserve composition and posture, same lying or sitting or standing as input, "
+    "do not change pose, keep body orientation and limb arrangement identical"
+)
+POSE_NEGATIVE = (
+    "different pose, changed posture, wrong body position, altered composition, "
+    "standing when reference is lying, lying when reference is standing, sitting when reference is lying, "
+    "reposed, pose change, different angle"
+)
+
 # ========== SPECIES SUBJECT (주어 명시: 고양이/강아지 구분 확실히) ==========
 # 프롬프트 맨 앞에 올려 모델이 종을 명확히 인식하도록 함.
 SPECIES_SUBJECT: dict[str, str] = {
@@ -284,7 +297,7 @@ def build_prompt(
         text = DEFAULT_USER_PROMPT
     if raw_prompt:
         return text
-    parts = [text, BASE_PROMPT]
+    parts = [text, BASE_PROMPT, POSE_PRESERVATION]
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
     style_key = _normalize_style(style)
@@ -306,10 +319,10 @@ def build_negative_prompt(
     species: str | None = None,
     raw_prompt: bool = False,
 ) -> str:
-    """Final negative = BASE_NEGATIVE + species cross-avoid + style-specific negative."""
+    """Final negative = BASE_NEGATIVE + pose-avoid + species cross-avoid + style-specific negative."""
     if raw_prompt:
         return ""
-    parts = [BASE_NEGATIVE]
+    parts = [BASE_NEGATIVE, POSE_NEGATIVE]
     species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
         parts.append(SPECIES_NEGATIVE_AVOID[species_key])

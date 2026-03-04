@@ -6,7 +6,9 @@
 
 - Python 3.11+
 - CUDA GPU (권장: 24GB+ VRAM, H100 등)
-- `diffusers`에 LTX-2 파이프라인 포함 버전 (예: diffusers >= 0.37.0, 버전은 [diffusers 문서](https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2) 참고)
+- `diffusers` **main 브랜치** (LTX2ImageToVideoPipeline은 아직 PyPI 0.37 미출시):  
+  `pip install git+https://github.com/huggingface/diffusers.git`  
+  ([문서](https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2))
 
 ## API
 

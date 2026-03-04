@@ -41,8 +41,8 @@ def _load_pipeline_sync() -> Any:
             from diffusers.pipelines.ltx2 import LTX2ImageToVideoPipeline
         except ImportError as e:
             raise ImportError(
-                "LTX2ImageToVideoPipeline을 불러올 수 없습니다. LTX-2 비디오는 diffusers >= 0.37.0 필요합니다. "
-                "업그레이드: pip install 'diffusers>=0.37.0' -U"
+                "LTX2ImageToVideoPipeline을 불러올 수 없습니다. LTX-2 비디오는 diffusers main 브랜치 필요 (0.37 미출시). "
+                "설치: pip install git+https://github.com/huggingface/diffusers.git"
             ) from e
 
     global _pipeline
