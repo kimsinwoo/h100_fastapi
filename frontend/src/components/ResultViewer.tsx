@@ -3,6 +3,8 @@ import React from "react";
 interface ResultViewerProps {
   originalUrl: string;
   generatedUrl: string;
+  /** When set, use instead of generatedUrl so no second GET (avoids 404 in multi-pod) */
+  generatedImageBase64?: string | null;
   processingTime: number;
   onDownload: () => void;
 }
@@ -10,9 +12,14 @@ interface ResultViewerProps {
 export const ResultViewer: React.FC<ResultViewerProps> = ({
   originalUrl,
   generatedUrl,
+  generatedImageBase64,
   processingTime,
   onDownload,
-}) => (
+}) => {
+  const generatedSrc = generatedImageBase64
+    ? `data:image/png;base64,${generatedImageBase64}`
+    : generatedUrl;
+  return (
   <div className="space-y-4">
     <div className={`grid gap-4 ${originalUrl ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}>
       {originalUrl ? (
@@ -28,7 +35,7 @@ export const ResultViewer: React.FC<ResultViewerProps> = ({
       <div>
         <p className="mb-2 text-sm font-medium text-gray-600">Generated</p>
         <img
-          src={generatedUrl}
+          src={generatedSrc}
           alt="Generated"
           className="max-h-96 w-full rounded-lg border border-gray-200 object-contain"
         />
@@ -47,4 +54,5 @@ export const ResultViewer: React.FC<ResultViewerProps> = ({
       </button>
     </div>
   </div>
-);
+  );
+};

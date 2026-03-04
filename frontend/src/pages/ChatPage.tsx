@@ -11,6 +11,7 @@ import {
   addChatMessage,
   deleteChatRoom,
   parseStructuredFromContent,
+  isTruncatedStructuredContent,
   HEALTH_CHAT_SHORT_INTRO,
 } from "../services/api";
 import type { ChatRoomSummary, HealthChatStructured } from "../services/api";
@@ -129,6 +130,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
       let assistantContent: string;
       let streamSucceeded = false;
+      let parsedStructured: Awaited<ReturnType<typeof parseStructuredFromContent>> = null;
       try {
         assistantContent = await llmChatStream(
           history,
@@ -141,7 +143,7 @@ export default function ChatPage() {
               return next;
             });
           },
-          1024,
+          4096,
           0.4
         );
         streamSucceeded = true;
@@ -150,13 +152,13 @@ export default function ChatPage() {
         setMessages((prev) => prev.slice(0, -1));
         let response: Awaited<ReturnType<typeof llmChat>>;
         try {
-          response = await llmChat(history, 1024, 0.4);
+          response = await llmChat(history, 4096, 0.4);
         } catch (firstErr) {
           const msg = String((firstErr as Error)?.message ?? "").toLowerCase();
           const isRetryable =
             msg.includes("network") || msg.includes("timeout") || msg.includes("초과") || msg.includes("econnaborted");
           if (isRetryable) {
-            response = await llmChat(history, 1024, 0.4);
+            response = await llmChat(history, 4096, 0.4);
           } else {
             throw firstErr;
           }
@@ -177,14 +179,14 @@ export default function ChatPage() {
       }
       if (streamSucceeded) {
         // 스트리밍 성공: 본문에서 JSON 파싱해 구조화 있으면 사고 과정 숨기고 짧은 안내만 노출
-        const parsed = parseStructuredFromContent(assistantContent);
-        if (parsed) {
+        parsedStructured = parseStructuredFromContent(assistantContent);
+        if (parsedStructured) {
           assistantContent = HEALTH_CHAT_SHORT_INTRO;
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
             if (last?.role === "assistant")
-              next[next.length - 1] = { ...last, content: HEALTH_CHAT_SHORT_INTRO, structured: parsed };
+              next[next.length - 1] = { ...last, content: HEALTH_CHAT_SHORT_INTRO, structured: parsedStructured };
             return next;
           });
         }
@@ -199,11 +201,17 @@ export default function ChatPage() {
         });
       }
       if (activeRoomId) {
+        const toSave =
+          parsedStructured
+            ? HEALTH_CHAT_SHORT_INTRO
+            : isTruncatedStructuredContent(assistantContent)
+              ? "응답이 중간에 잘렸습니다. 다시 시도해 주세요."
+              : assistantContent;
         try {
-          await addChatMessage(activeRoomId, "assistant", assistantContent);
+          await addChatMessage(activeRoomId, "assistant", toSave);
         } catch {
           try {
-            await addChatMessage(activeRoomId, "assistant", assistantContent);
+            await addChatMessage(activeRoomId, "assistant", toSave);
           } catch {
             // 저장 실패해도 화면에는 이미 표시됨
           }
@@ -248,6 +256,7 @@ export default function ChatPage() {
         const history = latest.map((m) => ({ role: m.role, content: m.content }));
         setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
         let assistantContent: string;
+        let parsedFromStream: Awaited<ReturnType<typeof parseStructuredFromContent>> = null;
         try {
           assistantContent = await llmChatStream(
             history,
@@ -260,12 +269,23 @@ export default function ChatPage() {
                 return next;
               });
             },
-            1024,
+            4096,
             0.4
           );
+          parsedFromStream = parseStructuredFromContent(assistantContent);
+          if (parsedFromStream) {
+            assistantContent = HEALTH_CHAT_SHORT_INTRO;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant")
+                next[next.length - 1] = { ...last, content: HEALTH_CHAT_SHORT_INTRO, structured: parsedFromStream };
+              return next;
+            });
+          }
         } catch {
           setMessages((prev) => prev.slice(0, -1));
-          const response = await llmChat(history, 1024, 0.4);
+          const response = await llmChat(history, 4096, 0.4);
           assistantContent =
             response?.content != null && String(response.content).trim() !== ""
               ? String(response.content).trim()
@@ -285,8 +305,14 @@ export default function ChatPage() {
           });
         }
         if (activeRoomId) {
+          const toSave =
+            parsedFromStream
+              ? HEALTH_CHAT_SHORT_INTRO
+              : isTruncatedStructuredContent(assistantContent)
+                ? "응답이 중간에 잘렸습니다. 다시 시도해 주세요."
+                : assistantContent;
           try {
-            await addChatMessage(activeRoomId, "assistant", assistantContent);
+            await addChatMessage(activeRoomId, "assistant", toSave);
           } catch {
             // ignore
           }
@@ -445,7 +471,20 @@ export default function ChatPage() {
                   증상이나 반려동물 상황을 간단히 적어 주세요. (참고 정보만 제공합니다)
                 </p>
               )}
-              {messages.map((m, i) => (
+              {messages.map((m, i) => {
+                const parsedStructured =
+                  m.role === "assistant"
+                    ? (m.structured ?? parseStructuredFromContent(m.content))
+                    : null;
+                const assistantBubbleText =
+                  m.role === "assistant"
+                    ? parsedStructured
+                      ? HEALTH_CHAT_SHORT_INTRO
+                      : isTruncatedStructuredContent(m.content)
+                        ? "응답이 중간에 잘렸습니다. 다시 시도해 주세요."
+                        : m.content
+                    : "";
+                return (
                 <div key={i} className={`mb-3 flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
                   <div
                     className={`max-w-[90%] rounded-2xl px-3 py-2.5 text-sm md:max-w-[85%] md:rounded-lg md:px-3 md:py-2 ${
@@ -454,15 +493,15 @@ export default function ChatPage() {
                         : "bg-gray-100 text-gray-800"
                     }`}
                   >
-                    {m.role === "assistant" ? renderAssistantContent(m.content) : m.content}
+                    {m.role === "assistant" ? renderAssistantContent(assistantBubbleText) : m.content}
                   </div>
-                  {m.role === "assistant" && m.structured && (
+                  {m.role === "assistant" && parsedStructured && (
                     <div className="mt-2 w-full max-w-[90%] space-y-2 md:max-w-[85%]">
-                      {m.structured.differential?.length > 0 && (
+                      {parsedStructured.differential?.length > 0 && (
                         <div className="rounded-lg border border-gray-200 bg-white p-2 text-xs md:text-sm">
                           <p className="mb-1 font-semibold text-gray-700">감별 진단 (1~4순위)</p>
                           <ul className="list-inside list-disc space-y-1">
-                            {m.structured.differential.map((d) => (
+                            {parsedStructured.differential.map((d) => (
                               <li key={d.rank}>
                                 <strong>{d.rank}위 {d.name}</strong>
                                 {d.emergency && <span className="ml-1 text-red-600">(응급 가능)</span>}
@@ -475,30 +514,30 @@ export default function ChatPage() {
                           </ul>
                         </div>
                       )}
-                      {m.structured.emergency_criteria?.length > 0 && (
+                      {parsedStructured.emergency_criteria?.length > 0 && (
                         <div className="rounded-lg border border-red-100 bg-red-50/50 p-2 text-xs md:text-sm">
                           <p className="mb-1 font-semibold text-red-800">즉시 병원 내원 기준</p>
                           <ul className="list-inside list-disc space-y-0.5 text-gray-700">
-                            {m.structured.emergency_criteria.map((c, j) => (
+                            {parsedStructured.emergency_criteria.map((c, j) => (
                               <li key={j}>{c}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {m.structured.key_questions?.length > 0 && (
+                      {parsedStructured.key_questions?.length > 0 && (
                         <div className="rounded-lg border border-gray-200 bg-white p-2 text-xs md:text-sm">
                           <p className="mb-1 font-semibold text-gray-700">감별을 위한 핵심 질문</p>
                           <ul className="list-inside list-disc space-y-0.5 text-gray-600">
-                            {m.structured.key_questions.map((q, j) => (
+                            {parsedStructured.key_questions.map((q, j) => (
                               <li key={j}>{q}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {m.structured.recommended_categories?.length > 0 && (
+                      {parsedStructured.recommended_categories?.length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           <span className="w-full text-xs font-semibold text-gray-600">이어서 물어보기</span>
-                          {m.structured.recommended_categories.map((cat, j) => (
+                          {parsedStructured.recommended_categories.map((cat, j) => (
                             <button
                               key={j}
                               type="button"
@@ -514,7 +553,8 @@ export default function ChatPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              );
+              })}
               {loading && (
                 <div className="mb-3 flex justify-start">
                   <div className="max-w-[90%] rounded-2xl bg-indigo-50 px-3 py-2.5 text-sm text-indigo-700 md:max-w-[85%] md:rounded-lg">

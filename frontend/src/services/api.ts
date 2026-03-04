@@ -70,12 +70,14 @@ export async function generateImage(
     image_url?: string;
     processing_time?: number;
     processing_time_seconds?: number;
+    generated_image_base64?: string | null;
   };
   const { data } = await uploadApi.post<ApiResponse>("/api/generate", form);
   return {
     original_url: data.original_url ?? "",
     generated_url: data.generated_url ?? data.image_url ?? "",
     processing_time: data.processing_time ?? data.processing_time_seconds ?? 0,
+    generated_image_base64: data.generated_image_base64 ?? null,
   };
 }
 
@@ -168,18 +170,67 @@ export type HealthChatStructured = {
 
 export type LlmChatResponse = { content: string; structured?: HealthChatStructured };
 
-/** 스트리밍 응답 본문에서 ```json ... ``` 블록을 파싱해 구조화 데이터 반환. 실패 시 null */
+/** 불완전한 JSON(시작만 있고 닫는 ``` 없음)이면 true. 저장 시 대체 문구 쓰기 위함 */
+export function isTruncatedStructuredContent(content: string): boolean {
+  if (!content?.trim()) return false;
+  const hasOpen = /```\s*json\s*/i.test(content);
+  const hasClose = /```\s*$/.test(content.trim()) || content.trim().endsWith("```");
+  return hasOpen && !hasClose && content.length > 200;
+}
+
+/** 스트리밍 응답 본문에서 ```json ... ``` 블록을 파싱해 구조화 데이터 반환. 실패 시 null. 잘린 응답·블록 없음도 보완 후 파싱 시도. */
 export function parseStructuredFromContent(content: string): HealthChatStructured | null {
-  if (!content?.trim()) return null;
-  const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (!match?.[1]) return null;
-  try {
-    const data = JSON.parse(match[1].trim()) as Record<string, unknown>;
-    if (!Array.isArray(data.differential)) return null;
-    return data as unknown as HealthChatStructured;
-  } catch {
+  const raw = content?.trim();
+  if (!raw) return null;
+
+  const tryParse = (str: string): HealthChatStructured | null => {
+    try {
+      const data = JSON.parse(str) as Record<string, unknown>;
+      if (!Array.isArray(data.differential) || data.differential.length === 0) return null;
+      return data as unknown as HealthChatStructured;
+    } catch {
+      return null;
+    }
+  };
+
+  const tryRepair = (jsonStr: string): HealthChatStructured | null => {
+    let out = tryParse(jsonStr);
+    if (out) return out;
+    let trimmed = jsonStr.trim().replace(/,?\s*"[^"]*$/, "").replace(/,?\s*$/, "");
+    const suffixes = ["]", "}", "]}", "}]", "}]}", "]}]", "}]]}"];
+    for (const suf of suffixes) {
+      out = tryParse(trimmed + suf);
+      if (out) return out;
+    }
     return null;
+  };
+
+  // 1) 정상 블록: ```json ... ```
+  const match = raw.match(/```\s*json\s*([\s\S]*?)```/i);
+  if (match?.[1]) {
+    const out = tryRepair(match[1].trim());
+    if (out) return out;
   }
+
+  // 2) 잘림: ```json 은 있는데 닫는 ``` 없음
+  const openMatch = raw.match(/```\s*json\s*([\s\S]*)$/i);
+  if (openMatch?.[1]) {
+    const out = tryRepair(openMatch[1].trim());
+    if (out) return out;
+  }
+
+  // 3) 블록 없이 본문에 "differential" 포함된 JSON만 있는 경우 (웹 응답 형식 차이 대응)
+  const diffIdx = raw.indexOf('"differential"');
+  if (diffIdx !== -1) {
+    let start = raw.lastIndexOf("{", diffIdx);
+    if (start !== -1) {
+      const candidate = raw.slice(start);
+      const out = tryRepair(candidate);
+      if (out) return out;
+    }
+  }
+
+  return null;
 }
 
 const HEALTH_CHAT_INTRO =
@@ -196,7 +247,7 @@ const getBaseUrl = () =>
 export async function llmChatStream(
   messages: Array<{ role: string; content: string }>,
   onChunk: (chunk: string) => void,
-  maxTokens = 1024,
+  maxTokens = 4096,
   temperature = 0.4
 ): Promise<string> {
   const base = getBaseUrl();
@@ -266,7 +317,7 @@ export async function llmChatStream(
 
 export async function llmChat(
   messages: Array<{ role: string; content: string }>,
-  maxTokens = 1024,
+  maxTokens = 4096,
   temperature = 0.4
 ): Promise<LlmChatResponse> {
   const { data } = await api.post<LlmChatResponse>(

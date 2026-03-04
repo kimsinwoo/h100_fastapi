@@ -63,6 +63,23 @@ export default function GeneratePage() {
 
   const handleDownload = useCallback(() => {
     if (state.phase !== "success") return;
+    const b64 = state.data.generated_image_base64;
+    if (b64) {
+      try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "image/png" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `generated-${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch {
+        setState({ phase: "error", message: "Download failed" });
+      }
+      return;
+    }
     const fullUrl = getApiResourceUrl(state.data.generated_url);
     fetch(fullUrl)
       .then((r) => r.blob())
@@ -182,6 +199,7 @@ export default function GeneratePage() {
               <ResultViewer
                 originalUrl={getApiResourceUrl(state.data.original_url)}
                 generatedUrl={getApiResourceUrl(state.data.generated_url)}
+                generatedImageBase64={state.data.generated_image_base64}
                 processingTime={state.data.processing_time}
                 onDownload={handleDownload}
               />

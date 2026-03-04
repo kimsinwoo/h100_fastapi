@@ -2,6 +2,8 @@ export interface GenerateResponse {
   original_url: string;
   generated_url: string;
   processing_time: number;
+  /** PNG base64; use when GET generated_url returns 404 (e.g. multi-pod) */
+  generated_image_base64?: string | null;
 }
 
 export interface ErrorDetail {
