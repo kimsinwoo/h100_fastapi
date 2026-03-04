@@ -34,7 +34,16 @@ DEFAULT_NEGATIVE = (
 
 def _load_pipeline_sync() -> Any:
     import torch
-    from diffusers import LTX2ImageToVideoPipeline
+    try:
+        from diffusers import LTX2ImageToVideoPipeline
+    except ImportError:
+        try:
+            from diffusers.pipelines.ltx2 import LTX2ImageToVideoPipeline
+        except ImportError as e:
+            raise ImportError(
+                "LTX2ImageToVideoPipeline을 불러올 수 없습니다. LTX-2 비디오는 diffusers >= 0.37.0 필요합니다. "
+                "업그레이드: pip install 'diffusers>=0.37.0' -U"
+            ) from e
 
     global _pipeline
     model_id = getattr(get_settings(), "ltx2_model_id", "Lightricks/LTX-2")

@@ -46,8 +46,9 @@ SPECIES_MODIFIERS: dict[str, str] = {
         "no fur strands, simplified limb blocks, no wet nose detail"
     ),
     "cat": (
-        "triangular ear blocks, sharper eye shape, tail as smooth tapered curve, "
-        "whiskers as simple lines only no realism, simplified limb, no fur strands"
+        "pointed triangular upright ears, both ears with visible pink inner ear symmetrical, "
+        "sharper eye shape slit pupils, small nose no long snout, tail as smooth tapered curve, "
+        "whiskers as simple lines only no realism, simplified limb, no fur strands, feline not canine"
     ),
     "rabbit": (
         "elongated ear shapes, minimal facial detail, round body mass, "
@@ -82,7 +83,10 @@ SPECIES_MODIFIERS: dict[str, str] = {
 # ========== SPECIES NEGATIVE (반대 종 회피: 고양이일 때 강아지 형태 차단, 강아지일 때 고양이 형태 차단) ==========
 SPECIES_NEGATIVE_AVOID: dict[str, str] = {
     "dog": "cat, feline, cat-like, triangular cat ears, slit pupils, cat silhouette",
-    "cat": "dog, canine, dog-like, rounded dog muzzle, floppy dog ears, dog silhouette",
+    "cat": (
+        "dog, canine, dog-like, rounded dog muzzle, floppy dog ears, dog silhouette, "
+        "rounded ears, long snout, only one ear visible, asymmetrical ears, one ear empty"
+    ),
     "rabbit": "dog, cat, canine, feline, long dog muzzle",
     "hamster": "dog, cat, long ears, long muzzle",
     "ferret": "dog, cat, bird, beak",
@@ -147,7 +151,10 @@ STYLE_PROMPTS: dict[str, str] = {
 # 픽셀 아트에서 종 구분을 확실히 하기 위한 스프라이트 힌트 (고양이/강아지 형태 명시)
 PIXEL_ART_SPECIES_SPRITE: dict[str, str] = {
     "dog": "dog sprite with rounded or floppy ear blocks, short blunt muzzle block, canine silhouette",
-    "cat": "cat sprite with pointed triangular ear blocks, no long muzzle, feline silhouette",
+    "cat": (
+        "cat sprite with pointed triangular ear blocks, both ears with pink inner ear visible symmetrical, "
+        "no long muzzle, small nose, feline silhouette"
+    ),
     "rabbit": "rabbit sprite with long upright ear blocks, round body",
     "hamster": "hamster sprite with small round ears, round body",
     "ferret": "ferret sprite with rounded ears, elongated body",

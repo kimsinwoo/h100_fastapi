@@ -373,6 +373,7 @@ def _run_inference_sync(
     guidance_scale: float,
     max_side: int,
     seed: int | None,
+    force_square: bool = False,
 ) -> bytes:
 
     import torch
@@ -386,13 +387,23 @@ def _run_inference_sync(
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
-    # 전처리: EXIF 방향 적용 후 원본 비율 유지 리사이즈 (긴 변 max_side, 8의 배수)
+    # 전처리: EXIF 방향 적용 후 리사이즈
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
-    target_w, target_h = _resize_keep_ratio(img.width, img.height, max_side)
-    if img.width != target_w or img.height != target_h:
-        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    if force_square:
+        # 픽셀아트: 정사각 입력/출력으로 비율 찌그러짐(압축) 방지
+        s = min(img.width, img.height)
+        left = (img.width - s) // 2
+        top = (img.height - s) // 2
+        img = img.crop((left, top, left + s, top + s))
+        if s != max_side:
+            img = img.resize((max_side, max_side), Image.Resampling.LANCZOS)
+        target_w, target_h = max_side, max_side
+    else:
+        target_w, target_h = _resize_keep_ratio(img.width, img.height, max_side)
+        if img.width != target_w or img.height != target_h:
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
     # Deterministic seed
     generator = torch.Generator(device=_device)
@@ -754,6 +765,7 @@ async def run_image_to_image(
         num_steps = max(1, min(70, num_steps or rules["steps"]))
         guidance_scale = rules["guidance_scale"]
 
+    is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
     logger.info(
@@ -777,11 +789,11 @@ async def run_image_to_image(
             guidance_scale,
             max_side,
             seed,
+            force_square=is_pixel_art,
         ),
     )
 
     # pixel_art: 384 생성 후 512로 nearest 리사이즈
-    is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     if is_pixel_art and result:
         result = _pixel_art_resize_to(result, PIXEL_ART_TARGET_SIZE, edge_crop=PIXEL_ART_EDGE_CROP)
 
