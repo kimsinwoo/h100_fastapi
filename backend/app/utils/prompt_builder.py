@@ -1,11 +1,26 @@
 """
-Clean prompt builder. No base prompt injection.
-User prompt used as-is unless a style is explicitly selected.
+Clean prompt builder.
+공통 전제(무조건 포함): 작은 흰 개 기반 2D 캐릭터, 실사 차단 Negative.
 """
 
 from __future__ import annotations
 
-# Minimal style suffix only. No prepended base, no camera/lens/metadata.
+# ========== 공통 전제 (무조건 포함) ==========
+# ✅ 공통 Positive 베이스: 2D 캐릭터 재해석, 실사/털 텍스처 제거
+COMMON_POSITIVE_BASE = (
+    "fully redesigned 2D character based on a small white dog, "
+    "shape-based character design, no biological realism, no fur texture, "
+    "simplified anatomy, clear silhouette, flat color regions, "
+    "style-locked rendering, not a real dog, animated character reinterpretation"
+)
+# ❌ 공통 Negative (실사 차단)
+COMMON_NEGATIVE = (
+    "photorealistic fur, wet nose texture, animal photography, hyper detailed hair, "
+    "realistic lighting, subsurface scattering, skin pores, 3D render, "
+    "cinematic HDR, depth of field, real dog anatomy"
+)
+
+# Minimal style suffix only.
 STYLE_TEMPLATES: dict[str, str] = {
     "photoreal": "Ultra photorealistic, natural lighting, realistic textures",
     "realistic": "Ultra photorealistic, natural lighting, realistic textures",
@@ -73,11 +88,11 @@ def _normalize_style(style: str | None) -> str | None:
 
 def build_prompt(user_prompt: str, style: str | None = None, raw_prompt: bool = False) -> str:
     """
-    Build final prompt. No base injection.
+    Build final prompt. 공통 Positive 베이스는 style 사용 시 항상 포함.
     - If user_prompt is empty → raise ValueError.
-    - If raw_prompt is True → return user_prompt unchanged.
-    - If style is None → return user_prompt unchanged.
-    - If style is provided → return user_prompt + minimal style template only.
+    - If raw_prompt is True → return user_prompt unchanged (공통 미포함).
+    - If style is None → return user_prompt + COMMON_POSITIVE_BASE.
+    - If style is provided → return user_prompt + style template + COMMON_POSITIVE_BASE.
     """
     text = (user_prompt or "").strip()
     if not text:
@@ -86,25 +101,26 @@ def build_prompt(user_prompt: str, style: str | None = None, raw_prompt: bool = 
         return text
     style_key = _normalize_style(style)
     if style_key is None:
-        return text
+        return f"{text}, {COMMON_POSITIVE_BASE}"
     template = STYLE_TEMPLATES.get(style_key)
     if not template:
-        return text
-    return f"{text}, {template}"
+        return f"{text}, {COMMON_POSITIVE_BASE}"
+    return f"{text}, {template}, {COMMON_POSITIVE_BASE}"
 
 
 def build_negative_prompt(style: str | None, raw_prompt: bool = False) -> str:
     """
-    Build negative prompt. No hidden defaults.
-    - If raw_prompt or style is None → return empty string.
-    - Otherwise return only the style-specific negative (minimal).
+    Build negative prompt. 공통 Negative(실사 차단)는 항상 앞에 포함.
+    - If raw_prompt → return empty string.
+    - Otherwise return COMMON_NEGATIVE + style-specific negative.
     """
     if raw_prompt:
         return ""
     style_key = _normalize_style(style)
-    if style_key is None:
-        return ""
-    return NEGATIVE_BY_STYLE.get(style_key, "")
+    style_neg = NEGATIVE_BY_STYLE.get(style_key, "") if style_key else ""
+    if style_neg:
+        return f"{COMMON_NEGATIVE}, {style_neg}"
+    return COMMON_NEGATIVE
 
 
 def get_allowed_style_keys() -> list[str]:
