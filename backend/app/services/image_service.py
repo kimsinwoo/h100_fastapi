@@ -325,8 +325,7 @@ def _run_inference_sync(
     strength: float,
     num_steps: int,
     guidance_scale: float,
-    width: int,
-    height: int,
+    max_side: int,
     seed: int | None,
 ) -> bytes:
 
@@ -338,11 +337,11 @@ def _run_inference_sync(
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
-    # 전처리: EXIF 방향 적용 + 비율 유지 리사이즈 (Omni-Image-Editor 스타일: LANCZOS, 원본 구조 유지)
+    # 전처리: EXIF 방향 적용 후 원본 비율 유지 리사이즈 (긴 변 max_side, 8의 배수)
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
-    target_w, target_h = width, height
+    target_w, target_h = _resize_keep_ratio(img.width, img.height, max_side)
     if img.width != target_w or img.height != target_h:
         img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
@@ -694,11 +693,6 @@ async def run_image_to_image(
         guidance_scale = PIXEL_ART_GUIDANCE_SCALE if "pixel" in style_lower else DEFAULT_GUIDANCE_SCALE
 
     max_side = size or MODEL_RESOLUTION
-    from PIL import Image
-    with Image.open(io.BytesIO(image_bytes)) as tmp:
-        tmp.load()
-        in_w, in_h = tmp.width, tmp.height
-    target_w, target_h = _resize_keep_ratio(in_w, in_h, max_side)
 
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
@@ -712,8 +706,7 @@ async def run_image_to_image(
             strength,
             num_steps,
             guidance_scale,
-            target_w,
-            target_h,
+            max_side,
             seed,
         ),
     )
