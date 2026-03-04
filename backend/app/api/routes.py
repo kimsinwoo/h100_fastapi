@@ -88,7 +88,11 @@ async def generate(
     image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
     style: Annotated[str, Form(description="Style preset key")] = "pokemon",
     species: Annotated[str | None, Form(description="Pet species for silhouette/ear/eye rules: dog, cat, rabbit, hamster, ferret, bird, turtle, reptile, pet")] = None,
-    ac_background: Annotated[str | None, Form(description="Animal Crossing style: background override (e.g. 'flower garden with fences'). Omit for random.")] = None,
+    ac_background: Annotated[str | None, Form(description="Animal Crossing style: background override. Omit for random.")] = None,
+    ac_preserve_original: Annotated[str | None, Form(description="Animal Crossing: 'true' to preserve reference image composition, background, clothing, pose")] = None,
+    ac_eye_color: Annotated[str | None, Form(description="Animal Crossing preserve mode: eye color e.g. amber, sapphire blue, black")] = None,
+    ac_pose: Annotated[str | None, Form(description="Animal Crossing preserve mode: pose e.g. waving with one paw, holding fishing rod")] = None,
+    ac_sign_text: Annotated[str | None, Form(description="Animal Crossing preserve mode: custom town sign text e.g. PAW-RADISE, MEOWTON")] = None,
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     steps: Annotated[str | None, Form(description="Inference steps (default 70)")] = None,
@@ -148,6 +152,10 @@ async def generate(
             strength=strength_f,
             seed=seed_i,
             ac_background=ac_background.strip() if ac_background and ac_background.strip() else None,
+            ac_preserve_original=(ac_preserve_original or "").strip().lower() in ("true", "1", "yes"),
+            ac_eye_color=ac_eye_color.strip() if ac_eye_color and ac_eye_color.strip() else None,
+            ac_pose=ac_pose.strip() if ac_pose and ac_pose.strip() else None,
+            ac_sign_text=ac_sign_text.strip() if ac_sign_text and ac_sign_text.strip() else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

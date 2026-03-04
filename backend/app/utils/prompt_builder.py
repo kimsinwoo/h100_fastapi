@@ -199,6 +199,32 @@ def get_random_ac_background(override: str | None = None) -> str:
         return DEFAULT_AC_BACKGROUND
 
 
+# 동물의숲 원본 보존 모드: species 표시명 (프롬프트용)
+AC_SPECIES_DISPLAY: dict[str, str] = {
+    "dog": "Dog",
+    "cat": "Cat",
+    "rabbit": "Bunny",
+    "hamster": "Hamster",
+    "bird": "Bird",
+    "ferret": "Ferret",
+    "turtle": "Turtle",
+    "reptile": "Reptile",
+    "pet": "Pet",
+}
+
+# 동물의숲 원본 보존: 참조 이미지 구성·배경·의상·포즈 최대한 유지, 반려동물만 AC 주민으로 변환 (마스터피스/바이브 코딩)
+AC_PRESERVE_ORIGINAL_TEMPLATE = (
+    "((A masterpiece quality, highly detailed 3D render of a charming {{SPECIES}} villager in the style of Animal Crossing: New Horizons)). "
+    "This villager, a friendly {{SPECIES}} with a simplified, chibified form, is based on the specific pet in the reference image, capturing its proportions and heartwarming expression. "
+    "It {{POSE}} on the exact same environment from the reference image, surrounded by the same lush scenery. "
+    "The character is wearing the same clothing as in the reference image. "
+    "Large, soulful, expressive {{EYE_COLOR}} eyes are wide and friendly, looking directly forward. "
+    "The complex, charming background from the reference image is perfectly preserved{{SIGN_TEXT}}. "
+    "Soft, warm, golden sunlight bathes the entire wholesome scene, casting inviting, realistic shadows and making the textures (knitted sweater, soft fur, smooth surfaces, blooming flowers) pop with crisp, clean lines and incredible depth. "
+    "Cozy, delightful, charming atmosphere. The scene is rendered in an immersive 3D style, free from any distortion or artifacts, appearing as a high-resolution game asset. "
+    "0.5:1 chibi proportions, head large and round, short limbs, soft touchable fur texture."
+)
+
 # 동물의숲 3D 스타일: species별 특징 (dog, cat, rabbit, hamster, bird)
 ANIMAL_CROSSING_SPECIES: dict[str, str] = {
     "dog": "dog villager, rounded ears, short muzzle, canine 3D character, clearly a dog",
@@ -255,6 +281,13 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "asymmetrical ears, human-like anatomy, color bleed, distorted proportions"
     ),
 }
+
+# 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
+NEGATIVE_AC_PRESERVE = (
+    "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, "
+    "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, "
+    "different background from reference, changed clothing, different pose from reference, altered composition"
+)
 
 # ========== GENERATION RULES ==========
 # pixel_art: 384 생성 후 512로 리사이즈(nearest). steps/guidance 상향으로 품질·종 구분 강화.
@@ -338,20 +371,56 @@ def get_generation_rules(style_key: str | None) -> dict[str, Any]:
 DEFAULT_USER_PROMPT = "small pet animal character"
 
 
+def _build_ac_preserve_prompt(
+    species_key: str | None,
+    ac_eye_color: str | None,
+    ac_pose: str | None,
+    ac_sign_text: str | None,
+) -> str:
+    """동물의숲 원본 보존 모드: 참조 이미지 구성·배경·의상·포즈 유지, 반려동물만 AC 주민으로."""
+    species_display = (
+        AC_SPECIES_DISPLAY.get(species_key, "pet").capitalize()
+        if species_key
+        else "Pet"
+    )
+    eye = (ac_eye_color or "warm soulful eyes").strip()
+    if eye and "eye" not in eye.lower():
+        eye = f"{eye} eyes"
+    pose = (ac_pose or "stands naturally, preserving the exact pose and composition from the reference image").strip()
+    sign = ""
+    if ac_sign_text and ac_sign_text.strip():
+        sign = f', including a custom wooden town sign that reads "{ac_sign_text.strip()}"'
+    return AC_PRESERVE_ORIGINAL_TEMPLATE.replace("{{SPECIES}}", species_display).replace(
+        "{{EYE_COLOR}}", eye
+    ).replace("{{POSE}}", pose).replace("{{SIGN_TEXT}}", sign)
+
+
 def build_prompt(
     user_prompt: str,
     style: str | None = None,
     species: str | None = None,
     raw_prompt: bool = False,
     ac_background: str | None = None,
+    ac_preserve_original: bool = False,
+    ac_eye_color: str | None = None,
+    ac_pose: str | None = None,
+    ac_sign_text: str | None = None,
 ) -> str:
     """
     Final prompt = (종 주어) + user_prompt + BASE_PROMPT + species_modifier + style rules.
-    species가 있으면 주어를 "cat character" / "dog character" 등으로 명시.
-    animal_crossing 스타일일 때 ac_background로 배경 지정(없으면 랜덤).
+    animal_crossing + ac_preserve_original 이면 원본 보존 템플릿 사용(참조 이미지 구성·배경·의상·포즈 유지).
     """
     text = (user_prompt or "").strip()
     species_key = _normalize_species(species)
+    style_key = _normalize_style(style)
+    is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
+
+    # 동물의숲 원본 보존 모드: 단일 마스터피스 프롬프트 사용
+    if is_animal_crossing and ac_preserve_original:
+        return _build_ac_preserve_prompt(
+            species_key, ac_eye_color, ac_pose, ac_sign_text
+        )
+
     if not raw_prompt and species_key and species_key in SPECIES_SUBJECT:
         subject = SPECIES_SUBJECT[species_key]
         if not text:
@@ -365,7 +434,6 @@ def build_prompt(
     parts = [text, BASE_PROMPT, POSE_PRESERVATION]
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
-    style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
         style_part = STYLE_PROMPTS[style_key]
         if "{{AC_BACKGROUND}}" in style_part:
@@ -374,11 +442,8 @@ def build_prompt(
                 get_random_ac_background(ac_background),
             )
         parts.append(style_part)
-    # 동물의숲 3D: species별 villager 특징
-    is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
     if is_animal_crossing and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
         parts.append(ANIMAL_CROSSING_SPECIES[species_key])
-    # 픽셀 아트일 때 종별 스프라이트 힌트 + 끝맺음 강화 (고양이/강아지 구분 극대화)
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:
         parts.append(PIXEL_ART_SPECIES_SPRITE[species_key])
@@ -393,6 +458,7 @@ def build_negative_prompt(
     style: str | None,
     species: str | None = None,
     raw_prompt: bool = False,
+    ac_preserve_original: bool = False,
 ) -> str:
     """Final negative = BASE_NEGATIVE + pose-avoid + species cross-avoid + style-specific negative."""
     if raw_prompt:
@@ -402,9 +468,13 @@ def build_negative_prompt(
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
         parts.append(SPECIES_NEGATIVE_AVOID[species_key])
     style_key = _normalize_style(style)
-    style_neg = NEGATIVE_BY_STYLE.get(style_key, "") if style_key else ""
-    if style_neg:
-        parts.append(style_neg)
+    is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
+    if is_animal_crossing and ac_preserve_original:
+        parts.append(NEGATIVE_AC_PRESERVE)
+    else:
+        style_neg = NEGATIVE_BY_STYLE.get(style_key, "") if style_key else ""
+        if style_neg:
+            parts.append(style_neg)
     return ", ".join(p for p in parts if p)
 
 

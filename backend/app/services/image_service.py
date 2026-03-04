@@ -673,6 +673,10 @@ async def run_image_to_image(
     size: int | None = None,
     seed: int | None = None,
     ac_background: str | None = None,
+    ac_preserve_original: bool = False,
+    ac_eye_color: str | None = None,
+    ac_pose: str | None = None,
+    ac_sign_text: str | None = None,
 ):
 
     pipe = await get_pipeline()
@@ -739,11 +743,16 @@ async def run_image_to_image(
         species=species_key,
         raw_prompt=raw_prompt,
         ac_background=ac_background,
+        ac_preserve_original=ac_preserve_original,
+        ac_eye_color=ac_eye_color,
+        ac_pose=ac_pose,
+        ac_sign_text=ac_sign_text,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None,
         species=species_key,
         raw_prompt=raw_prompt,
+        ac_preserve_original=ac_preserve_original,
     )
     negative_prompt = (negative_prompt or "").strip() or None
     logger.info("final_prompt=%s", prompt)
