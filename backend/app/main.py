@@ -227,8 +227,17 @@ def _get_app() -> FastAPI:
             "model_loaded": is_pipeline_loaded(),
         }
 
+    # 클라이언트가 GET /static/generated/xxx.png 로 요청하므로 루트에도 동일 디렉터리 마운트 (404 방지)
+    static_path_root = (
+        settings.static_dir
+        if settings.static_dir.is_absolute()
+        else settings.backend_dir / settings.static_dir
+    )
+    static_path_root.mkdir(parents=True, exist_ok=True)
+    root.mount("/static", StaticFiles(directory=str(static_path_root)), name="root_static")
+
     root.mount(f"/{base}", _app)
-    logger.info("App mounted at /%s (also serving /health, /api without prefix)", base)
+    logger.info("App mounted at /%s (also serving /health, /api, /static without prefix)", base)
     return root
 
 
