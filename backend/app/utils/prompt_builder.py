@@ -103,17 +103,17 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
 }
 
 # ========== GENERATION RULES (resolution, steps, cfg) ==========
-# pixel_art: 256으로 생성 후 nearest 2x 업스케일(512) — 인식 가능한 형태 유지
+# steps 70으로 통일 (품질 우선)
 GENERATION_RULES: dict[str, dict[str, Any]] = {
-    "pixel_art": {"max_side": 256, "steps": 36, "guidance_scale": 7.0},
-    "pixel art": {"max_side": 256, "steps": 36, "guidance_scale": 7.0},
-    "dragonball": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "slamdunk": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "sailor_moon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "pokemon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
-    "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
+    "pixel_art": {"max_side": 256, "steps": 70, "guidance_scale": 7.0},
+    "pixel art": {"max_side": 256, "steps": 70, "guidance_scale": 7.0},
+    "dragonball": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
+    "slamdunk": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
+    "sailor_moon": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
+    "pokemon": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
+    "dooly": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
+    "mazinger": {"max_side": 768, "steps": 70, "guidance_scale": 7.0},
+    "shinchan": {"max_side": 768, "steps": 70, "guidance_scale": 6.5},
 }
 
 # Backward compat for code that imports STYLE_TEMPLATES
@@ -157,8 +157,8 @@ def get_prompt_config() -> dict[str, Any]:
 
 
 def get_generation_rules(style_key: str | None) -> dict[str, Any]:
-    """Get max_side, steps, guidance_scale for a style. Defaults: 768, 30, 6.5."""
-    default = {"max_side": 768, "steps": 30, "guidance_scale": 6.5}
+    """Get max_side, steps, guidance_scale for a style. Defaults: 768, 70, 6.5."""
+    default = {"max_side": 768, "steps": 70, "guidance_scale": 6.5}
     if not style_key:
         return default
     key = _normalize_style(style_key)

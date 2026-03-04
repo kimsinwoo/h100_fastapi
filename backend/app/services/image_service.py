@@ -561,7 +561,7 @@ def _run_inference_omnigen_sync(
 
     # FlowMatchEulerDiscreteScheduler: pipeline 호출 전 timesteps 명시 설정 + 파이프라인 custom sigmas로 인한
     # len(timesteps)=21 vs len(sigmas)=21 → step()에서 sigma_idx+1 IndexError 방지 (num_inference_steps만 전달하도록 래퍼 사용)
-    num_steps_safe = max(1, min(50, num_steps))
+    num_steps_safe = max(1, min(70, num_steps))
     wrapper = _OmniGenSchedulerWrapper(_pipeline.scheduler)
     with _omnigen_scheduler_lock:
         original_scheduler = _pipeline.scheduler
@@ -658,7 +658,7 @@ async def run_image_to_image(
             raise ValueError("편집 지시를 입력해 주세요. (저장된 프롬프트는 사용하지 않습니다.)")
         prompt = user_text[:500]
         logger.info("[OmniGen] user_prompt=%s", prompt)
-        num_steps_omni = max(1, min(50, num_steps or OMNI_NUM_STEPS))
+        num_steps_omni = max(1, min(70, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
         result = await loop.run_in_executor(
@@ -727,7 +727,7 @@ async def run_image_to_image(
     else:
         rules = get_generation_rules(style_lower)
         max_side = size or rules["max_side"]
-        num_steps = max(1, min(50, num_steps or rules["steps"]))
+        num_steps = max(1, min(70, num_steps or rules["steps"]))
         guidance_scale = rules["guidance_scale"]
 
     loop = asyncio.get_event_loop()
