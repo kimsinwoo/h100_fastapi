@@ -359,6 +359,9 @@ def _run_inference_sync(
 
     global _pipeline, _device
 
+    logger.info("_run_inference_sync: worker thread started")
+    print("[이미지 생성] 추론 스레드 시작 (이후 pipeline 호출에서 GPU 작업 대기 중일 수 있음)", file=sys.stderr, flush=True)
+
     if _pipeline is None:
         raise RuntimeError("Pipeline not loaded")
 
@@ -409,6 +412,7 @@ def _run_inference_sync(
     use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
     ctx_autocast = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
+    logger.info("_run_inference_sync: calling pipeline (GPU inference, first run may compile kernels)")
     with torch.inference_mode(), _optimized_inference_context(), ctx_autocast:
         result = _pipeline(
             prompt=prompt,
@@ -422,6 +426,7 @@ def _run_inference_sync(
         )
 
     image = result.images[0]
+    logger.info("_run_inference_sync: pipeline returned")
 
     buf = io.BytesIO()
     image.save(buf, format="PNG")
@@ -638,6 +643,7 @@ async def run_image_to_image(
     if pipe is None:
         raise RuntimeError("Model not available")
 
+    logger.info("Pipeline ready, preparing inference (style=%s)", style_key)
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
@@ -722,6 +728,15 @@ async def run_image_to_image(
 
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
+    logger.info(
+        "Submitting inference | max_side=%d | steps=%d | guidance=%.2f (first run may take 1-2 min for GPU kernel compile)",
+        max_side, num_steps, guidance_scale,
+    )
+    print(
+        "[이미지 생성] 추론 실행 중 (첫 실행 시 GPU 커널 컴파일로 1~2분 걸릴 수 있음)...",
+        file=sys.stderr,
+        flush=True,
+    )
 
     result = await loop.run_in_executor(
         None,
