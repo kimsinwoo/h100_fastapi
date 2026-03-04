@@ -161,35 +161,32 @@ STYLE_PROMPTS: dict[str, str] = {
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
     "animal_crossing": (
-        "transformed into Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
-        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
-        "cozy clothing, cheerful pose, species-specific features, high-resolution game asset quality, "
-        "crisp clean lines, background from Animal Crossing game assets"
+        "A cute pet transformed into an Animal Crossing villager, chibi proportions, big expressive eyes, "
+        "cel-shaded 3D textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective. "
+        "Character standing naturally on a 3D Animal Crossing environment, fully integrated with background: {{AC_BACKGROUND}}. "
+        "Cozy clothing, cheerful pose, species-specific features clearly visible. High-resolution game asset quality, "
+        "crisp clean lines, fully consistent 3D style. Ignore original image background entirely."
     ),
     "animal crossing": (
-        "transformed into Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
-        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
-        "cozy clothing, cheerful pose, species-specific features, high-resolution game asset quality, "
-        "crisp clean lines, background from Animal Crossing game assets"
+        "A cute pet transformed into an Animal Crossing villager, chibi proportions, big expressive eyes, "
+        "cel-shaded 3D textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective. "
+        "Character standing naturally on a 3D Animal Crossing environment, fully integrated with background: {{AC_BACKGROUND}}. "
+        "Cozy clothing, cheerful pose, species-specific features clearly visible. High-resolution game asset quality, "
+        "crisp clean lines, fully consistent 3D style. Ignore original image background entirely."
     ),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
 AC_BACKGROUNDS: list[str] = [
-    "village path with trees and flowers",
-    "flower garden with white picket fences",
-    "forest with wooden bridge and mushrooms",
-    "lakeside with reeds and ducks",
-    "town square with lampposts and benches",
-    "beach with palm trees and sand",
-    "orchard with fruit trees and grass",
-    "campsite with tent and campfire",
-    "garden with hedges and fountain",
-    "mountain path with pine trees",
+    "village path with flowers and trees",
+    "town plaza with cobblestone paths and wooden bridge",
+    "flower field with gentle hills",
+    "river bank with trees and flowers",
+    "forested area with bushes and rocks",
 ]
-DEFAULT_AC_BACKGROUND = "village path with trees and flowers"
+DEFAULT_AC_BACKGROUND = "village path with flowers and trees"
 
 
 def get_random_ac_background(override: str | None = None) -> str:
@@ -250,14 +247,12 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "ambiguous silhouette, generic indistinguishable animal"
     ),
     "animal_crossing": (
-        "2D flat background, low-poly, blurry textures, realistic photorealism, human-like anatomy, "
-        "asymmetrical ears, long snout on cat, color bleed, ambiguous silhouette, distorted proportions, "
-        "dark or dull colors"
+        "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
+        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions"
     ),
     "animal crossing": (
-        "2D flat background, low-poly, blurry textures, realistic photorealism, human-like anatomy, "
-        "asymmetrical ears, long snout on cat, color bleed, ambiguous silhouette, distorted proportions, "
-        "dark or dull colors"
+        "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
+        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions"
     ),
 }
 
@@ -372,14 +367,17 @@ def build_prompt(
         parts.append(SPECIES_MODIFIERS[species_key])
     style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
-        parts.append(STYLE_PROMPTS[style_key])
-    # 동물의숲 3D: species별 villager 특징 + 배경 랜덤(또는 ac_background 지정)
+        style_part = STYLE_PROMPTS[style_key]
+        if "{{AC_BACKGROUND}}" in style_part:
+            style_part = style_part.replace(
+                "{{AC_BACKGROUND}}",
+                get_random_ac_background(ac_background),
+            )
+        parts.append(style_part)
+    # 동물의숲 3D: species별 villager 특징
     is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
-    if is_animal_crossing:
-        if species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
-            parts.append(ANIMAL_CROSSING_SPECIES[species_key])
-        bg = get_random_ac_background(ac_background)
-        parts.append(f"background: {bg}, scene unified 3D game style")
+    if is_animal_crossing and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
+        parts.append(ANIMAL_CROSSING_SPECIES[species_key])
     # 픽셀 아트일 때 종별 스프라이트 힌트 + 끝맺음 강화 (고양이/강아지 구분 극대화)
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:
