@@ -24,6 +24,20 @@ BASE_NEGATIVE = (
     "hyper detailed, realistic anatomy, real muscle structure, high frequency texture, HDR"
 )
 
+# ========== SPECIES SUBJECT (주어 명시: 고양이/강아지 구분 확실히) ==========
+# 프롬프트 맨 앞에 올려 모델이 종을 명확히 인식하도록 함.
+SPECIES_SUBJECT: dict[str, str] = {
+    "dog": "dog character",
+    "cat": "cat character",
+    "rabbit": "rabbit character",
+    "hamster": "hamster character",
+    "ferret": "ferret character",
+    "bird": "bird character",
+    "turtle": "turtle character",
+    "reptile": "reptile character",
+    "pet": "small pet animal character",
+}
+
 # ========== SPECIES ADAPTATION LAYER ==========
 # Silhouette, ear, eye, limb, tail, texture simplification per species.
 SPECIES_MODIFIERS: dict[str, str] = {
@@ -63,6 +77,19 @@ SPECIES_MODIFIERS: dict[str, str] = {
         "simplified animal silhouette, clear shape language, no fur or feather strands, "
         "minimal limb and tail detail, flat color regions, readable at small size"
     ),
+}
+
+# ========== SPECIES NEGATIVE (반대 종 회피: 고양이일 때 강아지 형태 차단, 강아지일 때 고양이 형태 차단) ==========
+SPECIES_NEGATIVE_AVOID: dict[str, str] = {
+    "dog": "cat, feline, cat-like, triangular cat ears, slit pupils, cat silhouette",
+    "cat": "dog, canine, dog-like, rounded dog muzzle, floppy dog ears, dog silhouette",
+    "rabbit": "dog, cat, canine, feline, long dog muzzle",
+    "hamster": "dog, cat, long ears, long muzzle",
+    "ferret": "dog, cat, bird, beak",
+    "bird": "dog, cat, mammal, fur, four legs",
+    "turtle": "dog, cat, fur, ears",
+    "reptile": "dog, cat, fur, fluffy",
+    "pet": "",
 }
 
 # ========== STYLE LAYER (construction rules) ==========
@@ -218,16 +245,22 @@ def build_prompt(
     raw_prompt: bool = False,
 ) -> str:
     """
-    Final prompt = user_prompt + BASE_PROMPT + species_modifier + style rules.
-    Subject is generic "small pet animal character"; species adds silhouette/ear/eye/tail rules.
+    Final prompt = (종 주어) + user_prompt + BASE_PROMPT + species_modifier + style rules.
+    species가 있으면 주어를 "cat character" / "dog character" 등으로 명시해 고양이/강아지 구분을 확실히 함.
     """
     text = (user_prompt or "").strip()
-    if not text:
+    species_key = _normalize_species(species)
+    if not raw_prompt and species_key and species_key in SPECIES_SUBJECT:
+        subject = SPECIES_SUBJECT[species_key]
+        if not text:
+            text = subject
+        else:
+            text = f"{subject}, {text}"
+    elif not text:
         text = DEFAULT_USER_PROMPT
     if raw_prompt:
         return text
     parts = [text, BASE_PROMPT]
-    species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
     style_key = _normalize_style(style)
@@ -236,15 +269,23 @@ def build_prompt(
     return ", ".join(parts)
 
 
-def build_negative_prompt(style: str | None, raw_prompt: bool = False) -> str:
-    """Final negative = BASE_NEGATIVE + style-specific negative."""
+def build_negative_prompt(
+    style: str | None,
+    species: str | None = None,
+    raw_prompt: bool = False,
+) -> str:
+    """Final negative = BASE_NEGATIVE + species cross-avoid + style-specific negative."""
     if raw_prompt:
         return ""
+    parts = [BASE_NEGATIVE]
+    species_key = _normalize_species(species)
+    if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
+        parts.append(SPECIES_NEGATIVE_AVOID[species_key])
     style_key = _normalize_style(style)
     style_neg = NEGATIVE_BY_STYLE.get(style_key, "") if style_key else ""
     if style_neg:
-        return f"{BASE_NEGATIVE}, {style_neg}"
-    return BASE_NEGATIVE
+        parts.append(style_neg)
+    return ", ".join(p for p in parts if p)
 
 
 def get_allowed_style_keys() -> list[str]:

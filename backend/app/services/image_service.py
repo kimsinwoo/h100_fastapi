@@ -708,7 +708,9 @@ async def run_image_to_image(
         raw_prompt=raw_prompt,
     )
     negative_prompt = build_negative_prompt(
-        style_lower if not raw_prompt else None, raw_prompt=raw_prompt
+        style_lower if not raw_prompt else None,
+        species=species_key,
+        raw_prompt=raw_prompt,
     )
     negative_prompt = (negative_prompt or "").strip() or None
     logger.info("final_prompt=%s", prompt)
