@@ -68,6 +68,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "dooly": (0.38, 0.52),
     "mazinger": (0.42, 0.54),
     "shinchan": (0.38, 0.52),
+    "animal_crossing": (0.42, 0.54),
+    "animal crossing": (0.42, 0.54),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),

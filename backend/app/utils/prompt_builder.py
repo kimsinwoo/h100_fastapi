@@ -159,6 +159,20 @@ STYLE_PROMPTS: dict[str, str] = {
         "hard pixel edges only, no anti-aliasing, max 16 colors, no soft shading, "
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
+    "animal_crossing": (
+        "transformed into Animal Crossing style villager, chibi proportions, big expressive eyes, "
+        "simplified cartoon features, soft colorful textures, cozy clothes, "
+        "standing on grassy village path, cheerful expression, "
+        "stylized background with trees and flowers, vibrant colors, masterpiece quality, "
+        "16-bit cartoon sprite inspired, highly detailed, clean lines, round shapes"
+    ),
+    "animal crossing": (
+        "transformed into Animal Crossing style villager, chibi proportions, big expressive eyes, "
+        "simplified cartoon features, soft colorful textures, cozy clothes, "
+        "standing on grassy village path, cheerful expression, "
+        "stylized background with trees and flowers, vibrant colors, masterpiece quality, "
+        "16-bit cartoon sprite inspired, highly detailed, clean lines, round shapes"
+    ),
 }
 
 # 픽셀 아트에서 종 구분을 확실히 하기 위한 스프라이트 힌트 (고양이/강아지 형태 명시)
@@ -195,6 +209,14 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "edge artifact, chromatic aberration, muddy, desaturated strip, color bleed, noisy corners, "
         "ambiguous silhouette, generic indistinguishable animal"
     ),
+    "animal_crossing": (
+        "realistic textures, photorealism, long snout, asymmetrical ears, blurry, low detail, "
+        "dark colors, distorted proportions, human-like anatomy, excessive shading"
+    ),
+    "animal crossing": (
+        "realistic textures, photorealism, long snout, asymmetrical ears, blurry, low detail, "
+        "dark colors, distorted proportions, human-like anatomy, excessive shading"
+    ),
 }
 
 # ========== GENERATION RULES ==========
@@ -209,6 +231,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
     "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
     "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
+    "animal_crossing": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
+    "animal crossing": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -223,6 +247,8 @@ ALLOWED_STYLE_KEYS = [
     "shinchan",
     "pixel_art",
     "pixel art",
+    "animal_crossing",
+    "animal crossing",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())

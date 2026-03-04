@@ -17,6 +17,8 @@ STYLE_PRESETS: dict[str, str] = {
     "shinchan": "Shinchan (gag manga)",
     "pixel_art": "Pixel Art (sprite, 16 colors)",
     "pixel art": "Pixel Art (sprite, 16 colors)",
+    "animal_crossing": "동물의숲 (Animal Crossing villager, chibi)",
+    "animal crossing": "동물의숲 (Animal Crossing villager, chibi)",
 }
 
 
