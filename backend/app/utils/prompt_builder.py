@@ -160,19 +160,30 @@ STYLE_PROMPTS: dict[str, str] = {
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
     "animal_crossing": (
-        "transformed into Animal Crossing style villager, chibi proportions, big expressive eyes, "
-        "simplified cartoon features, soft colorful textures, cozy clothes, "
-        "standing on grassy village path, cheerful expression, "
-        "stylized background with trees and flowers, vibrant colors, masterpiece quality, "
-        "16-bit cartoon sprite inspired, highly detailed, clean lines, round shapes"
+        "fully 3D rendered Animal Crossing style villager, cel-shaded textures, smooth polygon surfaces, "
+        "vibrant colors, soft sunlight, dynamic shadows, volumetric lighting, slightly isometric perspective, "
+        "cozy clothing, cheerful pose, background fully modeled, chibi proportions, big expressive eyes, "
+        "masterpiece quality, highly detailed, round shapes"
     ),
     "animal crossing": (
-        "transformed into Animal Crossing style villager, chibi proportions, big expressive eyes, "
-        "simplified cartoon features, soft colorful textures, cozy clothes, "
-        "standing on grassy village path, cheerful expression, "
-        "stylized background with trees and flowers, vibrant colors, masterpiece quality, "
-        "16-bit cartoon sprite inspired, highly detailed, clean lines, round shapes"
+        "fully 3D rendered Animal Crossing style villager, cel-shaded textures, smooth polygon surfaces, "
+        "vibrant colors, soft sunlight, dynamic shadows, volumetric lighting, slightly isometric perspective, "
+        "cozy clothing, cheerful pose, background fully modeled, chibi proportions, big expressive eyes, "
+        "masterpiece quality, highly detailed, round shapes"
     ),
+}
+
+# 동물의숲 3D 스타일: species별 특징 (dog, cat, rabbit, hamster, bird)
+ANIMAL_CROSSING_SPECIES: dict[str, str] = {
+    "dog": "dog villager, rounded ears, short muzzle, canine 3D character, clearly a dog",
+    "cat": "cat villager, pointed triangular ears, small nose no long snout, feline 3D character, clearly a cat",
+    "rabbit": "rabbit villager, long upright ears, round body, clearly a rabbit",
+    "hamster": "hamster villager, small round ears, round compact body, clearly a hamster",
+    "bird": "bird villager, beak wedge, wing shapes, clearly a bird",
+    "ferret": "ferret villager, elongated body, rounded ears",
+    "turtle": "turtle villager, dome shell, simplified limbs",
+    "reptile": "reptile villager, simplified 3D character",
+    "pet": "",
 }
 
 # 픽셀 아트에서 종 구분을 확실히 하기 위한 스프라이트 힌트 (고양이/강아지 형태 명시)
@@ -210,12 +221,14 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "ambiguous silhouette, generic indistinguishable animal"
     ),
     "animal_crossing": (
-        "realistic textures, photorealism, long snout, asymmetrical ears, blurry, low detail, "
-        "dark colors, distorted proportions, human-like anatomy, excessive shading"
+        "2D flat background, low-poly, blurry, photorealistic textures, asymmetrical ears, "
+        "long snout on cat, color bleed, ambiguous silhouette, human-like anatomy, "
+        "dark colors, distorted proportions, excessive shading"
     ),
     "animal crossing": (
-        "realistic textures, photorealism, long snout, asymmetrical ears, blurry, low detail, "
-        "dark colors, distorted proportions, human-like anatomy, excessive shading"
+        "2D flat background, low-poly, blurry, photorealistic textures, asymmetrical ears, "
+        "long snout on cat, color bleed, ambiguous silhouette, human-like anatomy, "
+        "dark colors, distorted proportions, excessive shading"
     ),
 }
 
@@ -231,8 +244,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
     "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
     "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    "animal_crossing": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "animal crossing": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
+    "animal_crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
+    "animal crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -329,6 +342,10 @@ def build_prompt(
     style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
         parts.append(STYLE_PROMPTS[style_key])
+    # 동물의숲 3D: species별 villager 특징 추가 (dog, cat, rabbit, hamster, bird 등)
+    is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
+    if is_animal_crossing and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
+        parts.append(ANIMAL_CROSSING_SPECIES[species_key])
     # 픽셀 아트일 때 종별 스프라이트 힌트 + 끝맺음 강화 (고양이/강아지 구분 극대화)
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:
