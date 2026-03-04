@@ -155,14 +155,18 @@ def get_generation_rules(style_key: str | None) -> dict[str, Any]:
     return GENERATION_RULES.get(key, default)
 
 
+# 사용자가 편집 지시를 비워 둘 때 사용할 기본 서술 (2D 캐릭터 재해석용)
+DEFAULT_USER_PROMPT = "a small white dog character"
+
 def build_prompt(user_prompt: str, style: str | None = None, raw_prompt: bool = False) -> str:
     """
     Final prompt = user_prompt + BASE_PROMPT + style construction rules.
     Never describes a real dog; always redesigned animated character.
+    사용자가 비우면 DEFAULT_USER_PROMPT 사용 (400 방지).
     """
     text = (user_prompt or "").strip()
     if not text:
-        raise ValueError("Prompt cannot be empty")
+        text = DEFAULT_USER_PROMPT
     if raw_prompt:
         return text
     style_key = _normalize_style(style)
