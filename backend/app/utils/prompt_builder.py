@@ -131,15 +131,30 @@ STYLE_PROMPTS: dict[str, str] = {
         "gag manga style, limited palette, no gradient, simple shape-based"
     ),
     "pixel_art": (
+        "masterpiece best quality, 16-bit era character sprite, "
         "single pixel line width, 0 gradient, pixel cluster shading only, "
         "hard pixel edges only, no anti-aliasing, max 16 colors, no soft shading, "
-        "sprite composition, silhouette reads clearly at 1x zoom, square pixels"
+        "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
     "pixel art": (
+        "masterpiece best quality, 16-bit era character sprite, "
         "single pixel line width, 0 gradient, pixel cluster shading only, "
         "hard pixel edges only, no anti-aliasing, max 16 colors, no soft shading, "
-        "sprite composition, silhouette reads clearly at 1x zoom, square pixels"
+        "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
+}
+
+# 픽셀 아트에서 종 구분을 확실히 하기 위한 스프라이트 힌트 (고양이/강아지 형태 명시)
+PIXEL_ART_SPECIES_SPRITE: dict[str, str] = {
+    "dog": "dog sprite with rounded or floppy ear blocks, short blunt muzzle block, canine silhouette",
+    "cat": "cat sprite with pointed triangular ear blocks, no long muzzle, feline silhouette",
+    "rabbit": "rabbit sprite with long upright ear blocks, round body",
+    "hamster": "hamster sprite with small round ears, round body",
+    "ferret": "ferret sprite with rounded ears, elongated body",
+    "bird": "bird sprite with beak wedge, wing shapes",
+    "turtle": "turtle sprite with dome shell block",
+    "reptile": "reptile sprite with simplified head and body",
+    "pet": "",
 }
 
 NEGATIVE_BY_STYLE: dict[str, str] = {
@@ -152,19 +167,21 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
     "shinchan": "realistic, gradient, detailed anatomy",
     "pixel_art": (
         "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel, "
-        "edge artifact, chromatic aberration, muddy, desaturated strip"
+        "edge artifact, chromatic aberration, muddy, desaturated strip, color bleed, noisy corners, "
+        "ambiguous silhouette, generic indistinguishable animal"
     ),
     "pixel art": (
         "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel, "
-        "edge artifact, chromatic aberration, muddy, desaturated strip"
+        "edge artifact, chromatic aberration, muddy, desaturated strip, color bleed, noisy corners, "
+        "ambiguous silhouette, generic indistinguishable animal"
     ),
 }
 
 # ========== GENERATION RULES ==========
-# pixel_art: 128x128, steps 32, cfg 7, nearest upscale only. Else: 768, steps 28-32, cfg 6.5-7
+# pixel_art: 256x256 생성 후 2x nearest 업스케일(512). 디테일·종 구분 향상.
 GENERATION_RULES: dict[str, dict[str, Any]] = {
-    "pixel_art": {"max_side": 128, "steps": 32, "guidance_scale": 7.0},
-    "pixel art": {"max_side": 128, "steps": 32, "guidance_scale": 7.0},
+    "pixel_art": {"max_side": 256, "steps": 40, "guidance_scale": 7.0},
+    "pixel art": {"max_side": 256, "steps": 40, "guidance_scale": 7.0},
     "dragonball": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "slamdunk": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "sailor_moon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
@@ -224,7 +241,7 @@ def get_prompt_config() -> dict[str, Any]:
 
 
 def get_generation_rules(style_key: str | None) -> dict[str, Any]:
-    """Get max_side, steps, guidance_scale for a style. pixel_art: 128, 32, 7; else 768, 28-30, 6.5-7."""
+    """Get max_side, steps, guidance_scale for a style. pixel_art: 256, 40, 7; else 768, 28-30, 6.5-7."""
     default = {"max_side": 768, "steps": 30, "guidance_scale": 6.5}
     if not style_key:
         return default
@@ -266,6 +283,10 @@ def build_prompt(
     style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
         parts.append(STYLE_PROMPTS[style_key])
+    # 픽셀 아트일 때 종별 스프라이트 힌트 추가 → 고양이/강아지 실루엣 명확화
+    is_pixel_art = style_key in ("pixel_art", "pixel art")
+    if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:
+        parts.append(PIXEL_ART_SPECIES_SPRITE[species_key])
     return ", ".join(parts)
 
 

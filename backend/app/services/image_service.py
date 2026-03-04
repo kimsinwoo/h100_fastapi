@@ -56,8 +56,8 @@ MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 2D 재해석용 (픽셀아트는 낮게 유지)
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel_art": (0.32, 0.45),   # 너무 낮으면 형태 붕괴 → 적당히 올려 인식 가능한 스프라이트 유지
-    "pixel art": (0.32, 0.45),
+    "pixel_art": (0.36, 0.50),   # 종 구분·디테일 유지 위해 소폭 상향
+    "pixel art": (0.36, 0.50),
     "dragonball": (0.45, 0.56),
     "slamdunk": (0.45, 0.56),
     "sailor_moon": (0.45, 0.56),
@@ -79,9 +79,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# pixel_art: 128 생성 후 nearest-neighbor 업스케일만 (표시용 512), 가장자리 1px 크롭
-PIXEL_ART_UPSCALE_FACTOR = 4   # 128 -> 512
-PIXEL_ART_EDGE_CROP = 1        # 업스케일 전 가장자리 crop (edge artifact 감소)
+# pixel_art: 256 생성 후 nearest-neighbor 2x 업스케일(512). 디테일·종 구분 향상.
+PIXEL_ART_UPSCALE_FACTOR = 2   # 256 -> 512
+PIXEL_ART_EDGE_CROP = 2       # 업스케일 전 가장자리 crop (edge artifact 감소)
 
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
 # https://huggingface.co/docs/diffusers/using-diffusers/omnigen
