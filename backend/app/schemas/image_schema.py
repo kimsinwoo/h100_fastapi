@@ -15,6 +15,13 @@ class GenerateResponse(BaseModel):
     generated_image_base64: str | None = Field(default=None, description="PNG bytes as base64; use when GET generated_url returns 404")
 
 
+class GenerateVideoResponse(BaseModel):
+    """LTX-2 이미지→동영상 생성 응답."""
+    video_url: str = Field(..., description="생성된 동영상 URL (e.g. /static/generated/xxx.mp4)")
+    processing_time: float = Field(..., description="초 단위 소요 시간")
+    video_base64: str | None = Field(default=None, description="mp4 base64 (선택, 멀티 Pod 대응)")
+
+
 class ErrorDetail(BaseModel):
     detail: str
     code: str | None = None

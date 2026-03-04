@@ -3,6 +3,8 @@ import type { GenerateResponse, ErrorDetail, StylesResponse, TrainingItem } from
 
 /** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
+/** 동영상 생성: LTX-2는 수 분 소요 가능 */
+const VIDEO_TIMEOUT_MS = 5 * 60 * 1000; // 300_000
 
 // 로컬 개발: .env에 VITE_API_BASE_URL=http://localhost:7000 설정 (프론트 3000, 백엔드 7000)
 // 프로덕션: 같은 origin이면 비워두고, 프록시 쓰면 해당 URL 설정
@@ -80,6 +82,46 @@ export async function generateImage(
 
 export async function getStyles(): Promise<StylesResponse> {
   const { data } = await api.get<StylesResponse>("/api/styles");
+  return data;
+}
+
+// ---------- LTX-2 Image-to-Video ----------
+
+export type GenerateVideoResponse = {
+  video_url: string;
+  processing_time: number;
+  video_base64?: string | null;
+};
+
+export type VideoPresetsResponse = Record<string, string>;
+
+export async function getVideoPresets(): Promise<VideoPresetsResponse> {
+  const { data } = await api.get<VideoPresetsResponse>("/api/video/presets");
+  return data;
+}
+
+export async function generateVideo(
+  file: File,
+  prompt: string,
+  preset?: string | null,
+  negativePrompt?: string | null
+): Promise<GenerateVideoResponse> {
+  const form = new FormData();
+  form.append("image", file);
+  form.append("prompt", (prompt ?? "").trim());
+  if (preset) form.append("preset", preset);
+  if (negativePrompt) form.append("negative_prompt", negativePrompt);
+  const uploadVideoApi = axios.create({
+    baseURL: api.defaults.baseURL ?? "/",
+    timeout: VIDEO_TIMEOUT_MS,
+  });
+  uploadVideoApi.interceptors.request.use((config) => {
+    if (config.data instanceof FormData && config.headers) {
+      delete (config.headers as Record<string, unknown>)["Content-Type"];
+    }
+    return config;
+  });
+  const { data } = await uploadVideoApi.post<GenerateVideoResponse>("/api/video/generate", form);
   return data;
 }
 

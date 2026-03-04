@@ -79,9 +79,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# pixel_art: 256 생성 후 nearest-neighbor 2배 업스케일 (512), 가장자리 2px 크롭으로 VAE 열화 완화
-PIXEL_ART_UPSCALE_FACTOR = 2   # 256 -> 512
-PIXEL_ART_EDGE_CROP = 2        # 업스케일 전 가장자리 crop (edge artifact 감소)
+# pixel_art: 128 생성 후 nearest-neighbor 업스케일만 (표시용 512), 가장자리 1px 크롭
+PIXEL_ART_UPSCALE_FACTOR = 4   # 128 -> 512
+PIXEL_ART_EDGE_CROP = 1        # 업스케일 전 가장자리 crop (edge artifact 감소)
 
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
 # https://huggingface.co/docs/diffusers/using-diffusers/omnigen
@@ -635,6 +635,7 @@ def _run_inference_omnigen_sync(
 async def run_image_to_image(
     image_bytes: bytes,
     style_key: str,
+    species_key: str | None = None,
     custom_prompt: str | None = None,
     raw_prompt: bool = False,
     strength: float | None = None,
@@ -701,7 +702,10 @@ async def run_image_to_image(
                 pass
 
     prompt = build_prompt(
-        custom_prompt or "", style_lower if not raw_prompt else None, raw_prompt=raw_prompt
+        custom_prompt or "",
+        style_lower if not raw_prompt else None,
+        species=species_key,
+        raw_prompt=raw_prompt,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None, raw_prompt=raw_prompt
@@ -756,7 +760,7 @@ async def run_image_to_image(
         ),
     )
 
-    # pixel_art: 256 생성 후 nearest-neighbor 업스케일 + 가장자리 크롭으로 열화 감소
+    # pixel_art: 128 생성 후 nearest-neighbor 업스케일만 (4x -> 512)
     is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     if is_pixel_art and result:
         result = _upscale_nearest(result, PIXEL_ART_UPSCALE_FACTOR, edge_crop=PIXEL_ART_EDGE_CROP)

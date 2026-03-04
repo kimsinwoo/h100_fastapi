@@ -129,6 +129,12 @@ export default function GeneratePage() {
           </div>
           <div className="flex gap-2">
             <Link
+              to="/video"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              이미지→동영상
+            </Link>
+            <Link
               to="/chat"
               className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >

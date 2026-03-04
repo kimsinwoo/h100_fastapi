@@ -15,9 +15,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
-from app.utils.prompt_builder import get_allowed_style_keys, get_prompt_config
-from app.schemas.image_schema import GenerateResponse
+from app.utils.prompt_builder import get_allowed_style_keys, get_allowed_species_keys, get_prompt_config
+from app.schemas.image_schema import GenerateResponse, GenerateVideoResponse
 from app.services.image_service import run_image_to_image
+from app.services.video_service import run_image_to_video
 from app.services.training_store import (
     add_item as training_add_item,
     delete_item as training_delete_item,
@@ -86,6 +87,7 @@ async def generate(
     file: Annotated[UploadFile | None, File(description="Image file (field: file or image)")] = None,
     image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
     style: Annotated[str, Form(description="Style preset key")] = "pokemon",
+    species: Annotated[str | None, Form(description="Pet species for silhouette/ear/eye rules: dog, cat, rabbit, hamster, ferret, bird, turtle, reptile, pet")] = None,
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     steps: Annotated[str | None, Form(description="Inference steps (default 70)")] = None,
@@ -138,6 +140,7 @@ async def generate(
         out_bytes, processing_time = await run_image_to_image(
             image_bytes=content,
             style_key=style_lower,
+            species_key=species.strip().lower() if species and species.strip() else None,
             custom_prompt=custom_prompt,
             raw_prompt=raw_prompt_bool,
             num_steps=steps_i,
@@ -175,8 +178,96 @@ async def list_styles() -> dict[str, str]:
 
 @router.get("/prompt-config")
 async def get_prompt_config_route() -> dict:
-    """Return full prompt config: base_prompt, base_negative, styles, generation_rules."""
+    """Return full prompt config: base_prompt, base_negative, species_modifiers, styles, generation_rules."""
     return get_prompt_config()
+
+
+@router.get("/species")
+async def list_species() -> dict[str, str]:
+    """Return species modifiers (key -> silhouette/ear/eye/tail rules)."""
+    from app.utils.prompt_builder import SPECIES_MODIFIERS
+    return dict(SPECIES_MODIFIERS)
+
+
+# ---------- LTX-2 Image-to-Video ----------
+# 테스트용 프리셋 2종 (사용자가 선택하거나 프롬프트 직접 입력)
+VIDEO_PROMPT_PRESETS: dict[str, str] = {
+    "smile_turn": "The character smiles and slowly turns their head toward the camera.",
+    "wind_leaves": "Leaves sway gently in the wind in the background, soft natural lighting.",
+}
+
+
+@router.get("/video/presets")
+async def list_video_presets() -> dict[str, str]:
+    """동영상 생성용 프롬프트 프리셋 (테스트 스타일 2종)."""
+    return dict(VIDEO_PROMPT_PRESETS)
+
+
+@router.post("/video/generate", response_model=GenerateVideoResponse)
+async def generate_video(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Image file")] = None,
+    image: Annotated[UploadFile | None, File(description="Image file (alias)")] = None,
+    prompt: Annotated[str, Form(description="동영상 동작/장면 설명 (필수)")] = "",
+    preset: Annotated[str | None, Form(description="프리셋 키: smile_turn, wind_leaves")] = None,
+    negative_prompt: Annotated[str | None, Form()] = None,
+    num_frames: Annotated[str | None, Form()] = None,
+    num_inference_steps: Annotated[str | None, Form()] = None,
+    seed: Annotated[str | None, Form()] = None,
+) -> GenerateVideoResponse:
+    """
+    LTX-2 이미지→동영상. 사진 + 프롬프트로 동영상 생성.
+    preset이 있으면 해당 프리셋 문구로 prompt를 덮어씀.
+    """
+    _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing image file. Send as 'file' or 'image'.")
+    if not (prompt or "").strip() and not preset:
+        raise HTTPException(status_code=400, detail="prompt 또는 preset을 입력해주세요.")
+    if preset and preset.strip() and preset.strip() in VIDEO_PROMPT_PRESETS:
+        prompt = VIDEO_PROMPT_PRESETS[preset.strip()]
+    else:
+        prompt = (prompt or "").strip() or list(VIDEO_PROMPT_PRESETS.values())[0]
+    content = await upload.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
+    settings = get_settings()
+    if len(content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    num_f = _parse_optional_int(num_frames)
+    num_f = 81 if num_f is None or num_f < 1 else min(121, num_f)
+    steps = _parse_optional_int(num_inference_steps)
+    steps = 25 if steps is None or steps < 1 else min(50, steps)
+    seed_i = _parse_optional_int(seed)
+    try:
+        out_bytes, processing_time = await run_image_to_video(
+            image_bytes=content,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_frames=num_f,
+            num_inference_steps=steps,
+            seed=seed_i,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.exception("LTX-2 video generation failed: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+    except Exception as e:
+        logger.exception("Failed to save generated video: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save generated video")
+    video_url = get_generated_url(video_filename)
+    generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
+    return GenerateVideoResponse(
+        video_url=video_url,
+        processing_time=round(processing_time, 2),
+        video_base64=generated_b64,
+    )
 
 
 # ---------- LLM (gpt-oss-20b) API ----------
