@@ -672,6 +672,7 @@ async def run_image_to_image(
     num_steps: int | None = None,
     size: int | None = None,
     seed: int | None = None,
+    ac_background: str | None = None,
 ):
 
     pipe = await get_pipeline()
@@ -737,6 +738,7 @@ async def run_image_to_image(
         style_lower if not raw_prompt else None,
         species=species_key,
         raw_prompt=raw_prompt,
+        ac_background=ac_background,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None,

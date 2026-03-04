@@ -6,6 +6,7 @@ Never preserve biological realism. No fur/feather/skin realism, no 3D lighting.
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 # ========== BASE PROMPT (species-agnostic) ==========
@@ -160,18 +161,46 @@ STYLE_PROMPTS: dict[str, str] = {
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
     "animal_crossing": (
-        "fully 3D rendered Animal Crossing style villager, cel-shaded textures, smooth polygon surfaces, "
-        "vibrant colors, soft sunlight, dynamic shadows, volumetric lighting, slightly isometric perspective, "
-        "cozy clothing, cheerful pose, background fully modeled, chibi proportions, big expressive eyes, "
-        "masterpiece quality, highly detailed, round shapes"
+        "transformed into Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
+        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
+        "cozy clothing, cheerful pose, species-specific features, high-resolution game asset quality, "
+        "crisp clean lines, background from Animal Crossing game assets"
     ),
     "animal crossing": (
-        "fully 3D rendered Animal Crossing style villager, cel-shaded textures, smooth polygon surfaces, "
-        "vibrant colors, soft sunlight, dynamic shadows, volumetric lighting, slightly isometric perspective, "
-        "cozy clothing, cheerful pose, background fully modeled, chibi proportions, big expressive eyes, "
-        "masterpiece quality, highly detailed, round shapes"
+        "transformed into Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
+        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
+        "cozy clothing, cheerful pose, species-specific features, high-resolution game asset quality, "
+        "crisp clean lines, background from Animal Crossing game assets"
     ),
 }
+
+# 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
+AC_BACKGROUNDS: list[str] = [
+    "village path with trees and flowers",
+    "flower garden with white picket fences",
+    "forest with wooden bridge and mushrooms",
+    "lakeside with reeds and ducks",
+    "town square with lampposts and benches",
+    "beach with palm trees and sand",
+    "orchard with fruit trees and grass",
+    "campsite with tent and campfire",
+    "garden with hedges and fountain",
+    "mountain path with pine trees",
+]
+DEFAULT_AC_BACKGROUND = "village path with trees and flowers"
+
+
+def get_random_ac_background(override: str | None = None) -> str:
+    """동물의숲 배경 랜덤 선택. 실패 시 기본 배경 반환. override가 있으면 해당 문자열 사용."""
+    if override and override.strip():
+        return override.strip()
+    try:
+        return random.choice(AC_BACKGROUNDS)
+    except Exception:
+        return DEFAULT_AC_BACKGROUND
+
 
 # 동물의숲 3D 스타일: species별 특징 (dog, cat, rabbit, hamster, bird)
 ANIMAL_CROSSING_SPECIES: dict[str, str] = {
@@ -221,14 +250,14 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "ambiguous silhouette, generic indistinguishable animal"
     ),
     "animal_crossing": (
-        "2D flat background, low-poly, blurry, photorealistic textures, asymmetrical ears, "
-        "long snout on cat, color bleed, ambiguous silhouette, human-like anatomy, "
-        "dark colors, distorted proportions, excessive shading"
+        "2D flat background, low-poly, blurry textures, realistic photorealism, human-like anatomy, "
+        "asymmetrical ears, long snout on cat, color bleed, ambiguous silhouette, distorted proportions, "
+        "dark or dull colors"
     ),
     "animal crossing": (
-        "2D flat background, low-poly, blurry, photorealistic textures, asymmetrical ears, "
-        "long snout on cat, color bleed, ambiguous silhouette, human-like anatomy, "
-        "dark colors, distorted proportions, excessive shading"
+        "2D flat background, low-poly, blurry textures, realistic photorealism, human-like anatomy, "
+        "asymmetrical ears, long snout on cat, color bleed, ambiguous silhouette, distorted proportions, "
+        "dark or dull colors"
     ),
 }
 
@@ -319,10 +348,12 @@ def build_prompt(
     style: str | None = None,
     species: str | None = None,
     raw_prompt: bool = False,
+    ac_background: str | None = None,
 ) -> str:
     """
     Final prompt = (종 주어) + user_prompt + BASE_PROMPT + species_modifier + style rules.
-    species가 있으면 주어를 "cat character" / "dog character" 등으로 명시해 고양이/강아지 구분을 확실히 함.
+    species가 있으면 주어를 "cat character" / "dog character" 등으로 명시.
+    animal_crossing 스타일일 때 ac_background로 배경 지정(없으면 랜덤).
     """
     text = (user_prompt or "").strip()
     species_key = _normalize_species(species)
@@ -342,10 +373,13 @@ def build_prompt(
     style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
         parts.append(STYLE_PROMPTS[style_key])
-    # 동물의숲 3D: species별 villager 특징 추가 (dog, cat, rabbit, hamster, bird 등)
+    # 동물의숲 3D: species별 villager 특징 + 배경 랜덤(또는 ac_background 지정)
     is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
-    if is_animal_crossing and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
-        parts.append(ANIMAL_CROSSING_SPECIES[species_key])
+    if is_animal_crossing:
+        if species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
+            parts.append(ANIMAL_CROSSING_SPECIES[species_key])
+        bg = get_random_ac_background(ac_background)
+        parts.append(f"background: {bg}, scene unified 3D game style")
     # 픽셀 아트일 때 종별 스프라이트 힌트 + 끝맺음 강화 (고양이/강아지 구분 극대화)
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:

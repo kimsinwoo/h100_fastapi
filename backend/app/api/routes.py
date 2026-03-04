@@ -88,6 +88,7 @@ async def generate(
     image: Annotated[UploadFile | None, File(description="Image file (alias for file)")] = None,
     style: Annotated[str, Form(description="Style preset key")] = "pokemon",
     species: Annotated[str | None, Form(description="Pet species for silhouette/ear/eye rules: dog, cat, rabbit, hamster, ferret, bird, turtle, reptile, pet")] = None,
+    ac_background: Annotated[str | None, Form(description="Animal Crossing style: background override (e.g. 'flower garden with fences'). Omit for random.")] = None,
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     steps: Annotated[str | None, Form(description="Inference steps (default 70)")] = None,
@@ -146,6 +147,7 @@ async def generate(
             num_steps=steps_i,
             strength=strength_f,
             seed=seed_i,
+            ac_background=ac_background.strip() if ac_background and ac_background.strip() else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
