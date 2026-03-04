@@ -63,17 +63,21 @@ STYLE_PROMPTS: dict[str, str] = {
         "gag manga style, limited palette, no gradient, simple shape-based"
     ),
     "pixel_art": (
+        "recognizable cute dog sprite, clear silhouette with head ears and body, "
+        "simple readable face with two eyes and small nose, floppy or pointy ears, "
         "single pixel line width, 0 gradient, 1-2 flat color layers per region, "
         "hard pixel edges only, no anti-aliasing, max 16 color palette, "
-        "sprite-like composition, square pixels, no soft shadow, no subsurface, "
-        "low resolution aesthetic, tile-aligned shapes"
+        "sprite-like composition, square pixels, no soft shadow, clean edges, "
+        "coherent character design, no random blocks"
     ),
     # Aliases
     "pixel art": (
+        "recognizable cute dog sprite, clear silhouette with head ears and body, "
+        "simple readable face with two eyes and small nose, floppy or pointy ears, "
         "single pixel line width, 0 gradient, 1-2 flat color layers per region, "
         "hard pixel edges only, no anti-aliasing, max 16 color palette, "
-        "sprite-like composition, square pixels, no soft shadow, no subsurface, "
-        "low resolution aesthetic, tile-aligned shapes"
+        "sprite-like composition, square pixels, no soft shadow, clean edges, "
+        "coherent character design, no random blocks"
     ),
 }
 
@@ -86,15 +90,23 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
     "dooly": "complex shading, gradient, detailed texture",
     "mazinger": "organic texture, fur, gradient, photorealistic",
     "shinchan": "realistic, gradient, detailed anatomy",
-    "pixel_art": "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel",
-    "pixel art": "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel",
+    "pixel_art": (
+        "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel, "
+        "abstract blobs, unrecognizable, random color blocks, muddy, "
+        "edge artifact, chromatic aberration, blur at edge, desaturated strip"
+    ),
+    "pixel art": (
+        "gradient, anti-aliasing, smooth edges, high resolution, blur, soft shadow, 3D, voxel, "
+        "abstract blobs, unrecognizable, random color blocks, muddy, "
+        "edge artifact, chromatic aberration, blur at edge, desaturated strip"
+    ),
 }
 
 # ========== GENERATION RULES (resolution, steps, cfg) ==========
-# pixel_art: 128, steps 32, cfg 7; else: 768, steps 28-32, cfg 6.5-7
+# pixel_art: 256으로 생성 후 nearest 2x 업스케일(512) — 인식 가능한 형태 유지
 GENERATION_RULES: dict[str, dict[str, Any]] = {
-    "pixel_art": {"max_side": 128, "steps": 32, "guidance_scale": 7.0},
-    "pixel art": {"max_side": 128, "steps": 32, "guidance_scale": 7.0},
+    "pixel_art": {"max_side": 256, "steps": 36, "guidance_scale": 7.0},
+    "pixel art": {"max_side": 256, "steps": 36, "guidance_scale": 7.0},
     "dragonball": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "slamdunk": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "sailor_moon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},

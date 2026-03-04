@@ -56,8 +56,8 @@ MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 2D 재해석용 (픽셀아트는 낮게 유지)
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel_art": (0.23, 0.38),
-    "pixel art": (0.23, 0.38),
+    "pixel_art": (0.32, 0.45),   # 너무 낮으면 형태 붕괴 → 적당히 올려 인식 가능한 스프라이트 유지
+    "pixel art": (0.32, 0.45),
     "dragonball": (0.45, 0.56),
     "slamdunk": (0.45, 0.56),
     "sailor_moon": (0.45, 0.56),
@@ -79,8 +79,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# pixel_art 업스케일: 128 생성 후 nearest-neighbor로만 확대 (표시용)
-PIXEL_ART_UPSCALE_FACTOR = 4  # 128 -> 512
+# pixel_art: 256 생성 후 nearest-neighbor 2배 업스케일 (512), 가장자리 2px 크롭으로 VAE 열화 완화
+PIXEL_ART_UPSCALE_FACTOR = 2   # 256 -> 512
+PIXEL_ART_EDGE_CROP = 2        # 업스케일 전 가장자리 crop (edge artifact 감소)
 
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
 # https://huggingface.co/docs/diffusers/using-diffusers/omnigen
@@ -318,12 +319,15 @@ def is_omnigen_in_use() -> bool:
 # Inference
 # ============================================================
 
-def _upscale_nearest(image_bytes: bytes, factor: int) -> bytes:
-    """Upscale image using nearest-neighbor only (for pixel_art). Returns PNG bytes."""
+def _upscale_nearest(image_bytes: bytes, factor: int, edge_crop: int = 0) -> bytes:
+    """Upscale using nearest-neighbor only (for pixel_art). edge_crop: trim each edge before upscale to reduce VAE artifacts."""
     from PIL import Image
     img = Image.open(io.BytesIO(image_bytes))
     img = img.convert("RGB")
     w, h = img.size
+    if edge_crop > 0 and w > 2 * edge_crop and h > 2 * edge_crop:
+        img = img.crop((edge_crop, edge_crop, w - edge_crop, h - edge_crop))
+        w, h = img.size
     new_w, new_h = w * factor, h * factor
     out = img.resize((new_w, new_h), Image.Resampling.NEAREST)
     buf = io.BytesIO()
@@ -752,10 +756,10 @@ async def run_image_to_image(
         ),
     )
 
-    # pixel_art: 128 생성 후 nearest-neighbor 업스케일만 허용 (표시용)
+    # pixel_art: 256 생성 후 nearest-neighbor 업스케일 + 가장자리 크롭으로 열화 감소
     is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     if is_pixel_art and result:
-        result = _upscale_nearest(result, PIXEL_ART_UPSCALE_FACTOR)
+        result = _upscale_nearest(result, PIXEL_ART_UPSCALE_FACTOR, edge_crop=PIXEL_ART_EDGE_CROP)
 
     elapsed = time.perf_counter() - start
     return result, elapsed
