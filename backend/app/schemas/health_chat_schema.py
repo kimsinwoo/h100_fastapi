@@ -32,5 +32,7 @@ class HealthChatStructured(BaseModel):
     differential: list[DifferentialItem] = Field(..., min_length=1, max_length=4, description="1~4개(4개 권장)")
     emergency_criteria: list[str] = Field(default_factory=list)
     key_questions: list[str] = Field(default_factory=list, max_length=5)
-    recommended_categories: list[RecommendedCategory] = Field(..., min_length=2)
+    recommended_categories: list[RecommendedCategory] = Field(
+        ..., min_length=2, max_length=8, description="이어서 물어보기 선택지 4~6개 권장"
+    )
 

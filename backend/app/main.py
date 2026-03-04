@@ -130,8 +130,12 @@ def create_app() -> FastAPI:
             "model_loaded": is_pipeline_loaded(),
         }
 
-    # 생성 이미지용 static
-    static_path = Path(settings.static_dir)
+    # 생성 이미지용 static (저장 경로와 동일하게 backend_dir 기준으로 해야 GET /static/generated/xxx.png 404 방지)
+    static_path = (
+        settings.static_dir
+        if settings.static_dir.is_absolute()
+        else settings.backend_dir / settings.static_dir
+    )
     static_path.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 

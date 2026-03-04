@@ -787,6 +787,13 @@ Thinking, Reasoning, Analyze 등의 단어가 포함된 줄이 출력되면 안 
 - 추상적 표현 금지. 행동·관찰 기준으로 명확히.
 - 약물·처방·복용·투여·mg 등 약 관련 언급 금지. 이어갈 질문(recommended_categories)으로 보호자를 도와주세요.
 
+[recommended_categories 작성 규칙]
+- recommended_categories는 4~6개 권장. 선택지를 넉넉히 제시.
+- query는 반드시 "사용자가 채팅창에 직접 입력할 법한 질문"으로 쓸 것. 즉, AI가 사용자에게 묻는 형식(예: "~였나요?", "~있었나요?")이 아니라, 사용자 본인이 궁금해서 물어보는 말투.
+- 좋은 예: "스트레스 받는 원인이 뭔지 알고 싶어요", "어깨에 올라오는 걸 줄이려면 어떻게 해야 할까요", "병원 가야 할 정도인지 판단 기준이 뭔가요"
+- 나쁜 예: "건빵이가 최근에 스트레스를 받는 상황이 있었나요?" (AI가 사용자에게 묻는 형식)
+- label은 버튼에 쓸 짧은 문구(예: "스트레스 원인", "행동 조절 방법").
+
 [출력 형식 - 이 JSON 블록만 출력]
 응답 전체는 반드시 아래 형식의 JSON 블록 하나만 출력하세요. ```json 앞뒤에 다른 글 없이, 블록만 출력.
 
@@ -801,14 +808,14 @@ Thinking, Reasoning, Analyze 등의 단어가 포함된 줄이 출력되면 안 
   "emergency_criteria": ["행동 기준 1", "행동 기준 2", "..."],
   "key_questions": ["감별에 필요한 질문 1", "질문 2", "최대 5개"],
   "recommended_categories": [
-    { "label": "카테고리 라벨", "query": "보호자가 바로 물어볼 수 있는 질문 문장" },
+    { "label": "짧은 라벨", "query": "사용자가 직접 물어볼 법한 질문 문장(본인이 궁금해서 쓰는 말투)" },
     { "label": "...", "query": "..." }
   ]
 }
 ```
 
 - differential은 반드시 4개. rank 1,2,3,4 모두 포함. reason·home_check는 각각 최소 2~3문장 분량.
-- emergency는 반드시 true 또는 false. recommended_categories는 최소 2개 이상."""
+- emergency는 반드시 true 또는 false. recommended_categories는 최소 4개, 5~6개 권장."""
 
 # 약물·처방 언급 제거용 패턴 (한 줄이 이 키워드 위주면 해당 줄 제거)
 _MEDICATION_LINE_PATTERN = re.compile(
