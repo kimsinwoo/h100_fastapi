@@ -9,6 +9,7 @@
 - `diffusers` **main 브랜치** (LTX2ImageToVideoPipeline은 아직 PyPI 0.37 미출시):  
   `pip install git+https://github.com/huggingface/diffusers.git`  
   ([문서](https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2))
+- **PyAV** (비디오 mp4 인코딩): `pip install av`
 
 ## API
 
