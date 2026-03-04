@@ -178,10 +178,10 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
 }
 
 # ========== GENERATION RULES ==========
-# pixel_art: 256x256 생성 후 2x nearest 업스케일(512). 디테일·종 구분 향상.
+# pixel_art: 384 생성 후 512로 리사이즈(nearest). steps/guidance 상향으로 품질·종 구분 강화.
 GENERATION_RULES: dict[str, dict[str, Any]] = {
-    "pixel_art": {"max_side": 256, "steps": 40, "guidance_scale": 7.0},
-    "pixel art": {"max_side": 256, "steps": 40, "guidance_scale": 7.0},
+    "pixel_art": {"max_side": 384, "steps": 48, "guidance_scale": 7.5},
+    "pixel art": {"max_side": 384, "steps": 48, "guidance_scale": 7.5},
     "dragonball": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "slamdunk": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
     "sailor_moon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
@@ -241,7 +241,7 @@ def get_prompt_config() -> dict[str, Any]:
 
 
 def get_generation_rules(style_key: str | None) -> dict[str, Any]:
-    """Get max_side, steps, guidance_scale for a style. pixel_art: 256, 40, 7; else 768, 28-30, 6.5-7."""
+    """Get max_side, steps, guidance_scale for a style. pixel_art: 384, 48, 7.5; else 768, 28-30, 6.5-7."""
     default = {"max_side": 768, "steps": 30, "guidance_scale": 6.5}
     if not style_key:
         return default
@@ -283,10 +283,14 @@ def build_prompt(
     style_key = _normalize_style(style)
     if style_key and style_key in STYLE_PROMPTS:
         parts.append(STYLE_PROMPTS[style_key])
-    # 픽셀 아트일 때 종별 스프라이트 힌트 추가 → 고양이/강아지 실루엣 명확화
+    # 픽셀 아트일 때 종별 스프라이트 힌트 + 끝맺음 강화 (고양이/강아지 구분 극대화)
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:
         parts.append(PIXEL_ART_SPECIES_SPRITE[species_key])
+        if species_key == "dog":
+            parts.append("clearly a dog, not a cat")
+        elif species_key == "cat":
+            parts.append("clearly a cat, not a dog")
     return ", ".join(parts)
 
 

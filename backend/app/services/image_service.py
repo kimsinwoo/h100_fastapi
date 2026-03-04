@@ -30,12 +30,15 @@ from app.utils.prompt_builder import (
 )
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
+# API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
     "3d render": "3d_render.safetensors",
     "cyberpunk": "cyberpunk.safetensors",
     "pixel art": "pixel_art.safetensors",
+    "pixel_art": "pixel_art.safetensors",
 }
 LORA_SCALE = 0.85
+PIXEL_ART_LORA_SCALE = 0.90  # 픽셀아트 품질 강화
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +59,8 @@ MODEL_RESOLUTION = 1024
 
 # 스타일별 strength: 2D 재해석용 (픽셀아트는 낮게 유지)
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
-    "pixel_art": (0.36, 0.50),   # 종 구분·디테일 유지 위해 소폭 상향
-    "pixel art": (0.36, 0.50),
+    "pixel_art": (0.40, 0.52),   # 원본 형태 유지하며 픽셀화 (종 구분·품질 강화)
+    "pixel art": (0.40, 0.52),
     "dragonball": (0.45, 0.56),
     "slamdunk": (0.45, 0.56),
     "sailor_moon": (0.45, 0.56),
@@ -79,8 +82,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
 DEFAULT_STRENGTH_FALLBACK = 0.50
 STRENGTH_GLOBAL_MAX = 0.58
 
-# pixel_art: 256 생성 후 nearest-neighbor 2x 업스케일(512). 디테일·종 구분 향상.
-PIXEL_ART_UPSCALE_FACTOR = 2   # 256 -> 512
+# pixel_art: 384 생성 후 512로 nearest 리사이즈. 디테일·종 구분 향상.
+PIXEL_ART_TARGET_SIZE = 512   # 최종 출력 512
 PIXEL_ART_EDGE_CROP = 2       # 업스케일 전 가장자리 crop (edge artifact 감소)
 
 # ========== HF OmniGen 이미지 편집과 동일 설정 (diffusers doc + HF Space) ==========
@@ -330,6 +333,20 @@ def _upscale_nearest(image_bytes: bytes, factor: int, edge_crop: int = 0) -> byt
         w, h = img.size
     new_w, new_h = w * factor, h * factor
     out = img.resize((new_w, new_h), Image.Resampling.NEAREST)
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _pixel_art_resize_to(image_bytes: bytes, target_side: int, edge_crop: int = 0) -> bytes:
+    """픽셀 아트를 edge_crop 후 target_side x target_side로 nearest 리사이즈 (384→512 등)."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.convert("RGB")
+    w, h = img.size
+    if edge_crop > 0 and w > 2 * edge_crop and h > 2 * edge_crop:
+        img = img.crop((edge_crop, edge_crop, w - edge_crop, h - edge_crop))
+    out = img.resize((target_side, target_side), Image.Resampling.NEAREST)
     buf = io.BytesIO()
     out.save(buf, format="PNG")
     return buf.getvalue()
@@ -681,8 +698,9 @@ async def run_image_to_image(
     lora_path = settings.lora_output_dir / lora_filename if lora_filename else None
     if lora_path and lora_path.exists():
         adapter_name = "lora_" + style_lower.replace(" ", "_")
+        lora_scale = PIXEL_ART_LORA_SCALE if style_lower in ("pixel_art", "pixel art") else LORA_SCALE
         try:
-            load_lora(pipe, lora_path, scale=LORA_SCALE, adapter_name=adapter_name)
+            load_lora(pipe, lora_path, scale=lora_scale, adapter_name=adapter_name)
             if hasattr(pipe, "set_adapters"):
                 pipe.set_adapters([adapter_name])
             logger.info("LoRA loaded for style %s: %s", style_lower, lora_path)
@@ -762,10 +780,10 @@ async def run_image_to_image(
         ),
     )
 
-    # pixel_art: 128 생성 후 nearest-neighbor 업스케일만 (4x -> 512)
+    # pixel_art: 384 생성 후 512로 nearest 리사이즈
     is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     if is_pixel_art and result:
-        result = _upscale_nearest(result, PIXEL_ART_UPSCALE_FACTOR, edge_crop=PIXEL_ART_EDGE_CROP)
+        result = _pixel_art_resize_to(result, PIXEL_ART_TARGET_SIZE, edge_crop=PIXEL_ART_EDGE_CROP)
 
     elapsed = time.perf_counter() - start
     return result, elapsed
