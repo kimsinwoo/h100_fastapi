@@ -731,6 +731,29 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
+    # Cloud: img2img 전체 변환 사용 안 함. Subject 분리 → 배경만 구름 → 합성 후 즉 반환.
+    if style_lower in ("cloud_theme", "cloud theme", "cloud_photoreal", "cloud photoreal") and is_background_replacement_available():
+        rules = get_generation_rules(style_lower)
+        max_side = size or rules["max_side"]
+        loop = asyncio.get_event_loop()
+        start = time.perf_counter()
+        composite_bytes = await loop.run_in_executor(
+            None,
+            lambda: _run_background_replacement_cloud_sync(
+                image_bytes,
+                max_side=max_side,
+                seed=seed,
+                photoreal=style_lower in ("cloud_photoreal", "cloud photoreal"),
+            ),
+        )
+        elapsed = time.perf_counter() - start
+        if composite_bytes is not None:
+            logger.info(
+                "[Cloud] Subject separation → background only → composite. No img2img on subject (identity preserved)."
+            )
+            return composite_bytes, elapsed
+        logger.warning("[Cloud] Background replacement failed; falling back to full img2img")
+
     # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
     if _use_omnigen:
         user_text = (custom_prompt or "").strip()
@@ -901,9 +924,9 @@ def _run_background_replacement_cloud_sync(
     photoreal: bool,
 ) -> bytes | None:
     """
-    Background override: segment pet → remove original bg → generate cloud → composite.
+    Subject 분리 → 배경만 구름 생성 → 합성. Subject에는 노이즈 미주입.
     Returns composite RGB bytes, or None if segmentation unavailable/failed.
-    Does not rely on img2img alone; original background is fully removed.
+    Caller must NOT run img2img on the composite (subject would be re-sampled).
     """
     from PIL import Image, ImageOps
     if not is_background_replacement_available():
@@ -929,9 +952,9 @@ def _run_background_replacement_cloud_sync(
             solid_bytes,
             cloud_prompt,
             cloud_negative,
-            strength=0.90,
-            num_steps=36,
-            guidance_scale=7.0,
+            strength=0.88,  # 배경만 생성 → 0.85~0.9. Subject 미포함이므로 높게.
+            num_steps=30,
+            guidance_scale=7.5,
             max_side=max_side,
             seed=seed,
             force_square=False,
@@ -1168,12 +1191,12 @@ async def run_universal_animal_generate(
     elif use_cloud_photoreal:
         negative = f"{negative}, {get_gpt_cloud_photoreal_negative()}"
 
-    # Background override: segment → remove original bg → cloud → composite. Then light img2img for blend only.
+    # 구조적 해결: 배경만 교체. Subject에는 노이즈 주지 않음 (img2img 전체 변환 사용 안 함).
+    # Subject 분리 → 배경만 구름 생성 → 합성. 합성 성공 시 img2img 스킵 → identity 100% 유지.
     use_background_override = (use_cloud_theme or use_cloud_photoreal) and is_background_replacement_available()
-    input_bytes = image_bytes
-    blend_strength = strength
     if use_background_override:
         loop_bg = asyncio.get_event_loop()
+        total_start = time.perf_counter()
         composite_bytes = await loop_bg.run_in_executor(
             None,
             lambda: _run_background_replacement_cloud_sync(
@@ -1183,20 +1206,22 @@ async def run_universal_animal_generate(
                 photoreal=use_cloud_photoreal,
             ),
         )
+        elapsed = time.perf_counter() - total_start
         if composite_bytes is not None:
-            input_bytes = composite_bytes
-            blend_strength = 0.54  # 배경은 이미 교체됨; identity 유지 위해 낮게
-            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.54")
-        else:
-            logger.warning("[Universal] Background replacement unavailable or failed; using full img2img (original bg may remain)")
+            logger.info(
+                "[Universal] Cloud: subject separation → background only → composite. No img2img on subject (identity preserved)."
+            )
+            return composite_bytes, elapsed
+        logger.warning("[Universal] Background replacement failed; falling back to full img2img (identity may change)")
 
+    input_bytes = image_bytes
     loop = asyncio.get_event_loop()
     total_start = time.perf_counter()
     out_bytes = None
     for attempt in range(max_retries + 1):
         out_bytes = await loop.run_in_executor(
             None,
-            lambda ib=input_bytes, st=blend_strength: _run_inference_sync(
+            lambda ib=input_bytes, st=strength: _run_inference_sync(
                 ib,
                 prompt,
                 negative,
