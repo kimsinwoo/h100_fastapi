@@ -258,6 +258,8 @@ def validation_requires_retry(
       1. Background fully cloud-dominant? 2. Lighting high-key and low contrast?
       3. Pet anatomy unchanged? 4. No dark shadows? 5. Scene airy and weightless?
       If any fail → regenerate.
+    - Background override: when segment→composite was used, original background is removed programmatically.
+      If replacement was skipped (e.g. rembg unavailable) and scene classifier detects original background visible → regenerate.
     """
     if analysis_drift_requires_retry(initial, re_analyzed):
         return True

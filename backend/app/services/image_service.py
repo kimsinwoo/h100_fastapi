@@ -50,6 +50,13 @@ from app.utils.cloud_theme import (
     get_gpt_cloud_photoreal_block,
     get_gpt_cloud_photoreal_negative,
 )
+from app.services.background_replacement import (
+    is_background_replacement_available,
+    segment_foreground,
+    composite_foreground_on_background,
+    create_cloud_background_prompt,
+    create_cloud_background_negative,
+)
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 # API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
@@ -871,6 +878,69 @@ def _make_gray_image_bytes(size: int = 768) -> bytes:
     return buf.getvalue()
 
 
+def _make_solid_image_bytes(width: int, height: int, r: int = 0xE8, g: int = 0xF4, b: int = 0xFC) -> bytes:
+    """Solid-color RGB image for cloud background seed (light sky blue). Dimensions must be 8-multiple for pipeline."""
+    from PIL import Image
+    w8 = max(64, (width // 8) * 8)
+    h8 = max(64, (height // 8) * 8)
+    img = Image.new("RGB", (w8, h8), color=(r, g, b))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _run_background_replacement_cloud_sync(
+    image_bytes: bytes,
+    max_side: int,
+    seed: int | None,
+    photoreal: bool,
+) -> bytes | None:
+    """
+    Background override: segment pet → remove original bg → generate cloud → composite.
+    Returns composite RGB bytes, or None if segmentation unavailable/failed.
+    Does not rely on img2img alone; original background is fully removed.
+    """
+    from PIL import Image, ImageOps
+    if not is_background_replacement_available():
+        return None
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+    target_w, target_h = _resize_keep_ratio(img.width, img.height, max_side)
+    if img.width != target_w or img.height != target_h:
+        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    resized_bytes = buf.getvalue()
+    pet_rgba_bytes = segment_foreground(resized_bytes)
+    if not pet_rgba_bytes:
+        logger.warning("[BackgroundOverride] Segmentation failed; falling back to img2img-only.")
+        return None
+    cloud_prompt = create_cloud_background_prompt(photoreal=photoreal)
+    cloud_negative = create_cloud_background_negative()
+    solid_bytes = _make_solid_image_bytes(target_w, target_h)
+    try:
+        cloud_bytes = _run_inference_sync(
+            solid_bytes,
+            cloud_prompt,
+            cloud_negative,
+            strength=0.90,
+            num_steps=36,
+            guidance_scale=7.0,
+            max_side=max_side,
+            seed=seed,
+            force_square=False,
+        )
+    except Exception as e:
+        logger.exception("[BackgroundOverride] Cloud background generation failed: %s", e)
+        return None
+    cloud_pil = Image.open(io.BytesIO(cloud_bytes)).convert("RGB")
+    if cloud_pil.size != (target_w, target_h):
+        cloud_pil = cloud_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    composite_bytes = composite_foreground_on_background(pet_rgba_bytes, cloud_pil)
+    return composite_bytes
+
+
 async def run_ac_villager_pipeline(
     image_bytes: bytes,
     species_override: str | None = None,
@@ -1087,17 +1157,39 @@ async def run_universal_animal_generate(
     elif use_cloud_photoreal:
         negative = f"{negative}, {get_gpt_cloud_photoreal_negative()}"
 
+    # Background override: segment → remove original bg → cloud → composite. Then light img2img for blend only.
+    use_background_override = (use_cloud_theme or use_cloud_photoreal) and is_background_replacement_available()
+    input_bytes = image_bytes
+    blend_strength = strength
+    if use_background_override:
+        loop_bg = asyncio.get_event_loop()
+        composite_bytes = await loop_bg.run_in_executor(
+            None,
+            lambda: _run_background_replacement_cloud_sync(
+                image_bytes,
+                max_side=max_side,
+                seed=seed,
+                photoreal=use_cloud_photoreal,
+            ),
+        )
+        if composite_bytes is not None:
+            input_bytes = composite_bytes
+            blend_strength = 0.40  # Light pass: blend lighting only; background already replaced
+            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.40")
+        else:
+            logger.warning("[Universal] Background replacement unavailable or failed; using full img2img (original bg may remain)")
+
     loop = asyncio.get_event_loop()
     total_start = time.perf_counter()
     out_bytes = None
     for attempt in range(max_retries + 1):
         out_bytes = await loop.run_in_executor(
             None,
-            lambda: _run_inference_sync(
-                image_bytes,
+            lambda ib=input_bytes, st=blend_strength: _run_inference_sync(
+                ib,
                 prompt,
                 negative,
-                strength=strength,
+                strength=st,
                 num_steps=num_steps,
                 guidance_scale=guidance_scale,
                 max_side=max_side,
@@ -1111,7 +1203,7 @@ async def run_universal_animal_generate(
         if not validation_requires_retry(analysis, re_analyzed, required_cloud_theme=use_cloud_theme):
             break
         logger.info("[Universal] Validation drift detected, retrying generation (attempt %s)", attempt + 2)
-        image_bytes = out_bytes
+        input_bytes = out_bytes
 
     elapsed = time.perf_counter() - total_start
     return out_bytes or b"", elapsed
