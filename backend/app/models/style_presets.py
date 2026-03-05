@@ -17,7 +17,7 @@ STYLE_PRESETS: dict[str, str] = {
     "shinchan": "Shinchan (gag manga)",
     "pixel_art": "Pixel Art (sprite, 16 colors)",
     "pixel art": "Pixel Art (sprite, 16 colors)",
-    "animal_crossing": "동물의숲 (AC 주민 완전 재디자인)",
+    "animal_crossing": "동물의숲 (진짜 AC 주민 구조 재디자인)",
     "ac_style_transfer": "동물의숲 스타일만 (해부·포즈·배경 유지)",
 }
 

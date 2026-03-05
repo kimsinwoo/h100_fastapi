@@ -160,28 +160,26 @@ STYLE_PROMPTS: dict[str, str] = {
         "hard pixel edges only, no anti-aliasing, max 16 colors, no soft shading, "
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
-    # 동물의숲 단일 스타일: 완전 재디자인 (해부/비율 보존 안 함, 배경 무시, strength 0.78, pose OFF)
+    # 동물의숲 단일 스타일: TRUE AC 주민 구조 재디자인 (해부/비율 변경 필수, 배경 교체, strength 0.78, pose OFF)
     "animal_crossing": (
-        "Completely redesign this character into an Animal Crossing villager. Do NOT preserve original anatomy. Do NOT preserve original proportions. "
-        "Ignore original background entirely. Rebuild the character with: large head (50% of body height), short cylindrical torso, "
-        "short rounded limbs, simplified mitten-like hands, compact feet, oversized oval eyes, minimal facial detail, "
-        "smooth stylized 3D Nintendo render. Place the character in a fully generated Animal Crossing village: "
-        "symmetrical dirt path, flower beds, fruit trees, cozy house, bright daytime lighting. "
-        "Preserve only: fur color pattern, eye color, basic species identity. Everything else redesigned in Animal Crossing 3D style. "
-        "Species-specific features (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
-        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers). "
-        "Background: {{AC_BACKGROUND}}. Character and background fully consistent Animal Crossing 3D."
+        "TRUE Animal Crossing villager character. STRUCTURAL REDESIGN in official Nintendo Animal Crossing proportions, NOT a style filter. "
+        "MANDATORY: Head 50-55% of total character height. Body short and cylindrical. Legs very short and stubby. Arms small and rounded. "
+        "Hands mitten-like. Feet compact rounded blocks. Face flat and simplified. Eyes oversized vertical ovals. Remove realistic anatomy. "
+        "Do NOT keep realistic body proportions. Do NOT keep real cat leg length. Do NOT keep realistic torso length. "
+        "Species identity only: keep fur colors and major markings, eye color, ear type (e.g. cat ears). Reinterpret everything in Animal Crossing villager geometry. "
+        "Background: REPLACE environment with a bright Animal Crossing island setting. Do NOT keep original environment. {{AC_BACKGROUND}}. "
+        "Rendering: Nintendo Switch game asset quality, smooth plastic-like shading, soft global illumination, cheerful color palette, clean stylized textures, no realism. "
+        "Species-specific: dog rounded ears short snout; cat pointed triangular ears slit pupils; rabbit long ears; hamster plump cheeks; bird colorful feathers."
     ),
     "animal crossing": (
-        "Completely redesign this character into an Animal Crossing villager. Do NOT preserve original anatomy. Do NOT preserve original proportions. "
-        "Ignore original background entirely. Rebuild the character with: large head (50% of body height), short cylindrical torso, "
-        "short rounded limbs, simplified mitten-like hands, compact feet, oversized oval eyes, minimal facial detail, "
-        "smooth stylized 3D Nintendo render. Place the character in a fully generated Animal Crossing village: "
-        "symmetrical dirt path, flower beds, fruit trees, cozy house, bright daytime lighting. "
-        "Preserve only: fur color pattern, eye color, basic species identity. Everything else redesigned in Animal Crossing 3D style. "
-        "Species-specific features (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
-        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers). "
-        "Background: {{AC_BACKGROUND}}. Character and background fully consistent Animal Crossing 3D."
+        "TRUE Animal Crossing villager character. STRUCTURAL REDESIGN in official Nintendo Animal Crossing proportions, NOT a style filter. "
+        "MANDATORY: Head 50-55% of total character height. Body short and cylindrical. Legs very short and stubby. Arms small and rounded. "
+        "Hands mitten-like. Feet compact rounded blocks. Face flat and simplified. Eyes oversized vertical ovals. Remove realistic anatomy. "
+        "Do NOT keep realistic body proportions. Do NOT keep real cat leg length. Do NOT keep realistic torso length. "
+        "Species identity only: keep fur colors and major markings, eye color, ear type (e.g. cat ears). Reinterpret everything in Animal Crossing villager geometry. "
+        "Background: REPLACE environment with a bright Animal Crossing island setting. Do NOT keep original environment. {{AC_BACKGROUND}}. "
+        "Rendering: Nintendo Switch game asset quality, smooth plastic-like shading, soft global illumination, cheerful color palette, clean stylized textures, no realism. "
+        "Species-specific: dog rounded ears short snout; cat pointed triangular ears slit pupils; rabbit long ears; hamster plump cheeks; bird colorful feathers."
     ),
     # Hybrid: preserve 3D quality/lighting from ref; force AC village + villager proportions (fixed village, strength 0.48, guidance 8)
     "animal_crossing_hybrid": (
@@ -402,12 +400,18 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "ambiguous silhouette, generic indistinguishable animal"
     ),
     "animal_crossing": (
-        "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
-        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts"
+        "realistic body proportions, real cat leg length, realistic torso length, long legs, long torso, "
+        "realistic anatomy, realistic fur texture, photorealism, style filter only, keeping original environment, "
+        "original background, 2D flat background, hand-drawn textures, low-poly, blurry, asymmetrical ears, "
+        "human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts, "
+        "small head, realistic eye size, realistic hands, realistic feet"
     ),
     "animal crossing": (
-        "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
-        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts"
+        "realistic body proportions, real cat leg length, realistic torso length, long legs, long torso, "
+        "realistic anatomy, realistic fur texture, photorealism, style filter only, keeping original environment, "
+        "original background, 2D flat background, hand-drawn textures, low-poly, blurry, asymmetrical ears, "
+        "human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts, "
+        "small head, realistic eye size, realistic hands, realistic feet"
     ),
     "animal_crossing_hybrid": (
         "flat 2D background, original background, photo background, realistic anatomy, real cat proportions, "
