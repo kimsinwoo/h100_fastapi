@@ -105,9 +105,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    # GPT Cloud Replica: strength 0.6–0.7 (pose preserve ON)
-    "cloud_theme": (0.60, 0.70),
-    "cloud theme": (0.60, 0.70),
+    # Cloud environment dominance: strength 0.70–0.75 (no 2D conflict)
+    "cloud_theme": (0.70, 0.75),
+    "cloud theme": (0.70, 0.75),
     # GPT Cloud Photoreal: strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": (0.55, 0.65),
     "cloud photoreal": (0.55, 0.65),
@@ -1120,13 +1120,15 @@ async def run_universal_animal_generate(
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
     use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
     if use_cloud_theme:
-        # Z-Image-Turbo: guidance 9–11, strength 0.6–0.7, preserve pose ON
+        # Cloud environment dominance: strength 0.70–0.75 (was 0.65; 2D conflict fix)
         guidance_scale = max(9.0, min(11.0, float(rules["guidance_scale"])))
-        strength = 0.65
+        strength = 0.72
     elif use_cloud_photoreal:
-        # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
         guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
         strength = 0.60
+    if use_cloud_theme and strength < 0.65:
+        logger.warning("[Universal] cloud_theme strength %.2f < 0.65; auto-adjusting to 0.70", strength)
+        strength = max(0.70, strength)
     if use_cloud_theme:
         cloud_intensity_val = (cloud_intensity or "high").strip().lower()
         if cloud_intensity_val not in ("low", "medium", "high"):
@@ -1140,8 +1142,11 @@ async def run_universal_animal_generate(
             style_lower,
             cloud_intensity=cloud_intensity_val if cloud_intensity else None,
         )
+    # Cloud mode: no 2D character redesign; use plain species (dog, cat) not "dog character"
     subject_prefix = ""
-    if species_key and species_key in SPECIES_SUBJECT:
+    if use_cloud_theme or use_cloud_photoreal:
+        subject_prefix = (species_key or "pet").strip() if species_key else "pet"
+    elif species_key and species_key in SPECIES_SUBJECT:
         subject_prefix = SPECIES_SUBJECT[species_key]
     prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
     if use_cloud_theme:
@@ -1174,8 +1179,8 @@ async def run_universal_animal_generate(
         )
         if composite_bytes is not None:
             input_bytes = composite_bytes
-            blend_strength = 0.40  # Light pass: blend lighting only; background already replaced
-            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.40")
+            blend_strength = 0.58  # Cloud environment dominance; background already replaced
+            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.58")
         else:
             logger.warning("[Universal] Background replacement unavailable or failed; using full img2img (original bg may remain)")
 

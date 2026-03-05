@@ -20,6 +20,13 @@ CloudIntensity = Literal["low", "medium", "high"]
 # airy depth, gentle pastel sky-blue diffusion, no dramatic shadow, no grounded realism,
 # soft luminous environment, floating spatial softness.
 
+# ----- HARD BACKGROUND OVERRIDE (priority: no original background) -----
+GPT_CLOUD_HARD_BACKGROUND_OVERRIDE = (
+    "The original background must be completely replaced. "
+    "No trace of original environment allowed. "
+    "Entire frame must be cloud environment."
+)
+
 # ----- ENVIRONMENT ENFORCEMENT -----
 GPT_CLOUD_ENVIRONMENT = (
     "The pet must exist inside a floating cloud environment. "
@@ -71,9 +78,11 @@ GPT_CLOUD_DOMINANCE = (
 )
 
 # ----- NEGATIVE PROMPT BLOCK (GPT Cloud Replica) -----
+# Do NOT include: photorealistic, real fur, real skin texture (cloud can be soft/real blend).
+# Keep: cinematic, dramatic shadow, studio background, ground, indoor, grass, wood, concrete.
 GPT_CLOUD_NEGATIVE = (
     "cinematic lighting, dramatic shadow, studio background, solid background, "
-    "indoor, grass, field, wood, concrete, sunset, night, dark sky, "
+    "ground, indoor, grass, field, wood, concrete, sunset, night, dark sky, "
     "strong contrast, moody atmosphere, film grain, high saturation, "
     "earth tone, warm orange, harsh light, "
     "dark dramatic lighting, deep black shadows, low exposure, "
@@ -196,11 +205,11 @@ GPT_CLOUD_VALIDATION_CRITERIA = (
 
 def get_gpt_cloud_replica_block() -> str:
     """
-    Full GPT Cloud Replica block for pet-only generation.
-    Replicates GPT Cloud theme precisely: environment + lighting + color + structure + rendering + dominance.
+    Full GPT Cloud Replica block. Order: structure → HARD background override → ENVIRONMENT → LIGHTING → RENDERING.
+    Environment before detailed texture rules; no 2D character redesign.
     """
     return (
-        f"{GPT_CLOUD_STRUCTURE_PROTECTION} "
+        f"{GPT_CLOUD_STRUCTURE_PROTECTION} {GPT_CLOUD_HARD_BACKGROUND_OVERRIDE} "
         f"{GPT_CLOUD_ENVIRONMENT} {GPT_CLOUD_LIGHTING} {GPT_CLOUD_COLOR} "
         f"{GPT_CLOUD_RENDERING} {GPT_CLOUD_DOMINANCE}"
     )
@@ -238,8 +247,9 @@ def get_cloud_theme_style_block(intensity: CloudIntensity = "high") -> str:
         intensity = "high"
 
     if intensity == "high":
+        # Order: ENVIRONMENT → LIGHTING → COLOR → RENDERING → DOMINANCE (environment before texture)
         return (
-            f"{GPT_CLOUD_ENVIRONMENT} {GPT_CLOUD_LIGHTING} {GPT_CLOUD_COLOR} "
+            f"{GPT_CLOUD_HARD_BACKGROUND_OVERRIDE} {GPT_CLOUD_ENVIRONMENT} {GPT_CLOUD_LIGHTING} {GPT_CLOUD_COLOR} "
             f"{GPT_CLOUD_RENDERING} {GPT_CLOUD_DOMINANCE}"
         )
     if intensity == "low":
