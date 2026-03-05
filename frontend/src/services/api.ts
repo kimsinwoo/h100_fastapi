@@ -6,6 +6,9 @@ import type {
   TrainingItem,
   ACBiologicalAnalysis,
   ACReconstructRequest,
+  ImageAnalysisResponse,
+  ViewpointAnalysisResponse,
+  UniversalAnalysisResponse,
 } from "../types/api";
 
 /** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
@@ -66,7 +69,13 @@ export async function generateImage(
   style: string,
   customPrompt: string | null,
   strength: number | null,
-  seed: number | null
+  seed: number | null,
+  sideProfileLock?: boolean,
+  options?: {
+    usePoseLock?: boolean;
+    analysis?: UniversalAnalysisResponse | Record<string, unknown>;
+    validateAndRetry?: boolean;
+  }
 ): Promise<GenerateResponse> {
   const form = new FormData();
   form.append("style", style);
@@ -74,6 +83,12 @@ export async function generateImage(
   form.append("custom_prompt", (customPrompt ?? "").trim());
   form.append("strength", String(strength ?? 0.5));
   if (seed !== null) form.append("seed", String(seed));
+  if (sideProfileLock) form.append("side_profile_lock", "true");
+  if (options?.usePoseLock && options?.analysis != null) {
+    form.append("use_pose_lock", "true");
+    form.append("analysis", JSON.stringify(options.analysis));
+  }
+  if (options?.validateAndRetry) form.append("validate_and_retry", "true");
   // steps는 생략 시 백엔드 generation_rules에서 스타일별로 적용 (pixel_art 32, 그 외 28~30)
 
   type ApiResponse = {
@@ -178,6 +193,88 @@ export async function acAnalyze(params: {
   if (params.ear_type != null) form.append("ear_type", params.ear_type);
   if (params.tail_type != null) form.append("tail_type", params.tail_type);
   const { data } = await uploadApi.post<ACBiologicalAnalysis>("/api/ac/analyze", form);
+  return data;
+}
+
+/** Universal analysis: pose, camera, gravity, clothing, structure. JSON only. */
+export async function analyzeUniversal(params?: {
+  file?: File | null;
+  species?: string | null;
+  view_angle?: string | null;
+  body_pose?: string | null;
+  gravity_axis?: string | null;
+  head_direction_degrees?: number | null;
+  spine_alignment?: string | null;
+  visible_eyes?: number | null;
+  leg_visibility_count?: number | null;
+  is_full_body_visible?: boolean | null;
+  is_wearing_clothes?: boolean | null;
+  clothing_type?: string | null;
+  clothing_color?: string | null;
+  clothing_pattern?: string | null;
+  clothing_confidence?: number | null;
+}): Promise<UniversalAnalysisResponse> {
+  const form = new FormData();
+  if (params?.file) form.append("image", params.file);
+  if (params?.species != null) form.append("species", params.species);
+  if (params?.view_angle != null) form.append("view_angle", params.view_angle);
+  if (params?.body_pose != null) form.append("body_pose", params.body_pose);
+  if (params?.gravity_axis != null) form.append("gravity_axis", params.gravity_axis);
+  if (params?.head_direction_degrees != null) form.append("head_direction_degrees", String(params.head_direction_degrees));
+  if (params?.spine_alignment != null) form.append("spine_alignment", params.spine_alignment);
+  if (params?.visible_eyes != null) form.append("visible_eyes", String(params.visible_eyes));
+  if (params?.leg_visibility_count != null) form.append("leg_visibility_count", String(params.leg_visibility_count));
+  if (params?.is_full_body_visible != null) form.append("is_full_body_visible", String(params.is_full_body_visible));
+  if (params?.is_wearing_clothes != null) form.append("is_wearing_clothes", String(params.is_wearing_clothes));
+  if (params?.clothing_type != null) form.append("clothing_type", params.clothing_type);
+  if (params?.clothing_color != null) form.append("clothing_color", params.clothing_color);
+  if (params?.clothing_pattern != null) form.append("clothing_pattern", params.clothing_pattern);
+  if (params?.clothing_confidence != null) form.append("clothing_confidence", String(params.clothing_confidence));
+  const { data } = await uploadApi.post<UniversalAnalysisResponse>("/api/image/analyze-universal", form);
+  return data;
+}
+
+/** Viewpoint analysis: camera angle and subject orientation. JSON only. */
+export async function analyzeViewpoint(params?: {
+  file?: File | null;
+  view_angle?: string | null;
+  head_visible_eyes?: number | null;
+  body_orientation_degrees?: number | null;
+  tail_visible?: boolean | null;
+}): Promise<ViewpointAnalysisResponse> {
+  const form = new FormData();
+  if (params?.file) form.append("image", params.file);
+  if (params?.view_angle != null) form.append("view_angle", params.view_angle);
+  if (params?.head_visible_eyes != null) form.append("head_visible_eyes", String(params.head_visible_eyes));
+  if (params?.body_orientation_degrees != null) form.append("body_orientation_degrees", String(params.body_orientation_degrees));
+  if (params?.tail_visible != null) form.append("tail_visible", String(params.tail_visible));
+  const { data } = await uploadApi.post<ViewpointAnalysisResponse>("/api/image/viewpoint", form);
+  return data;
+}
+
+/** Image analysis: structured visual attributes (animal, clothing, accessories, pose, environment). JSON only. */
+export async function analyzeImage(params: {
+  file?: File | null;
+  species?: string | null;
+  fur_main_color?: string | null;
+  fur_secondary_color?: string | null;
+  major_markings?: string | null;
+  is_wearing_clothes?: boolean | null;
+  clothing_type?: string | null;
+  clothing_color?: string | null;
+  posture?: string | null;
+}): Promise<ImageAnalysisResponse> {
+  const form = new FormData();
+  if (params.file) form.append("image", params.file);
+  if (params.species != null) form.append("species", params.species);
+  if (params.fur_main_color != null) form.append("fur_main_color", params.fur_main_color);
+  if (params.fur_secondary_color != null) form.append("fur_secondary_color", params.fur_secondary_color);
+  if (params.major_markings != null) form.append("major_markings", params.major_markings);
+  if (params.is_wearing_clothes != null) form.append("is_wearing_clothes", String(params.is_wearing_clothes));
+  if (params.clothing_type != null) form.append("clothing_type", params.clothing_type);
+  if (params.clothing_color != null) form.append("clothing_color", params.clothing_color);
+  if (params.posture != null) form.append("posture", params.posture);
+  const { data } = await uploadApi.post<ImageAnalysisResponse>("/api/image/analyze", form);
   return data;
 }
 

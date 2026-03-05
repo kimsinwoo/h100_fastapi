@@ -21,11 +21,20 @@ from app.schemas.image_schema import (
     ACReconstructRequest,
     GenerateResponse,
     GenerateVideoResponse,
+    ImageAnalysisResponse,
+    AnimalInfo,
+    ClothingDetection,
+    Accessories,
+    Pose,
+    Environment,
+    ViewpointAnalysisResponse,
+    UniversalAnalysisResponse,
 )
 from app.services.image_service import (
     run_ac_villager_pipeline,
     run_ac_villager_reconstruct,
     run_image_to_image,
+    run_universal_animal_generate,
 )
 from app.services.video_service import run_image_to_video
 from app.services.training_store import (
@@ -104,6 +113,10 @@ async def generate(
     ac_sign_text: Annotated[str | None, Form(description="Animal Crossing preserve mode: custom town sign text e.g. PAW-RADISE, MEOWTON")] = None,
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
+    side_profile_lock: Annotated[str | None, Form(description="If 'true'/'1'/'yes', enforce 90° side profile (strength 0.65-0.75, guidance ≥8)")] = None,
+    use_pose_lock: Annotated[str | None, Form(description="If 'true' and analysis provided, use Universal pose-lock engine")] = None,
+    analysis: Annotated[str | None, Form(description="JSON from /api/image/analyze-universal for pose-lock generation")] = None,
+    validate_and_retry: Annotated[str | None, Form(description="If 'true' with use_pose_lock, re-analyze output and retry on drift")] = None,
     steps: Annotated[str | None, Form(description="Inference steps (default 70)")] = None,
     strength: Annotated[str | None, Form()] = None,
     seed: Annotated[str | None, Form()] = None,
@@ -149,23 +162,44 @@ async def generate(
         raise HTTPException(status_code=500, detail="Failed to save uploaded image")
     original_url = get_generated_url(original_filename)
     raw_prompt_bool = (raw_prompt or "").strip().lower() in ("true", "1", "yes")
+    use_pose_lock_bool = (use_pose_lock or "").strip().lower() in ("true", "1", "yes")
+    validate_and_retry_bool = (validate_and_retry or "").strip().lower() in ("true", "1", "yes")
+    analysis_dict = None
+    if use_pose_lock_bool and analysis and analysis.strip():
+        try:
+            analysis_dict = _json.loads(analysis.strip())
+        except _json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid analysis JSON: {e}") from e
+
     print("[이미지 생성] 로컬에서 생성 중...", file=sys.stderr, flush=True)
     try:
-        out_bytes, processing_time = await run_image_to_image(
-            image_bytes=content,
-            style_key=style_lower,
-            species_key=species.strip().lower() if species and species.strip() else None,
-            custom_prompt=custom_prompt,
-            raw_prompt=raw_prompt_bool,
-            num_steps=steps_i,
-            strength=strength_f,
-            seed=seed_i,
-            ac_background=ac_background.strip() if ac_background and ac_background.strip() else None,
-            ac_preserve_original=(ac_preserve_original or "").strip().lower() in ("true", "1", "yes"),
-            ac_eye_color=ac_eye_color.strip() if ac_eye_color and ac_eye_color.strip() else None,
-            ac_pose=ac_pose.strip() if ac_pose and ac_pose.strip() else None,
-            ac_sign_text=ac_sign_text.strip() if ac_sign_text and ac_sign_text.strip() else None,
-        )
+        if use_pose_lock_bool and analysis_dict is not None:
+            out_bytes, processing_time = await run_universal_animal_generate(
+                image_bytes=content,
+                analysis=analysis_dict,
+                style_key=style_lower,
+                species_key=species.strip().lower() if species and species.strip() else None,
+                seed=seed_i,
+                validate_and_retry=validate_and_retry_bool,
+                max_retries=1,
+            )
+        else:
+            out_bytes, processing_time = await run_image_to_image(
+                image_bytes=content,
+                style_key=style_lower,
+                species_key=species.strip().lower() if species and species.strip() else None,
+                custom_prompt=custom_prompt,
+                raw_prompt=raw_prompt_bool,
+                num_steps=steps_i,
+                strength=strength_f,
+                seed=seed_i,
+                ac_background=ac_background.strip() if ac_background and ac_background.strip() else None,
+                ac_preserve_original=(ac_preserve_original or "").strip().lower() in ("true", "1", "yes"),
+                ac_eye_color=ac_eye_color.strip() if ac_eye_color and ac_eye_color.strip() else None,
+                ac_pose=ac_pose.strip() if ac_pose and ac_pose.strip() else None,
+                ac_sign_text=ac_sign_text.strip() if ac_sign_text and ac_sign_text.strip() else None,
+                side_profile_lock=(side_profile_lock or "").strip().lower() in ("true", "1", "yes"),
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -331,6 +365,167 @@ async def generate_ac_villager_reconstruct(
         generated_url=generated_url,
         processing_time=round(processing_time, 2),
         generated_image_base64=generated_b64,
+    )
+
+
+# ---------- Image Analysis (structured visual attributes, JSON only) ----------
+
+
+@router.post("/image/viewpoint", response_model=ViewpointAnalysisResponse)
+async def analyze_viewpoint(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Image to analyze")] = None,
+    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
+    view_angle: Annotated[str | None, Form(description="Override: front / three-quarter / side-profile-left / side-profile-right")] = None,
+    head_visible_eyes: Annotated[str | None, Form(description="Override: 1 or 2")] = None,
+    body_orientation_degrees: Annotated[str | None, Form(description="Override: 0-180")] = None,
+    tail_visible: Annotated[str | None, Form(description="Override: true/false")] = None,
+) -> ViewpointAnalysisResponse:
+    """
+    Camera angle and subject orientation. JSON only.
+    Stub: when no vision model is wired, uses form overrides or defaults.
+    If only one eye is visible, classify as side-profile.
+    """
+    _check_rate_limit(request)
+    angle = (view_angle or "three-quarter").strip().lower()
+    if angle not in ("front", "three-quarter", "side-profile-left", "side-profile-right"):
+        angle = "three-quarter"
+    eyes = 1 if angle.startswith("side-profile") else 2
+    if head_visible_eyes is not None and str(head_visible_eyes).strip() in ("1", "2"):
+        eyes = int(head_visible_eyes)
+    deg = 90 if angle.startswith("side-profile") else (45 if angle == "three-quarter" else 0)
+    if body_orientation_degrees is not None:
+        try:
+            d = int(float(body_orientation_degrees))
+            deg = max(0, min(180, d))
+        except (ValueError, TypeError):
+            pass
+    tail = (tail_visible or "").strip().lower() in ("true", "1", "yes")
+    return ViewpointAnalysisResponse(
+        view_angle=angle,
+        head_visible_eyes=eyes,
+        body_orientation_degrees=deg,
+        tail_visible=tail,
+    )
+
+
+@router.post("/image/analyze-universal", response_model=UniversalAnalysisResponse)
+async def analyze_universal(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Image to analyze")] = None,
+    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
+    species: Annotated[str | None, Form()] = None,
+    view_angle: Annotated[str | None, Form(description="front | three-quarter | side-left | side-right | rear")] = None,
+    body_pose: Annotated[str | None, Form(description="standing | sitting | lying | crouching | jumping | unknown")] = None,
+    gravity_axis: Annotated[str | None, Form(description="normal | rotated-left | rotated-right | upside-down")] = None,
+    head_direction_degrees: Annotated[str | None, Form()] = None,
+    spine_alignment: Annotated[str | None, Form(description="vertical | horizontal | diagonal")] = None,
+    visible_eyes: Annotated[str | None, Form(description="0-2")] = None,
+    leg_visibility_count: Annotated[str | None, Form(description="0-4")] = None,
+    is_full_body_visible: Annotated[str | None, Form(description="true/false")] = None,
+    is_wearing_clothes: Annotated[str | None, Form(description="true/false")] = None,
+    clothing_type: Annotated[str | None, Form()] = None,
+    clothing_color: Annotated[str | None, Form()] = None,
+    clothing_pattern: Annotated[str | None, Form()] = None,
+    clothing_confidence: Annotated[str | None, Form(description="0.0-1.0")] = None,
+) -> UniversalAnalysisResponse:
+    """
+    Universal analysis: pose, camera, gravity, clothing, structure visibility.
+    JSON only. Stub: form overrides or defaults. Collar is NOT clothing.
+    """
+    _check_rate_limit(request)
+    def _int(s: str | None, lo: int, hi: int, default: int) -> int:
+        if s is None or not str(s).strip():
+            return default
+        try:
+            v = int(float(s))
+            return max(lo, min(hi, v))
+        except (ValueError, TypeError):
+            return default
+    def _float(s: str | None, lo: float, hi: float, default: float) -> float:
+        if s is None or not str(s).strip():
+            return default
+        try:
+            v = float(s)
+            return max(lo, min(hi, v))
+        except (ValueError, TypeError):
+            return default
+    va = (view_angle or "three-quarter").strip().lower()
+    if va not in ("front", "three-quarter", "side-left", "side-right", "rear"):
+        va = "three-quarter"
+    bp = (body_pose or "unknown").strip().lower()
+    if bp not in ("standing", "sitting", "lying", "crouching", "jumping", "unknown"):
+        bp = "unknown"
+    grav = (gravity_axis or "normal").strip().lower()
+    if grav not in ("normal", "rotated-left", "rotated-right", "upside-down"):
+        grav = "normal"
+    spine = (spine_alignment or "vertical").strip().lower()
+    if spine not in ("vertical", "horizontal", "diagonal"):
+        spine = "vertical"
+    return UniversalAnalysisResponse(
+        species=(species or "unknown").strip(),
+        view_angle=va,
+        body_pose=bp,
+        gravity_axis=grav,
+        head_direction_degrees=_int(head_direction_degrees, 0, 360, 0),
+        spine_alignment=spine,
+        visible_eyes=_int(visible_eyes, 0, 2, 2),
+        leg_visibility_count=_int(leg_visibility_count, 0, 4, 4),
+        is_full_body_visible=(is_full_body_visible or "").strip().lower() not in ("false", "0", "no"),
+        is_wearing_clothes=(is_wearing_clothes or "").strip().lower() in ("true", "1", "yes"),
+        clothing_type=(clothing_type or "").strip(),
+        clothing_color=(clothing_color or "").strip(),
+        clothing_pattern=(clothing_pattern or "").strip(),
+        clothing_confidence=_float(clothing_confidence, 0.0, 1.0, 0.0),
+    )
+
+
+@router.post("/image/analyze", response_model=ImageAnalysisResponse)
+async def analyze_image(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Image to analyze")] = None,
+    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
+    species: Annotated[str | None, Form(description="Override: cat / dog / other")] = None,
+    fur_main_color: Annotated[str | None, Form()] = None,
+    fur_secondary_color: Annotated[str | None, Form()] = None,
+    major_markings: Annotated[str | None, Form()] = None,
+    is_wearing_clothes: Annotated[str | None, Form(description="true/false")] = None,
+    clothing_type: Annotated[str | None, Form()] = None,
+    clothing_color: Annotated[str | None, Form()] = None,
+    posture: Annotated[str | None, Form(description="standing/sitting/lying/jumping")] = None,
+) -> ImageAnalysisResponse:
+    """
+    Extract structured visual attributes from image. Returns JSON only; no commentary.
+    Stub: when no vision model is wired, uses form overrides or defaults to unknown.
+    """
+    _check_rate_limit(request)
+    # Stub: no vision model; use form overrides or unknowns. Plug in vision/LLM here later.
+    species_val = (species or "other").strip().lower()
+    if species_val not in ("cat", "dog", "other"):
+        species_val = "other"
+    return ImageAnalysisResponse(
+        animal=AnimalInfo(
+            species=species_val,
+            breed=None,
+            fur_main_color=(fur_main_color or "unknown").strip(),
+            fur_secondary_color=(fur_secondary_color or "unknown").strip(),
+            major_markings=(major_markings or "unknown").strip(),
+        ),
+        clothing=ClothingDetection(
+            is_wearing_clothes=(is_wearing_clothes or "").strip().lower() in ("true", "1", "yes"),
+            clothing_type=(clothing_type or "unknown").strip(),
+            clothing_color=(clothing_color or "unknown").strip(),
+            clothing_pattern="unknown",
+            sleeve_length="unknown",
+            full_body_outfit=False,
+        ),
+        accessories=Accessories(hat="unknown", glasses="unknown", collar="unknown", ribbon="unknown", other_visible_accessory="unknown"),
+        pose=Pose(
+            posture=(posture or "unknown").strip().lower() if posture else "unknown",
+            facing_direction="unknown",
+            tail_position="unknown",
+        ),
+        environment=Environment(setting="unknown", dominant_background_colors="unknown"),
     )
 
 

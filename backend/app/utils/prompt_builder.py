@@ -25,6 +25,21 @@ BASE_NEGATIVE = (
     "hyper detailed, realistic anatomy, real muscle structure, high frequency texture, HDR"
 )
 
+# ========== SIDE PROFILE LOCK (측면 강제: 90도 측면 유지) ==========
+# 측면일 때만 사용. 프롬프트에 포함 시 정면 회전/두 눈 노출 방지.
+SIDE_PROFILE_LOCK_PROMPT = (
+    "Strict 90-degree side profile composition. The subject MUST remain in full side profile. "
+    "Do NOT rotate the head. Do NOT reveal the second eye. Do NOT convert to front view. Do NOT symmetrize the face. "
+    "Camera: 90-degree side profile, only one eye visible, one ear fully visible and second ear partially hidden, "
+    "muzzle silhouette clearly defined, body aligned horizontally, tail aligned with spine direction. "
+    "Side-profile locked composition. High resolution, stable anatomy, no perspective correction, no frontal bias. "
+    "This is a strict 90-degree side profile composition."
+)
+NEGATIVE_SIDE_PROFILE_LOCK = (
+    "frontal view, two eyes visible, face rotated toward camera, symmetrical face, "
+    "front view, three-quarter view, character rotating toward camera, second eye revealed"
+)
+
 # ========== POSE PRESERVATION (참조 이미지 자세 유지: 누움/앉음/서 있음 등) ==========
 # img2img 시 원본 사진의 자세·구도를 바꾸지 않도록 명시
 POSE_PRESERVATION = (
@@ -617,6 +632,22 @@ def get_generation_rules(style_key: str | None) -> dict[str, Any]:
     return GENERATION_RULES.get(key, default)
 
 
+def get_style_block(style_key: str | None, ac_background: str | None = None) -> str:
+    """
+    Return only the style prompt string for injection (e.g. pose-lock engine).
+    No base, no species, no POSE_PRESERVATION. Style never overrides pose when used after pose rules.
+    """
+    if not style_key:
+        return ""
+    key = _normalize_style(style_key)
+    if not key or key not in STYLE_PROMPTS:
+        return ""
+    block = STYLE_PROMPTS[key]
+    if "{{AC_BACKGROUND}}" in block:
+        block = block.replace("{{AC_BACKGROUND}}", get_random_ac_background(ac_background))
+    return block
+
+
 # Default subject when user leaves prompt empty (generic small pet animal)
 DEFAULT_USER_PROMPT = "small pet animal character"
 
@@ -655,6 +686,7 @@ def build_prompt(
     ac_eye_color: str | None = None,
     ac_pose: str | None = None,
     ac_sign_text: str | None = None,
+    side_profile_lock: bool = False,
 ) -> str:
     """
     Final prompt = (종 주어) + user_prompt + BASE_PROMPT + species_modifier + style rules.
@@ -705,6 +737,8 @@ def build_prompt(
             parts.append("clearly a dog, not a cat")
         elif species_key == "cat":
             parts.append("clearly a cat, not a dog")
+    if side_profile_lock:
+        parts.append(SIDE_PROFILE_LOCK_PROMPT)
     return ", ".join(parts)
 
 
@@ -713,6 +747,7 @@ def build_negative_prompt(
     species: str | None = None,
     raw_prompt: bool = False,
     ac_preserve_original: bool = False,
+    side_profile_lock: bool = False,
 ) -> str:
     """Final negative = BASE_NEGATIVE + pose-avoid + species cross-avoid + style-specific negative."""
     if raw_prompt:
@@ -729,6 +764,8 @@ def build_negative_prompt(
         style_neg = NEGATIVE_BY_STYLE.get(style_key, "") if style_key else ""
         if style_neg:
             parts.append(style_neg)
+    if side_profile_lock:
+        parts.append(NEGATIVE_SIDE_PROFILE_LOCK)
     return ", ".join(p for p in parts if p)
 
 

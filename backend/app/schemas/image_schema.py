@@ -51,3 +51,101 @@ class ACReconstructRequest(BaseModel):
     ear_type: str | None = Field(default=None, description="Optional; inferred from species if omitted")
     tail_type: str | None = Field(default=None, description="Optional; simplified if omitted")
     seed: int | None = Field(default=None)
+
+
+# ---------- Image Analysis (structured visual attributes, JSON only) ----------
+
+
+class AnimalInfo(BaseModel):
+    species: str = Field(..., description="cat / dog / other")
+    breed: str | None = Field(default=None, description="if recognizable")
+    fur_main_color: str = Field(default="unknown")
+    fur_secondary_color: str = Field(default="unknown")
+    major_markings: str = Field(default="unknown")
+
+
+class ClothingDetection(BaseModel):
+    is_wearing_clothes: bool = Field(default=False)
+    clothing_type: str = Field(default="unknown", description="shirt / hoodie / dress / sweater / costume / etc")
+    clothing_color: str = Field(default="unknown")
+    clothing_pattern: str = Field(default="unknown")
+    sleeve_length: str = Field(default="unknown")
+    full_body_outfit: bool = Field(default=False)
+
+
+class Accessories(BaseModel):
+    hat: str = Field(default="unknown", description="description or none")
+    glasses: str = Field(default="unknown")
+    collar: str = Field(default="unknown")
+    ribbon: str = Field(default="unknown")
+    other_visible_accessory: str = Field(default="unknown")
+
+
+class Pose(BaseModel):
+    posture: str = Field(default="unknown", description="standing / sitting / lying / jumping")
+    facing_direction: str = Field(default="unknown")
+    tail_position: str = Field(default="unknown")
+
+
+class Environment(BaseModel):
+    setting: str = Field(default="unknown", description="indoor / outdoor")
+    dominant_background_colors: str = Field(default="unknown")
+
+
+class ImageAnalysisResponse(BaseModel):
+    """Structured visual attributes from image. JSON only; no commentary."""
+    animal: AnimalInfo = Field(default_factory=AnimalInfo)
+    clothing: ClothingDetection = Field(default_factory=ClothingDetection)
+    accessories: Accessories = Field(default_factory=Accessories)
+    pose: Pose = Field(default_factory=Pose)
+    environment: Environment = Field(default_factory=Environment)
+
+
+# ---------- Viewpoint / camera angle analysis (JSON only) ----------
+
+
+class ViewpointAnalysisResponse(BaseModel):
+    """Camera angle and subject orientation. JSON only."""
+    view_angle: str = Field(
+        default="three-quarter",
+        description="front / three-quarter / side-profile-left / side-profile-right",
+    )
+    head_visible_eyes: int = Field(default=2, ge=1, le=2, description="1 or 2")
+    body_orientation_degrees: int = Field(default=45, ge=0, le=180)
+    tail_visible: bool = Field(default=False)
+
+
+# ---------- Universal Animal Image Generation Engine (Phase 1 analysis) ----------
+
+
+class UniversalAnalysisResponse(BaseModel):
+    """
+    Pose, camera, gravity, clothing, structure visibility.
+    Do NOT auto-correct pose; detect only visible attributes. Collar is NOT clothing.
+    """
+    species: str = Field(default="unknown")
+    view_angle: str = Field(
+        default="three-quarter",
+        description="front | three-quarter | side-left | side-right | rear",
+    )
+    body_pose: str = Field(
+        default="unknown",
+        description="standing | sitting | lying | crouching | jumping | unknown",
+    )
+    gravity_axis: str = Field(
+        default="normal",
+        description="normal | rotated-left | rotated-right | upside-down",
+    )
+    head_direction_degrees: int = Field(default=0, ge=0, le=360)
+    spine_alignment: str = Field(
+        default="vertical",
+        description="vertical | horizontal | diagonal",
+    )
+    visible_eyes: int = Field(default=2, ge=0, le=2)
+    leg_visibility_count: int = Field(default=4, ge=0, le=4)
+    is_full_body_visible: bool = Field(default=True)
+    is_wearing_clothes: bool = Field(default=False)
+    clothing_type: str = Field(default="")
+    clothing_color: str = Field(default="")
+    clothing_pattern: str = Field(default="")
+    clothing_confidence: float = Field(default=0.0, ge=0.0, le=1.0)

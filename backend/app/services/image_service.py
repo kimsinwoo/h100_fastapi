@@ -30,8 +30,18 @@ from app.utils.prompt_builder import (
     build_prompt,
     get_allowed_style_keys,
     get_generation_rules,
+    get_style_block,
     NEGATIVE_AC_PIPELINE,
     AC_RECONSTRUCT_NEGATIVE,
+    NEGATIVE_BY_STYLE,
+    SPECIES_SUBJECT,
+)
+from app.utils.pose_lock_engine import (
+    build_pose_lock_prompt,
+    build_pose_lock_negative,
+    get_pose_lock_strength,
+    get_pose_lock_guidance_min,
+    analysis_drift_requires_retry,
 )
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
@@ -688,6 +698,7 @@ async def run_image_to_image(
     ac_eye_color: str | None = None,
     ac_pose: str | None = None,
     ac_sign_text: str | None = None,
+    side_profile_lock: bool = False,
 ):
 
     pipe = await get_pipeline()
@@ -758,12 +769,14 @@ async def run_image_to_image(
         ac_eye_color=ac_eye_color,
         ac_pose=ac_pose,
         ac_sign_text=ac_sign_text,
+        side_profile_lock=side_profile_lock,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None,
         species=species_key,
         raw_prompt=raw_prompt,
         ac_preserve_original=ac_preserve_original,
+        side_profile_lock=side_profile_lock,
     )
     negative_prompt = (negative_prompt or "").strip() or None
     logger.info("final_prompt=%s", prompt)
@@ -774,9 +787,13 @@ async def run_image_to_image(
     default_st, max_st = STRENGTH_BY_STYLE.get(
         style_lower, (DEFAULT_STRENGTH_FALLBACK, STRENGTH_GLOBAL_MAX)
     )
-    strength = strength if strength is not None else default_st
-    strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
-    strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
+    if side_profile_lock:
+        # 측면 고정: strength 0.65~0.75, guidance 8+ (pose/depth 유지). 스타일 상한 무시.
+        strength = 0.70 if strength is None else max(0.65, min(0.75, float(strength) if strength is not None else 0.70))
+    else:
+        strength = strength if strength is not None else default_st
+        strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
+        strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
 
     # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: generation_rules 사용
     if style_lower == "omni":
@@ -788,6 +805,8 @@ async def run_image_to_image(
         max_side = size or rules["max_side"]
         num_steps = max(1, min(70, num_steps or rules["steps"]))
         guidance_scale = rules["guidance_scale"]
+        if side_profile_lock:
+            guidance_scale = max(8.0, guidance_scale)
 
     is_pixel_art = (style_lower or "").replace(" ", "_") == "pixel_art"
     loop = asyncio.get_event_loop()
@@ -971,12 +990,90 @@ async def run_ac_villager_reconstruct(
 
 
 # ============================================================
-# Utilities
+# Universal Animal Image Generation (pose-lock + validation)
 # ============================================================
 
-def is_pipeline_loaded() -> bool:
-    return _pipeline is not None
+def _reanalyze_universal_stub(
+    _output_bytes: bytes,
+    initial_analysis: dict[str, Any] | Any,
+) -> dict[str, Any]:
+    """
+    Stub: re-analyze generated image. No vision model; returns copy of initial.
+    Replace with real vision call to enable validation retry.
+    """
+    if hasattr(initial_analysis, "model_dump"):
+        return initial_analysis.model_dump()
+    return dict(initial_analysis) if isinstance(initial_analysis, dict) else {}
 
+
+async def run_universal_animal_generate(
+    image_bytes: bytes,
+    analysis: dict[str, Any] | Any,
+    style_key: str,
+    species_key: str | None = None,
+    seed: int | None = None,
+    validate_and_retry: bool = False,
+    max_retries: int = 1,
+) -> tuple[bytes, float]:
+    """
+    Pose-lock, structure-lock generation. Uses UniversalAnalysisResponse (or dict).
+    Strength 0.65-0.75, guidance >= 8. Style injected after pose rules.
+    If validate_and_retry: re-analyze output and regenerate once on drift.
+    """
+    pipe = await get_pipeline()
+    if pipe is None:
+        raise RuntimeError("Model not available")
+
+    style_lower = style_key.lower().strip()
+    rules = get_generation_rules(style_lower)
+    max_side = rules["max_side"]
+    num_steps = max(1, min(70, rules["steps"]))
+    guidance_scale = max(get_pose_lock_guidance_min(), float(rules["guidance_scale"]))
+    strength = get_pose_lock_strength("normal")
+
+    style_block = get_style_block(style_lower)
+    subject_prefix = ""
+    if species_key and species_key in SPECIES_SUBJECT:
+        subject_prefix = SPECIES_SUBJECT[species_key]
+    prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
+    negative = build_pose_lock_negative()
+    style_neg = NEGATIVE_BY_STYLE.get(style_lower, "")
+    if style_neg:
+        negative = f"{negative}, {style_neg}"
+
+    loop = asyncio.get_event_loop()
+    total_start = time.perf_counter()
+    out_bytes = None
+    for attempt in range(max_retries + 1):
+        out_bytes = await loop.run_in_executor(
+            None,
+            lambda: _run_inference_sync(
+                image_bytes,
+                prompt,
+                negative,
+                strength=strength,
+                num_steps=num_steps,
+                guidance_scale=guidance_scale,
+                max_side=max_side,
+                seed=seed,
+                force_square=False,
+            ),
+        )
+        if not validate_and_retry or attempt >= max_retries:
+            break
+        re_analyzed = _reanalyze_universal_stub(out_bytes, analysis)
+        if not analysis_drift_requires_retry(analysis, re_analyzed):
+            break
+        logger.info("[Universal] Validation drift detected, retrying generation (attempt %s)", attempt + 2)
+        image_bytes = out_bytes
+
+    elapsed = time.perf_counter() - total_start
+    return out_bytes or b"", elapsed
+
+
+# ============================================================
+# Utilities
+# ============================================================
 
 def is_gpu_available() -> bool:
     try:

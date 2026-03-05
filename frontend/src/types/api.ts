@@ -63,3 +63,75 @@ export interface ACReconstructRequest {
   tail_type?: string | null;
   seed?: number | null;
 }
+
+// ---------- Image Analysis (structured visual attributes) ----------
+
+export interface AnimalInfo {
+  species: string;
+  breed: string | null;
+  fur_main_color: string;
+  fur_secondary_color: string;
+  major_markings: string;
+}
+
+export interface ClothingDetection {
+  is_wearing_clothes: boolean;
+  clothing_type: string;
+  clothing_color: string;
+  clothing_pattern: string;
+  sleeve_length: string;
+  full_body_outfit: boolean;
+}
+
+export interface Accessories {
+  hat: string;
+  glasses: string;
+  collar: string;
+  ribbon: string;
+  other_visible_accessory: string;
+}
+
+export interface Pose {
+  posture: string;
+  facing_direction: string;
+  tail_position: string;
+}
+
+export interface Environment {
+  setting: string;
+  dominant_background_colors: string;
+}
+
+export interface ImageAnalysisResponse {
+  animal: AnimalInfo;
+  clothing: ClothingDetection;
+  accessories: Accessories;
+  pose: Pose;
+  environment: Environment;
+}
+
+/** Viewpoint / camera angle analysis. JSON only. */
+export interface ViewpointAnalysisResponse {
+  view_angle: "front" | "three-quarter" | "side-profile-left" | "side-profile-right";
+  head_visible_eyes: 1 | 2;
+  body_orientation_degrees: number;
+  tail_visible: boolean;
+}
+
+/** Universal analysis: pose, camera, gravity, clothing, structure. JSON only. */
+export interface UniversalAnalysisResponse {
+  species: string;
+  view_angle: string;
+  body_pose: string;
+  gravity_axis: string;
+  head_direction_degrees: number;
+  spine_alignment: string;
+  visible_eyes: number;
+  leg_visibility_count: number;
+  is_full_body_visible: boolean;
+  is_wearing_clothes: boolean;
+  clothing_type: string;
+  clothing_color: string;
+  clothing_pattern: string;
+  clothing_confidence: number;
+}
