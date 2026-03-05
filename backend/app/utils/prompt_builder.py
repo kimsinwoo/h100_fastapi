@@ -160,27 +160,28 @@ STYLE_PROMPTS: dict[str, str] = {
         "hard pixel edges only, no anti-aliasing, max 16 colors, no soft shading, "
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
+    # 동물의숲 단일 스타일: 완전 재디자인 (해부/비율 보존 안 함, 배경 무시, strength 0.78, pose OFF)
     "animal_crossing": (
-        "A cute pet transformed into an Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
-        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
-        "character standing naturally on the ground, fully integrated with environment, cozy clothing, cheerful pose, "
-        "species-specific features clearly visible (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
-        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers), high-resolution game asset quality, "
-        "crisp clean lines, background randomly selected from Animal Crossing game assets: {{AC_BACKGROUND}}, "
-        "pose and orientation preserved from reference image if provided, character and background fully consistent in Animal Crossing 3D style. "
-        "Ignore original image background completely."
+        "Completely redesign this character into an Animal Crossing villager. Do NOT preserve original anatomy. Do NOT preserve original proportions. "
+        "Ignore original background entirely. Rebuild the character with: large head (50% of body height), short cylindrical torso, "
+        "short rounded limbs, simplified mitten-like hands, compact feet, oversized oval eyes, minimal facial detail, "
+        "smooth stylized 3D Nintendo render. Place the character in a fully generated Animal Crossing village: "
+        "symmetrical dirt path, flower beds, fruit trees, cozy house, bright daytime lighting. "
+        "Preserve only: fur color pattern, eye color, basic species identity. Everything else redesigned in Animal Crossing 3D style. "
+        "Species-specific features (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
+        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers). "
+        "Background: {{AC_BACKGROUND}}. Character and background fully consistent Animal Crossing 3D."
     ),
     "animal crossing": (
-        "A cute pet transformed into an Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
-        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
-        "character standing naturally on the ground, fully integrated with environment, cozy clothing, cheerful pose, "
-        "species-specific features clearly visible (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
-        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers), high-resolution game asset quality, "
-        "crisp clean lines, background randomly selected from Animal Crossing game assets: {{AC_BACKGROUND}}, "
-        "pose and orientation preserved from reference image if provided, character and background fully consistent in Animal Crossing 3D style. "
-        "Ignore original image background completely."
+        "Completely redesign this character into an Animal Crossing villager. Do NOT preserve original anatomy. Do NOT preserve original proportions. "
+        "Ignore original background entirely. Rebuild the character with: large head (50% of body height), short cylindrical torso, "
+        "short rounded limbs, simplified mitten-like hands, compact feet, oversized oval eyes, minimal facial detail, "
+        "smooth stylized 3D Nintendo render. Place the character in a fully generated Animal Crossing village: "
+        "symmetrical dirt path, flower beds, fruit trees, cozy house, bright daytime lighting. "
+        "Preserve only: fur color pattern, eye color, basic species identity. Everything else redesigned in Animal Crossing 3D style. "
+        "Species-specific features (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
+        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers). "
+        "Background: {{AC_BACKGROUND}}. Character and background fully consistent Animal Crossing 3D."
     ),
     # Hybrid: preserve 3D quality/lighting from ref; force AC village + villager proportions (fixed village, strength 0.48, guidance 8)
     "animal_crossing_hybrid": (
@@ -354,16 +355,16 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
     "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
     "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    # Animal Crossing Full 3D: steps 40-48, guidance 7.5-8, resolution min 512 (768 used)
-    "animal_crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
-    "animal crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
-    # Hybrid: strength 0.48, guidance 8, steps 44, 768x768 (pose preservation effectively ~0.6 via strength)
+    # 동물의숲 단일 스타일: strength 0.78, guidance 8.5, steps 48, 768x768, pose preservation OFF
+    "animal_crossing": {"max_side": 768, "steps": 48, "guidance_scale": 8.5},
+    "animal crossing": {"max_side": 768, "steps": 48, "guidance_scale": 8.5},
     "animal_crossing_hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
     "animal crossing hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
 
+# 스타일 목록: 동물의숲은 animal_crossing 하나만 노출 (animal crossing / hybrid는 API 호환용으로만 유지)
 ALLOWED_STYLE_KEYS = [
     "dragonball",
     "slamdunk",
@@ -375,9 +376,6 @@ ALLOWED_STYLE_KEYS = [
     "pixel_art",
     "pixel art",
     "animal_crossing",
-    "animal crossing",
-    "animal_crossing_hybrid",
-    "animal crossing hybrid",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())
@@ -491,7 +489,10 @@ def build_prompt(
         text = DEFAULT_USER_PROMPT
     if raw_prompt:
         return text
-    parts = [text, BASE_PROMPT, POSE_PRESERVATION]
+    parts = [text, BASE_PROMPT]
+    # 동물의숲: 완전 재디자인 모드 → 포즈/원본 구도 보존 안 함 (pose preservation OFF)
+    if not (is_animal_crossing or is_animal_crossing_hybrid):
+        parts.append(POSE_PRESERVATION)
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
     if style_key and style_key in STYLE_PROMPTS:
