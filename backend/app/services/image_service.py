@@ -80,6 +80,9 @@ _use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100
 _omnigen_scheduler_lock = threading.Lock()
 
 # ===== Z-Image-Turbo 권장값 =====
+# Turbo/Lightning 계열: "원본 보존"이 아니라 "참고해서 새로 생성" 성향. 0.5+ strength 시 identity 재샘플링.
+# 개체 동일성 유지 = Subject 분리 → 배경만 diffusion → 합성 (전체 프레임 img2img 사용 안 함).
+# Cloud fallback(전체 img2img) 시: strength 0.42, steps 28, guidance 6.5로 "수정" 모드만 사용.
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0
 PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
@@ -106,9 +109,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    # Cloud + Identity: 0.60–0.65 (0.7+ 시 identity 붕괴)
-    "cloud_theme": (0.60, 0.65),
-    "cloud theme": (0.60, 0.65),
+    # Cloud fallback: Turbo 0.5+ 시 identity 재샘플링. 0.38–0.45로 "수정" 모드만.
+    "cloud_theme": (0.38, 0.45),
+    "cloud theme": (0.38, 0.45),
     # GPT Cloud Photoreal: strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": (0.55, 0.65),
     "cloud photoreal": (0.55, 0.65),
@@ -836,9 +839,9 @@ async def run_image_to_image(
         # 측면 고정: strength 0.65~0.75, guidance 8+ (pose/depth 유지). 스타일 상한 무시.
         strength = 0.70 if strength is None else max(0.65, min(0.75, float(strength) if strength is not None else 0.70))
     elif style_lower in ("cloud_theme", "cloud theme"):
-        # Cloud + Identity: 0.60–0.65 (0.7+ 시 개체 동일성 붕괴. 배경만 바꾸고 subject 유지)
-        strength = 0.62 if strength is None else max(0.60, min(0.65, float(strength) if strength is not None else 0.62))
-        strength = max(0.0, min(0.65, min(1.0, strength)))
+        # Turbo: 0.5 이상이면 "참고해서 새로 그려라" 동작. Fallback 전체 img2img 시 0.42로 "수정" 모드만.
+        strength = 0.42 if strength is None else max(0.35, min(0.45, float(strength) if strength is not None else 0.42))
+        strength = max(0.0, min(0.45, min(1.0, strength)))
     else:
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
@@ -1148,16 +1151,16 @@ async def run_universal_animal_generate(
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
     use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
     if use_cloud_theme:
-        # Cloud + Identity: strength 0.62, guidance 7.5–8, steps 30–35 (identity 유지 우선)
-        guidance_scale = max(7.5, min(8.0, float(rules["guidance_scale"])))
-        num_steps = max(30, min(35, rules["steps"]))
-        strength = 0.62
+        # Cloud fallback(전체 img2img) 시: Turbo는 0.5+ identity 재샘플링. 0.42 / steps 28 / guidance 6.5로 "수정" 모드.
+        guidance_scale = 6.5
+        num_steps = 28
+        strength = 0.42
     elif use_cloud_photoreal:
         guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
         strength = 0.60
-    if use_cloud_theme and strength > 0.65:
-        logger.warning("[Universal] cloud_theme strength %.2f > 0.65 may collapse identity; capping at 0.65", strength)
-        strength = min(0.65, strength)
+    if use_cloud_theme and strength > 0.45:
+        logger.warning("[Universal] Turbo cloud fallback: strength %.2f > 0.45 may resample identity; capping at 0.45", strength)
+        strength = min(0.45, strength)
     if use_cloud_theme:
         cloud_intensity_val = (cloud_intensity or "high").strip().lower()
         if cloud_intensity_val not in ("low", "medium", "high"):

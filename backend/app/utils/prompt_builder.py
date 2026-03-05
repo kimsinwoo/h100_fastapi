@@ -584,9 +584,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    # Cloud + Identity: strength 0.62, guidance 7.8, steps 32 (0.7+ 시 identity 붕괴)
-    "cloud_theme": {"max_side": 768, "steps": 32, "guidance_scale": 7.8},
-    "cloud theme": {"max_side": 768, "steps": 32, "guidance_scale": 7.8},
+    # Cloud fallback용 (Turbo: 0.5+ 시 identity 재해석. 0.42 이하에서만 "수정" 모드.)
+    "cloud_theme": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
+    "cloud theme": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
     # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
     "cloud photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
