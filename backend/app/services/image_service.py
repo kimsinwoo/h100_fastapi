@@ -25,11 +25,13 @@ from app.lora.manager import load_lora
 from app.utils.prompt_builder import (
     build_ac_pipeline_base_prompt,
     build_ac_pipeline_color_transfer_prompt,
+    build_ac_reconstruct_prompt,
     build_negative_prompt,
     build_prompt,
     get_allowed_style_keys,
     get_generation_rules,
     NEGATIVE_AC_PIPELINE,
+    AC_RECONSTRUCT_NEGATIVE,
 )
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
@@ -906,6 +908,64 @@ async def run_ac_villager_pipeline(
 
     elapsed = time.perf_counter() - total_start
     return final_bytes, elapsed
+
+
+# ============================================================
+# AC Villager Reconstruction (T2I-only: biological data → single pass from gray)
+# ============================================================
+
+async def run_ac_villager_reconstruct(
+    species: str,
+    main_fur_color: str = "cream",
+    secondary_fur_color: str = "none",
+    eye_color: str = "amber",
+    markings: str = "none",
+    ear_type: str | None = None,
+    tail_type: str | None = None,
+    seed: int | None = None,
+) -> tuple[bytes, float]:
+    """
+    High-fidelity AC villager reconstruction. TEXT-TO-IMAGE ONLY (no img2img from user image).
+    Uses neutral gray image + very high strength (0.95) so output is driven by prompt only.
+    Biological data from Stage 1 (or manual) drives species identity and colors;
+    anatomy is strict Nintendo villager proportions (52-55% head, stubby limbs, etc.).
+    """
+    pipe = await get_pipeline()
+    if pipe is None:
+        raise RuntimeError("Model not available")
+
+    key = species.strip().lower() if species else "other"
+    if key not in ("cat", "dog", "rabbit", "hamster", "bird", "other"):
+        key = "other"
+
+    prompt = build_ac_reconstruct_prompt(
+        species=key,
+        main_fur_color=main_fur_color or "cream",
+        secondary_fur_color=secondary_fur_color or "none",
+        eye_color=eye_color or "amber",
+        markings=markings or "none",
+        ear_type=ear_type,
+        tail_type=tail_type,
+    )
+    gray_bytes = _make_gray_image_bytes(768)
+    loop = asyncio.get_event_loop()
+    start = time.perf_counter()
+    out_bytes = await loop.run_in_executor(
+        None,
+        lambda: _run_inference_sync(
+            gray_bytes,
+            prompt,
+            AC_RECONSTRUCT_NEGATIVE,
+            strength=0.95,
+            num_steps=50,
+            guidance_scale=8.5,
+            max_side=768,
+            seed=seed,
+            force_square=True,
+        ),
+    )
+    elapsed = time.perf_counter() - start
+    return out_bytes, elapsed
 
 
 # ============================================================

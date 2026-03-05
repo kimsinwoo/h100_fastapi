@@ -1,5 +1,12 @@
 import axios, { AxiosError } from "axios";
-import type { GenerateResponse, ErrorDetail, StylesResponse, TrainingItem } from "../types/api";
+import type {
+  GenerateResponse,
+  ErrorDetail,
+  StylesResponse,
+  TrainingItem,
+  ACBiologicalAnalysis,
+  ACReconstructRequest,
+} from "../types/api";
 
 /** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
@@ -45,6 +52,12 @@ api.interceptors.request.use((config) => {
 const uploadApi = axios.create({
   baseURL: api.defaults.baseURL ?? "/",
   timeout: FRONTEND_TIMEOUT_MS,
+});
+uploadApi.interceptors.request.use((config) => {
+  if (config.data instanceof FormData && config.headers) {
+    delete (config.headers as Record<string, unknown>)["Content-Type"];
+  }
+  return config;
 });
 
 /** Z-Image / SDXL: style + image. Z-Image 응답은 original_url, generated_url, processing_time */
@@ -140,6 +153,53 @@ export async function generateVideo(
 export async function getHealth(): Promise<{ status: string; gpu_available: boolean }> {
   const { data } = await api.get<{ status: string; gpu_available: boolean }>("/health");
   return data;
+}
+
+// ---------- AC Villager Reconstruction (Stage 1 + Stage 2) ----------
+
+/** Stage 1: biological analysis. Optional image + form overrides. Returns structured data only. */
+export async function acAnalyze(params: {
+  file?: File | null;
+  species?: string | null;
+  main_fur_color?: string | null;
+  secondary_fur_color?: string | null;
+  eye_color?: string | null;
+  markings?: string | null;
+  ear_type?: string | null;
+  tail_type?: string | null;
+}): Promise<ACBiologicalAnalysis> {
+  const form = new FormData();
+  if (params.file) form.append("image", params.file);
+  if (params.species) form.append("species", params.species);
+  if (params.main_fur_color != null) form.append("main_fur_color", params.main_fur_color);
+  if (params.secondary_fur_color != null) form.append("secondary_fur_color", params.secondary_fur_color);
+  if (params.eye_color != null) form.append("eye_color", params.eye_color);
+  if (params.markings != null) form.append("markings", params.markings);
+  if (params.ear_type != null) form.append("ear_type", params.ear_type);
+  if (params.tail_type != null) form.append("tail_type", params.tail_type);
+  const { data } = await uploadApi.post<ACBiologicalAnalysis>("/api/ac/analyze", form);
+  return data;
+}
+
+/** Stage 2: villager reconstruction (T2I only). No image; uses biological data. */
+export async function acReconstruct(body: ACReconstructRequest): Promise<GenerateResponse> {
+  const payload = {
+    species: body.species,
+    main_fur_color: body.main_fur_color ?? "cream",
+    secondary_fur_color: body.secondary_fur_color ?? "none",
+    eye_color: body.eye_color ?? "amber",
+    markings: body.markings ?? "none",
+    ear_type: body.ear_type ?? null,
+    tail_type: body.tail_type ?? null,
+    seed: body.seed ?? null,
+  };
+  const { data } = await api.post<GenerateResponse>("/api/generate/ac-villager-reconstruct", payload);
+  return {
+    original_url: data.original_url ?? "",
+    generated_url: data.generated_url ?? "",
+    processing_time: data.processing_time ?? 0,
+    generated_image_base64: data.generated_image_base64 ?? null,
+  };
 }
 
 // ---------- LLM (gpt-oss-20b) ----------

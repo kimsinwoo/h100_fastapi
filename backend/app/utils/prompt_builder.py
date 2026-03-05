@@ -282,6 +282,26 @@ NEGATIVE_AC_PIPELINE = (
     "asymmetrical face, floating character, incorrect shadow, dark cinematic lighting."
 )
 
+# Reconstruct pipeline: single T2I-like pass, 52-55% head, full environment replacement
+AC_RECONSTRUCT_ANATOMY = (
+    "TRUE Animal Crossing villager, structural redesign. Head 52-55% of total character height. "
+    "Body short and rounded. Legs extremely short and stubby. Arms small rounded cylinders. "
+    "Hands mitten-like. Feet compact rounded blocks. Face flat and simplified. Eyes oversized vertical ovals. "
+    "No realistic skeletal proportions, no real-world animal anatomy, no muscle definition, no realistic fur texture. "
+    "All markings simplified into flat clean geometric patches. "
+    "Nintendo Switch game asset quality, smooth plastic-like materials, soft global illumination, "
+    "subtle ambient occlusion, clean stylized textures, bright cheerful color palette, no photorealism."
+)
+AC_RECONSTRUCT_ENVIRONMENT = (
+    "Background: bright Animal Crossing island. Soft grass, stone or dirt path, fruit trees, "
+    "cozy villager house, bright Nintendo daytime lighting. Full environment replacement, do not use original uploaded background."
+)
+AC_RECONSTRUCT_NEGATIVE = (
+    "realistic cat with filter, realistic animal proportions, original background, long legs, small head, "
+    "photorealistic, realistic anatomy, realistic fur, long torso, painterly, low poly, blurry, "
+    "asymmetrical face, floating character, dark cinematic lighting, real-world lighting physics."
+)
+
 
 def build_ac_pipeline_base_prompt(species: str) -> str:
     """Stage 2: text prompt for base villager (T2I-like via high-strength img2img)."""
@@ -313,6 +333,37 @@ def build_ac_pipeline_color_transfer_prompt(
         f"Same Animal Crossing villager, exact same proportions and pose. Apply only these colors: {color_desc} "
         f"Do not change head size, limb proportions, pose, background, lighting, or camera angle. "
         f"{anatomy} {AC_PIPELINE_ENVIRONMENT}"
+    )
+
+
+def build_ac_reconstruct_prompt(
+    species: str,
+    main_fur_color: str,
+    secondary_fur_color: str,
+    eye_color: str,
+    markings: str,
+    ear_type: str | None = None,
+    tail_type: str | None = None,
+) -> str:
+    """
+    Single full prompt for AC villager reconstruction (T2I-only pass).
+    Biological data drives identity; anatomy is strict Nintendo villager proportions.
+    """
+    key = species.lower().strip() if species else "other"
+    if key not in AC_PIPELINE_SPECIES:
+        key = "other"
+    species_adapt = AC_PIPELINE_SPECIES_ADAPT.get(key, AC_PIPELINE_SPECIES_ADAPT["other"])
+    ear = (ear_type or "").strip() or {"cat": "pointed triangular ears", "dog": "rounded ears", "rabbit": "long upright ears", "hamster": "small round ears", "bird": "no external ears", "other": "simplified ears"}.get(key, "simplified ears")
+    tail = (tail_type or "").strip() or {"cat": "simplified tapered tail", "dog": "short stylized tail", "rabbit": "short cotton tail", "hamster": "tiny round tail", "bird": "short tail feathers", "other": "simplified tail"}.get(key, "simplified tail")
+    color_desc = (
+        f"Fur: main {main_fur_color or 'cream'}, secondary {secondary_fur_color or 'none'}. "
+        f"Eyes {eye_color or 'amber'}. Markings: {markings or 'none'} as flat geometric patches only."
+    )
+    return (
+        f"{AC_RECONSTRUCT_ANATOMY} "
+        f"{species_adapt} Ear type: {ear}. Tail: {tail}. "
+        f"{color_desc} "
+        f"{AC_RECONSTRUCT_ENVIRONMENT}"
     )
 
 

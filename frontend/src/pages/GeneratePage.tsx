@@ -4,8 +4,22 @@ import { ImageUploader } from "../components/ImageUploader";
 import { LoadingOverlay } from "../components/LoadingSpinner";
 import { ResultViewer } from "../components/ResultViewer";
 import { StyleSelector } from "../components/StyleSelector";
-import { generateImage, getHealth, getStyles, getLlmStatus, getErrorMessage, suggestPrompt, getApiResourceUrl } from "../services/api";
-import type { GenerateResponse, StylesResponse } from "../types/api";
+import {
+  generateImage,
+  getHealth,
+  getStyles,
+  getLlmStatus,
+  getErrorMessage,
+  suggestPrompt,
+  getApiResourceUrl,
+  acAnalyze,
+  acReconstruct,
+} from "../services/api";
+import type {
+  GenerateResponse,
+  StylesResponse,
+  ACBiologicalAnalysis,
+} from "../types/api";
 
 type AppState =
   | { phase: "idle" }
@@ -13,7 +27,24 @@ type AppState =
   | { phase: "success"; data: GenerateResponse }
   | { phase: "error"; message: string };
 
+type ACModeState =
+  | { step: "idle" }
+  | { step: "analyzed"; data: ACBiologicalAnalysis }
+  | { step: "loading" }
+  | { step: "success"; data: GenerateResponse }
+  | { step: "error"; message: string };
+
+const AC_SPECIES_OPTIONS = [
+  { value: "cat", label: "고양이" },
+  { value: "dog", label: "강아지" },
+  { value: "rabbit", label: "토끼" },
+  { value: "hamster", label: "햄스터" },
+  { value: "bird", label: "새" },
+  { value: "other", label: "기타" },
+] as const;
+
 export default function GeneratePage() {
+  const [tab, setTab] = useState<"style" | "ac">("style");
   const [file, setFile] = useState<File | null>(null);
   const [styles, setStyles] = useState<StylesResponse | null>(null);
   const [style, setStyle] = useState<string>("pokemon");
@@ -24,6 +55,15 @@ export default function GeneratePage() {
   const [llmModel, setLlmModel] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [state, setState] = useState<AppState>({ phase: "idle" });
+
+  // AC 주민 재구성: 폼 + 2단계 상태
+  const [acFile, setAcFile] = useState<File | null>(null);
+  const [acSpecies, setAcSpecies] = useState<string>("cat");
+  const [acMainColor, setAcMainColor] = useState<string>("cream");
+  const [acSecondaryColor, setAcSecondaryColor] = useState<string>("none");
+  const [acEyeColor, setAcEyeColor] = useState<string>("amber");
+  const [acMarkings, setAcMarkings] = useState<string>("none");
+  const [acState, setAcState] = useState<ACModeState>({ step: "idle" });
 
   useEffect(() => {
     getHealth()
@@ -109,12 +149,102 @@ export default function GeneratePage() {
       .catch(() => setState({ phase: "error", message: "Download failed" }));
   }, [state]);
 
+  // AC 주민 재구성: 1단계 분석
+  const handleAcAnalyze = useCallback(async () => {
+    setAcState({ step: "loading" });
+    try {
+      const data = await acAnalyze({
+        file: acFile ?? undefined,
+        species: acSpecies,
+        main_fur_color: acMainColor,
+        secondary_fur_color: acSecondaryColor,
+        eye_color: acEyeColor,
+        markings: acMarkings,
+      });
+      setAcState({ step: "analyzed", data });
+    } catch (err) {
+      setAcState({ step: "error", message: getErrorMessage(err) });
+    }
+  }, [acFile, acSpecies, acMainColor, acSecondaryColor, acEyeColor, acMarkings]);
+
+  // AC 주민 재구성: 2단계 생성 (분석 결과 또는 폼 값 사용)
+  const handleAcReconstruct = useCallback(async () => {
+    const payload =
+      acState.step === "analyzed"
+        ? {
+            species: acState.data.species,
+            main_fur_color: acState.data.main_fur_color,
+            secondary_fur_color: acState.data.secondary_fur_color,
+            eye_color: acState.data.eye_color,
+            markings: acState.data.markings,
+            ear_type: acState.data.ear_type,
+            tail_type: acState.data.tail_type,
+          }
+        : {
+            species: acSpecies,
+            main_fur_color: acMainColor,
+            secondary_fur_color: acSecondaryColor,
+            eye_color: acEyeColor,
+            markings: acMarkings,
+            ear_type: null as string | null,
+            tail_type: null as string | null,
+          };
+    setAcState({ step: "loading" });
+    try {
+      const result = await acReconstruct(payload);
+      setAcState({ step: "success", data: result });
+    } catch (err) {
+      setAcState({ step: "error", message: getErrorMessage(err) });
+    }
+  }, [acState, acSpecies, acMainColor, acSecondaryColor, acEyeColor, acMarkings]);
+
+  const handleAcDownload = useCallback(() => {
+    if (acState.step !== "success") return;
+    const d = acState.data;
+    const b64 = d.generated_image_base64;
+    if (b64) {
+      try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "image/png" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `ac-villager-${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch {
+        setAcState({ step: "error", message: "Download failed" });
+      }
+      return;
+    }
+    const fullUrl = getApiResourceUrl(d.generated_url);
+    fetch(fullUrl)
+      .then((r) => r.blob())
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `ac-villager-${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => setAcState({ step: "error", message: "Download failed" }));
+  }, [acState]);
+
   const isProcessing = state.phase === "loading";
   const canGenerate = file !== null && !isProcessing;
+  const acLoading = acState.step === "loading";
+  const acCanReconstruct =
+    !acLoading &&
+    (acState.step === "analyzed" ||
+      (acState.step === "idle" && acSpecies) ||
+      (acState.step === "error" && acSpecies));
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
-      {isProcessing && <LoadingOverlay message="Generating image..." />}
+      {(isProcessing || acLoading) && (
+        <LoadingOverlay message={acLoading ? "AC 주민 생성 중..." : "Generating image..."} />
+      )}
 
       <div className="mx-auto max-w-4xl px-4">
         <header className="mb-8 flex items-center justify-between">
@@ -149,6 +279,33 @@ export default function GeneratePage() {
           </div>
         </header>
 
+        {/* 탭: 일반 스타일 | AC 주민 재구성 */}
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("style")}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+              tab === "style"
+                ? "border-indigo-600 bg-indigo-600 text-white"
+                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            일반 스타일 변환
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("ac")}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium ${
+              tab === "ac"
+                ? "border-indigo-600 bg-indigo-600 text-white"
+                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            AC 주민 재구성 (2단계)
+          </button>
+        </div>
+
+        {tab === "style" && (
         <div className="space-y-6 rounded-xl bg-white p-6 shadow">
           <section>
             <h2 className="mb-2 text-sm font-semibold text-gray-700">Upload image</h2>
@@ -228,6 +385,129 @@ export default function GeneratePage() {
             </section>
           )}
         </div>
+        )}
+
+        {tab === "ac" && (
+          <div className="space-y-6 rounded-xl bg-white p-6 shadow">
+            <p className="text-sm text-gray-600">
+              업로드 이미지는 참고용입니다. 1단계에서 종·색·무늬를 확인한 뒤, 2단계에서 텍스트만으로 Nintendo 동물의숲 비율의 주민을 생성합니다.
+            </p>
+            <section>
+              <h2 className="mb-2 text-sm font-semibold text-gray-700">1단계: 참고 이미지 (선택) + 생물학적 정보</h2>
+              <ImageUploader onFileSelect={setAcFile} selectedFile={acFile} disabled={acLoading} />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">종</label>
+                  <select
+                    value={acSpecies}
+                    onChange={(e) => setAcSpecies(e.target.value)}
+                    disabled={acLoading}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    {AC_SPECIES_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">주요 털색</label>
+                  <input
+                    type="text"
+                    value={acMainColor}
+                    onChange={(e) => setAcMainColor(e.target.value)}
+                    disabled={acLoading}
+                    placeholder="cream, orange, gray..."
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">보조 털색</label>
+                  <input
+                    type="text"
+                    value={acSecondaryColor}
+                    onChange={(e) => setAcSecondaryColor(e.target.value)}
+                    disabled={acLoading}
+                    placeholder="none, white..."
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">눈 색</label>
+                  <input
+                    type="text"
+                    value={acEyeColor}
+                    onChange={(e) => setAcEyeColor(e.target.value)}
+                    disabled={acLoading}
+                    placeholder="amber, green, blue..."
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-gray-600">주요 무늬</label>
+                  <input
+                    type="text"
+                    value={acMarkings}
+                    onChange={(e) => setAcMarkings(e.target.value)}
+                    disabled={acLoading}
+                    placeholder="none, white chest, stripes..."
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleAcAnalyze}
+                  disabled={acLoading}
+                  className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  1단계: 분석
+                </button>
+                {acState.step === "analyzed" && (
+                  <span className="flex items-center text-sm text-green-700">분석 완료 ✓</span>
+                )}
+              </div>
+            </section>
+            {acState.step === "analyzed" && (
+              <section className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+                <h3 className="mb-2 font-semibold text-gray-700">분석 결과</h3>
+                <ul className="space-y-1 text-gray-600">
+                  <li>종: {acState.data.species}</li>
+                  <li>주요 털색: {acState.data.main_fur_color}, 보조: {acState.data.secondary_fur_color}</li>
+                  <li>눈: {acState.data.eye_color}, 무늬: {acState.data.markings}</li>
+                  <li>귀: {acState.data.ear_type}, 꼬리: {acState.data.tail_type}</li>
+                </ul>
+              </section>
+            )}
+            <section>
+              <button
+                type="button"
+                onClick={handleAcReconstruct}
+                disabled={!acCanReconstruct}
+                className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                2단계: 주민 생성 (T2I 전용)
+              </button>
+            </section>
+            {acState.step === "error" && (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                {acState.message}
+              </div>
+            )}
+            {acState.step === "success" && (
+              <section className="border-t border-gray-200 pt-6">
+                <h2 className="mb-4 text-sm font-semibold text-gray-700">결과</h2>
+                <ResultViewer
+                  originalUrl=""
+                  generatedUrl={getApiResourceUrl(acState.data.generated_url)}
+                  generatedImageBase64={acState.data.generated_image_base64}
+                  processingTime={acState.data.processing_time}
+                  onDownload={handleAcDownload}
+                />
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

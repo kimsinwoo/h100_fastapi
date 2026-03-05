@@ -37,3 +37,28 @@ export interface TrainingItem {
   category?: string;
   created_at?: string;
 }
+
+// ---------- AC Villager Reconstruction ----------
+
+/** Stage 1: biological analysis result (structure only) */
+export interface ACBiologicalAnalysis {
+  species: string;
+  main_fur_color: string;
+  secondary_fur_color: string;
+  eye_color: string;
+  markings: string;
+  ear_type: string;
+  tail_type: string;
+}
+
+/** Stage 2: request body (no image) */
+export interface ACReconstructRequest {
+  species: string;
+  main_fur_color?: string;
+  secondary_fur_color?: string;
+  eye_color?: string;
+  markings?: string;
+  ear_type?: string | null;
+  tail_type?: string | null;
+  seed?: number | null;
+}

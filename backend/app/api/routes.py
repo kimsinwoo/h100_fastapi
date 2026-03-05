@@ -16,8 +16,17 @@ from fastapi.responses import FileResponse, StreamingResponse
 from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
 from app.utils.prompt_builder import get_allowed_style_keys, get_allowed_species_keys, get_prompt_config
-from app.schemas.image_schema import GenerateResponse, GenerateVideoResponse
-from app.services.image_service import run_ac_villager_pipeline, run_image_to_image
+from app.schemas.image_schema import (
+    ACBiologicalAnalysis,
+    ACReconstructRequest,
+    GenerateResponse,
+    GenerateVideoResponse,
+)
+from app.services.image_service import (
+    run_ac_villager_pipeline,
+    run_ac_villager_reconstruct,
+    run_image_to_image,
+)
 from app.services.video_service import run_image_to_video
 from app.services.training_store import (
     add_item as training_add_item,
@@ -239,6 +248,86 @@ async def generate_ac_villager(
     generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
     return GenerateResponse(
         original_url=original_url,
+        generated_url=generated_url,
+        processing_time=round(processing_time, 2),
+        generated_image_base64=generated_b64,
+    )
+
+
+# ---------- AC Villager Reconstruction (Stage 1: analyze, Stage 2: T2I-only) ----------
+
+
+@router.post("/ac/analyze", response_model=ACBiologicalAnalysis)
+async def ac_analyze(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Pet image for biological analysis")] = None,
+    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
+    species: Annotated[str | None, Form(description="Override: cat, dog, rabbit, hamster, bird")] = None,
+    main_fur_color: Annotated[str | None, Form()] = None,
+    secondary_fur_color: Annotated[str | None, Form()] = None,
+    eye_color: Annotated[str | None, Form()] = None,
+    markings: Annotated[str | None, Form()] = None,
+    ear_type: Annotated[str | None, Form()] = None,
+    tail_type: Annotated[str | None, Form()] = None,
+) -> ACBiologicalAnalysis:
+    """
+    Stage 1 — Biological analysis. Extract species, fur colors, eye color, markings, ear/tail type from image.
+    Returns structured data only; no rendering. If no vision model is wired, form overrides or defaults are used.
+    """
+    _check_rate_limit(request)
+    # Stub: no vision model yet; use form values or defaults. Plug in vision/LLM here later.
+    species_val = (species or "cat").strip().lower()
+    if species_val not in ("cat", "dog", "rabbit", "hamster", "bird", "other"):
+        species_val = "cat"
+    ear_defaults = {"cat": "pointed triangular ears", "dog": "rounded ears", "rabbit": "long upright ears", "hamster": "small round ears", "bird": "no external ears", "other": "simplified ears"}
+    tail_defaults = {"cat": "simplified tapered tail", "dog": "short stylized tail", "rabbit": "short cotton tail", "hamster": "tiny round tail", "bird": "short tail feathers", "other": "simplified tail"}
+    return ACBiologicalAnalysis(
+        species=species_val,
+        main_fur_color=(main_fur_color or "cream").strip(),
+        secondary_fur_color=(secondary_fur_color or "none").strip(),
+        eye_color=(eye_color or "amber").strip(),
+        markings=(markings or "none").strip(),
+        ear_type=(ear_type or ear_defaults.get(species_val, "simplified ears")).strip(),
+        tail_type=(tail_type or tail_defaults.get(species_val, "simplified tail")).strip(),
+    )
+
+
+@router.post("/generate/ac-villager-reconstruct", response_model=GenerateResponse)
+async def generate_ac_villager_reconstruct(
+    request: Request,
+    body: ACReconstructRequest,
+) -> GenerateResponse:
+    """
+    Stage 2 — Villager reconstruction. TEXT-TO-IMAGE ONLY (no img2img from user image).
+    Uses biological data from Stage 1 (or manual). Strict Nintendo AC proportions, full environment replacement.
+    """
+    _check_rate_limit(request)
+    species_key = (body.species or "other").strip().lower()
+    if species_key not in ("cat", "dog", "rabbit", "hamster", "bird", "other"):
+        species_key = "other"
+    try:
+        out_bytes, processing_time = await run_ac_villager_reconstruct(
+            species=species_key,
+            main_fur_color=body.main_fur_color,
+            secondary_fur_color=body.secondary_fur_color,
+            eye_color=body.eye_color,
+            markings=body.markings,
+            ear_type=body.ear_type,
+            tail_type=body.tail_type,
+            seed=body.seed,
+        )
+    except RuntimeError as e:
+        logger.exception("AC villager reconstruct failed: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        generated_filename = await save_upload_async(out_bytes, suffix=".png")
+    except Exception as e:
+        logger.exception("Failed to save generated image: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save generated image")
+    generated_url = get_generated_url(generated_filename)
+    generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
+    return GenerateResponse(
+        original_url=generated_url,
         generated_url=generated_url,
         processing_time=round(processing_time, 2),
         generated_image_base64=generated_b64,
