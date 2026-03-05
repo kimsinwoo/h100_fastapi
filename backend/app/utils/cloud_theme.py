@@ -1,10 +1,7 @@
 """
 Cloud Theme Rendering Module for z-image-turbo.
 
-GPT CLOUD REPLICA MODE (pet-only): Replicates GPT Cloud theme visual characteristics precisely.
-Not generic cloud styling. Environment must dominate; anatomy must stay intact.
-
-Style intensity = HIGH. guidance 9–11, strength 0.6–0.7.
+구름이 무조건 보이게 만드는 구조. 2D 블록 없음. strength 0.72, guidance 7.5–8.5.
 """
 
 from __future__ import annotations
@@ -14,20 +11,36 @@ from typing import Literal
 CloudIntensity = Literal["low", "medium", "high"]
 
 # ---------------------------------------------------------------------------
-# GPT CLOUD REPLICA — Target characteristics
+# Cloud 전용 프롬프트 (맨 앞에 둠 — 모델이 구름을 배경 교체 대상으로 인식)
+# 2D/캐릭터 리디자인 제거. Volumetric / high-key / soft bloom.
 # ---------------------------------------------------------------------------
-# Extremely soft high-key brightness, clean white dominant, very low contrast,
-# airy depth, gentle pastel sky-blue diffusion, no dramatic shadow, no grounded realism,
-# soft luminous environment, floating spatial softness.
+CLOUD_THEME_FULL_PROMPT_LEAD = (
+    "FLOATING IN A VOLUMETRIC CLOUD SKY. "
+    "The entire background must be massive, bright, soft volumetric clouds. "
+    "No trace of the original environment. No ground. No indoor elements. No landscape. No horizon line. "
+    "The frame must be filled with luminous clouds only. "
+    "Large scale cloud formations. Thick white cloud masses. Soft sky blue gradients between cloud layers. "
+    "Subtle atmospheric haze. Light diffusion in all directions. "
+    "High-key global illumination. Soft ambient wrap lighting. Very gentle bloom glow around edges. "
+    "The pet must remain in the exact same pose and body orientation as the reference image. "
+    "Do not rotate. Do not recompose. Do not change limb placement. "
+    "Preserve visible limbs count and eye count. Preserve clothing state if present. "
+    "The animal must remain anatomically accurate. Fur must be softly lit but natural. "
+    "No stylization. No cartoon conversion. No character redesign. No flat shading. No 2D animation style. "
+    "Lighting must be bright and weightless. No hard shadows. No dramatic contrast. No cinematic lighting. "
+    "Shadow intensity extremely soft. No deep blacks. "
+    "The cloud environment must visually dominate the frame. "
+    "If the image looks like a normal photo with a sky background, regenerate. "
+    "If any ground or interior remains, regenerate."
+)
 
-# ----- HARD BACKGROUND OVERRIDE (priority: no original background) -----
+# ----- Legacy blocks (get_cloud_theme_block / replica still use these for universal path) -----
 GPT_CLOUD_HARD_BACKGROUND_OVERRIDE = (
     "The original background must be completely replaced. "
     "No trace of original environment allowed. "
     "Entire frame must be cloud environment."
 )
 
-# ----- ENVIRONMENT ENFORCEMENT -----
 GPT_CLOUD_ENVIRONMENT = (
     "The pet must exist inside a floating cloud environment. "
     "Entire background composed of bright volumetric clouds. "
@@ -37,7 +50,6 @@ GPT_CLOUD_ENVIRONMENT = (
     "Cloud density: medium-high. Cloud softness: maximum. Atmospheric haze: light but visible."
 )
 
-# ----- LIGHTING SYSTEM -----
 GPT_CLOUD_LIGHTING = (
     "High-key global illumination only. No hard shadows. "
     "Shadow intensity must not exceed soft gray. "
@@ -45,7 +57,6 @@ GPT_CLOUD_LIGHTING = (
     "No directional dramatic light. No cinematic lighting. No contrast spikes."
 )
 
-# ----- COLOR SYSTEM -----
 GPT_CLOUD_COLOR = (
     "Primary color base: pure white dominant, soft sky blue gradient, very subtle lavender undertone. "
     "No deep blacks. No saturated red or orange dominance. No heavy color grading. "
@@ -53,7 +64,6 @@ GPT_CLOUD_COLOR = (
     "Overall palette must feel weightless and bright."
 )
 
-# ----- PET STRUCTURE PROTECTION -----
 GPT_CLOUD_STRUCTURE_PROTECTION = (
     "The pet must remain anatomically accurate. "
     "Preserve: exact pose, exact orientation, visible limbs count, visible eyes count, clothing state if present. "
@@ -61,7 +71,6 @@ GPT_CLOUD_STRUCTURE_PROTECTION = (
     "Cloud style must NOT distort anatomy."
 )
 
-# ----- RENDERING TEXTURE -----
 GPT_CLOUD_RENDERING = (
     "Fur must remain detailed but softly lit. Edge transitions must be smooth. "
     "No sharp contrast edges. No gritty detail. No heavy sharpening. No texture exaggeration. "
@@ -69,7 +78,6 @@ GPT_CLOUD_RENDERING = (
     "Not painterly. Not oil painting. Not clay. Not cartoonish."
 )
 
-# ----- STYLE DOMINANCE RULE -----
 GPT_CLOUD_DOMINANCE = (
     "Cloud atmosphere must be visually dominant. "
     "If the result looks like a normal photo with a sky background, regenerate. "
@@ -77,16 +85,11 @@ GPT_CLOUD_DOMINANCE = (
     "If contrast feels cinematic or dramatic, regenerate."
 )
 
-# ----- NEGATIVE PROMPT BLOCK (GPT Cloud Replica) -----
-# Do NOT include: photorealistic, real fur, real skin texture (cloud can be soft/real blend).
-# Keep: cinematic, dramatic shadow, studio background, ground, indoor, grass, wood, concrete.
+# ----- NEGATIVE: photorealistic / real fur / real skin texture 제거 (구름 질감 억제 방지) -----
 GPT_CLOUD_NEGATIVE = (
-    "cinematic lighting, dramatic shadow, studio background, solid background, "
-    "ground, indoor, grass, field, wood, concrete, sunset, night, dark sky, "
-    "strong contrast, moody atmosphere, film grain, high saturation, "
-    "earth tone, warm orange, harsh light, "
-    "dark dramatic lighting, deep black shadows, low exposure, "
-    "realistic ground plane, furniture, landscape, grounded realism"
+    "cinematic lighting, dramatic shadow, studio background, ground, indoor, grass, wood, concrete, "
+    "sunset, night, dark sky, moody atmosphere, film grain, earth tone, warm orange, "
+    "deep black shadows, realistic ground plane, furniture, landscape"
 )
 
 # ---------------------------------------------------------------------------
@@ -201,6 +204,11 @@ GPT_CLOUD_VALIDATION_CRITERIA = (
     "4. Are there no dark shadows? "
     "5. Does the scene feel airy and weightless?"
 )
+
+
+def get_cloud_theme_full_prompt_lead() -> str:
+    """Cloud 블록을 프롬프트 맨 앞에 둘 때 사용. 2D 블록 없음. 구름 배경 교체 우선."""
+    return CLOUD_THEME_FULL_PROMPT_LEAD
 
 
 def get_gpt_cloud_replica_block() -> str:

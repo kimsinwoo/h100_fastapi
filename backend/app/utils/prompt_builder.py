@@ -12,6 +12,7 @@ from typing import Any, Literal
 from app.utils.cloud_theme import (
     get_cloud_theme_block,
     get_cloud_theme_negative,
+    get_cloud_theme_full_prompt_lead,
     get_gpt_cloud_photoreal_block,
     get_gpt_cloud_photoreal_negative,
 )
@@ -582,9 +583,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    # GPT Cloud Replica: guidance 9–11, strength 0.6–0.7, style intensity HIGH
-    "cloud_theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
-    "cloud theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
+    # Cloud: strength 0.72, guidance 7.5–8.5 (텍스트 과적용 방지), steps 35–40
+    "cloud_theme": {"max_side": 768, "steps": 37, "guidance_scale": 8.0},
+    "cloud theme": {"max_side": 768, "steps": 37, "guidance_scale": 8.0},
     # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
     "cloud photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
@@ -736,6 +737,15 @@ def build_prompt(
             species_key, ac_eye_color, ac_pose, ac_sign_text
         )
 
+    # Cloud 테마: 2D 블록 완전 제거. 구름 블록을 맨 앞에 둠 (배경 교체 우선).
+    if style_key in ("cloud_theme", "cloud theme") and not raw_prompt:
+        parts = [get_cloud_theme_full_prompt_lead()]
+        if species_key:
+            parts.append(species_key)
+        if side_profile_lock:
+            parts.append(SIDE_PROFILE_LOCK_PROMPT)
+        return ", ".join(parts)
+
     if not raw_prompt and species_key and species_key in SPECIES_SUBJECT:
         subject = SPECIES_SUBJECT[species_key]
         if not text:
@@ -784,6 +794,13 @@ def build_negative_prompt(
     """Final negative = BASE_NEGATIVE + pose-avoid + species cross-avoid + style-specific negative."""
     if raw_prompt:
         return ""
+    style_key = _normalize_style(style)
+    # Cloud 테마: BASE_NEGATIVE 사용 안 함 (photorealistic/real fur/real skin 제거 — 구름 질감 억제 방지)
+    if style_key in ("cloud_theme", "cloud theme"):
+        parts = [POSE_NEGATIVE, get_cloud_theme_negative()]
+        if side_profile_lock:
+            parts.append(NEGATIVE_SIDE_PROFILE_LOCK)
+        return ", ".join(p for p in parts if p)
     parts = [BASE_NEGATIVE, POSE_NEGATIVE]
     species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:

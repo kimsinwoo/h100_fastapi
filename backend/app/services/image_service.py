@@ -811,6 +811,10 @@ async def run_image_to_image(
     if side_profile_lock:
         # 측면 고정: strength 0.65~0.75, guidance 8+ (pose/depth 유지). 스타일 상한 무시.
         strength = 0.70 if strength is None else max(0.65, min(0.75, float(strength) if strength is not None else 0.70))
+    elif style_lower in ("cloud_theme", "cloud theme"):
+        # Cloud: 배경 교체가 성립하려면 strength 0.70–0.78. 0.58 캡 적용 시 구름 안 나옴.
+        strength = 0.72 if strength is None else max(0.70, min(0.78, float(strength) if strength is not None else 0.72))
+        strength = max(0.0, min(0.78, min(1.0, strength)))
     else:
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
@@ -1112,16 +1116,17 @@ async def run_universal_animal_generate(
     style_lower = style_key.lower().strip()
     rules = get_generation_rules(style_lower)
     max_side = rules["max_side"]
-    num_steps = max(1, min(70, rules["steps"]))
-    guidance_scale = max(get_pose_lock_guidance_min(), float(rules["guidance_scale"]))
+    num_steps = max(1, min(70, rules.get("steps", 37)))
+    guidance_scale = max(get_pose_lock_guidance_min(), float(rules.get("guidance_scale", 8.0)))
     strength = get_pose_lock_strength("normal")
 
     # GPT Cloud Replica Mode: append after pose-lock and clothing; style intensity HIGH
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
     use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
     if use_cloud_theme:
-        # Cloud environment dominance: strength 0.70–0.75 (was 0.65; 2D conflict fix)
-        guidance_scale = max(9.0, min(11.0, float(rules["guidance_scale"])))
+        # Cloud: guidance 7.5–8.5 (10은 텍스트 과적용·구조 왜곡), strength 0.72, steps 35–40
+        guidance_scale = max(7.5, min(8.5, float(rules["guidance_scale"])))
+        num_steps = max(35, min(40, rules["steps"]))
         strength = 0.72
     elif use_cloud_photoreal:
         guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
