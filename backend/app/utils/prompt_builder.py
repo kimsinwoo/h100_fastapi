@@ -9,7 +9,12 @@ from __future__ import annotations
 import random
 from typing import Any, Literal
 
-from app.utils.cloud_theme import get_cloud_theme_block, get_cloud_theme_negative
+from app.utils.cloud_theme import (
+    get_cloud_theme_block,
+    get_cloud_theme_negative,
+    get_gpt_cloud_photoreal_block,
+    get_gpt_cloud_photoreal_negative,
+)
 
 # ========== BASE PROMPT (species-agnostic) ==========
 # Stylized 2D animated character redesign; subject = "small pet animal character"
@@ -280,6 +285,8 @@ STYLE_PROMPTS: dict[str, str] = {
     # Cloud theme: high-key, soft clouds, structure preserved; modular for pose-lock injection
     "cloud_theme": get_cloud_theme_block("high"),   # GPT Cloud Replica (pet-only)
     "cloud theme": get_cloud_theme_block("high"),
+    "cloud_photoreal": get_gpt_cloud_photoreal_block(),   # Real photo in real sky
+    "cloud photoreal": get_gpt_cloud_photoreal_block(),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -543,6 +550,8 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
     ),
     "cloud_theme": get_cloud_theme_negative(),
     "cloud theme": get_cloud_theme_negative(),
+    "cloud_photoreal": get_gpt_cloud_photoreal_negative(),
+    "cloud photoreal": get_gpt_cloud_photoreal_negative(),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -576,6 +585,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     # GPT Cloud Replica: guidance 9–11, strength 0.6–0.7, style intensity HIGH
     "cloud_theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
     "cloud theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
+    # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
+    "cloud_photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
+    "cloud photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -595,6 +607,7 @@ ALLOWED_STYLE_KEYS = [
     "ac_style_transfer",
     "clay_art",
     "cloud_theme",
+    "cloud_photoreal",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())

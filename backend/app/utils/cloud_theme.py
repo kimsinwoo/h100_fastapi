@@ -81,6 +81,53 @@ GPT_CLOUD_NEGATIVE = (
 )
 
 # ---------------------------------------------------------------------------
+# GPT CLOUD PHOTOREAL MODE — Real photograph in real sky. NOT illustrated/stylized.
+# ---------------------------------------------------------------------------
+# Result must remain photorealistic. Professional outdoor pet photoshoot on bright cloudy day.
+
+# ----- PHOTOREAL ENFORCEMENT -----
+GPT_CLOUD_PHOTOREAL_ENFORCEMENT = (
+    "The pet must look like a real photograph. Natural fur texture. Realistic depth of field. "
+    "True-to-life proportions. No painterly effect. No cartoon rendering. No clay texture. "
+    "No 3D stylization. No digital art look."
+)
+
+# ----- CLOUD ENVIRONMENT (REAL SKY MODE) -----
+GPT_CLOUD_PHOTOREAL_ENVIRONMENT = (
+    "The pet must appear photographed in a bright cloud-filled sky environment. "
+    "Realistic sky with soft white clouds. Natural atmospheric perspective. Real sky lighting behavior. "
+    "No fantasy floating effect. No surreal glow. Clouds must look like real sky clouds, not illustrated clouds."
+)
+
+# ----- LIGHTING -----
+GPT_CLOUD_PHOTOREAL_LIGHTING = (
+    "Soft daylight. High-key exposure. Natural global illumination. "
+    "No bloom exaggeration. No glowing outlines. No soft fantasy haze. No ethereal glow. "
+    "Shadow behavior: very soft, physically correct. No dramatic cinematic contrast."
+)
+
+# ----- COLOR PROFILE -----
+GPT_CLOUD_PHOTOREAL_COLOR = (
+    "Clean whites. Soft sky blues. Natural fur color preserved. "
+    "No lavender tint. No pastel wash. No dreamy filter. "
+    "Professional outdoor pet photoshoot on a bright cloudy day."
+)
+
+# ----- STRUCTURE LOCK (same as replica) -----
+GPT_CLOUD_PHOTOREAL_STRUCTURE = (
+    "Preserve pose. Preserve visible limbs. Preserve anatomy. Preserve clothing state. "
+    "No rotation. No frontal correction."
+)
+
+# ----- NEGATIVE PROMPT (STRICT) -----
+GPT_CLOUD_PHOTOREAL_NEGATIVE = (
+    "illustration, painting, digital art, anime, cartoon, 3D render, clay render, "
+    "oil paint, watercolor, soft fantasy glow, ethereal light, surreal, stylized, "
+    "artistic filter, overprocessed, hdr dramatic, "
+    "cinematic lighting, dramatic shadow, moody atmosphere, low key, deep black shadows"
+)
+
+# ---------------------------------------------------------------------------
 # Legacy / fallback blocks (used when intensity is low or medium)
 # ---------------------------------------------------------------------------
 
@@ -162,6 +209,23 @@ def get_gpt_cloud_replica_block() -> str:
 def get_gpt_cloud_replica_negative() -> str:
     """Negative prompt for GPT Cloud Replica Mode. Use with pose-lock negative."""
     return GPT_CLOUD_NEGATIVE
+
+
+def get_gpt_cloud_photoreal_block() -> str:
+    """
+    Full GPT Cloud Photoreal block: real photograph in real sky.
+    Photorealistic only. No illustrated, painted, or stylized look.
+    """
+    return (
+        f"{GPT_CLOUD_PHOTOREAL_STRUCTURE} {GPT_CLOUD_PHOTOREAL_ENFORCEMENT} "
+        f"{GPT_CLOUD_PHOTOREAL_ENVIRONMENT} {GPT_CLOUD_PHOTOREAL_LIGHTING} "
+        f"{GPT_CLOUD_PHOTOREAL_COLOR}"
+    )
+
+
+def get_gpt_cloud_photoreal_negative() -> str:
+    """Negative prompt for GPT Cloud Photoreal Mode. Strict anti-illustration."""
+    return GPT_CLOUD_PHOTOREAL_NEGATIVE
 
 
 def get_cloud_theme_style_block(intensity: CloudIntensity = "high") -> str:

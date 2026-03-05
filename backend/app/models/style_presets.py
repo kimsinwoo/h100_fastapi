@@ -21,6 +21,8 @@ STYLE_PRESETS: dict[str, str] = {
     "ac_style_transfer": "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
     "clay_art": "클레이 아트 (손수 제작 점토 조각)",
     "cloud_theme": "클라우드 테마 (고키·부드러운 구름 분위기)",
+    "cloud_photoreal": "클라우드 포토리얼 (실사·실제 하늘 배경)",
+    "cloud photoreal": "클라우드 포토리얼 (실사·실제 하늘 배경)",
 }
 
 

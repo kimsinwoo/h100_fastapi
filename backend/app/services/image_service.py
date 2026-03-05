@@ -44,7 +44,12 @@ from app.utils.pose_lock_engine import (
     analysis_drift_requires_retry,
     validation_requires_retry,
 )
-from app.utils.cloud_theme import get_cloud_theme_block, get_cloud_theme_negative
+from app.utils.cloud_theme import (
+    get_cloud_theme_block,
+    get_cloud_theme_negative,
+    get_gpt_cloud_photoreal_block,
+    get_gpt_cloud_photoreal_negative,
+)
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 # API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
@@ -96,6 +101,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     # GPT Cloud Replica: strength 0.6–0.7 (pose preserve ON)
     "cloud_theme": (0.60, 0.70),
     "cloud theme": (0.60, 0.70),
+    # GPT Cloud Photoreal: strength 0.55–0.65, avoid extreme stylization
+    "cloud_photoreal": (0.55, 0.65),
+    "cloud photoreal": (0.55, 0.65),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -1040,17 +1048,22 @@ async def run_universal_animal_generate(
 
     # GPT Cloud Replica Mode: append after pose-lock and clothing; style intensity HIGH
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
+    use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
     if use_cloud_theme:
-        # Z-Image-Turbo: guidance 9–11, strength 0.6–0.7, preserve pose ON, no face correction
+        # Z-Image-Turbo: guidance 9–11, strength 0.6–0.7, preserve pose ON
         guidance_scale = max(9.0, min(11.0, float(rules["guidance_scale"])))
-        strength = 0.65  # middle of 0.6–0.7 for structural stability
+        strength = 0.65
+    elif use_cloud_photoreal:
+        # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
+        guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
+        strength = 0.60
     if use_cloud_theme:
         cloud_intensity_val = (cloud_intensity or "high").strip().lower()
         if cloud_intensity_val not in ("low", "medium", "high"):
             cloud_intensity_val = "high"
     else:
         cloud_intensity_val = (cloud_intensity or "medium").strip().lower() if cloud_intensity else "medium"
-    if use_cloud_theme:
+    if use_cloud_theme or use_cloud_photoreal:
         style_block = ""
     else:
         style_block = get_style_block(
@@ -1063,12 +1076,16 @@ async def run_universal_animal_generate(
     prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
     if use_cloud_theme:
         prompt = f"{prompt} {get_cloud_theme_block(cloud_intensity_val)}"
+    elif use_cloud_photoreal:
+        prompt = f"{prompt} {get_gpt_cloud_photoreal_block()}"
     negative = build_pose_lock_negative()
     style_neg = NEGATIVE_BY_STYLE.get(style_lower, "")
     if style_neg:
         negative = f"{negative}, {style_neg}"
     if use_cloud_theme:
         negative = f"{negative}, {get_cloud_theme_negative()}"
+    elif use_cloud_photoreal:
+        negative = f"{negative}, {get_gpt_cloud_photoreal_negative()}"
 
     loop = asyncio.get_event_loop()
     total_start = time.perf_counter()
