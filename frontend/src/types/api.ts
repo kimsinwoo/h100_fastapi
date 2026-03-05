@@ -21,7 +21,9 @@ export type StyleKey =
   | "mazinger"
   | "shinchan"
   | "pixel_art"
-  | "pixel art";
+  | "pixel art"
+  | "animal_crossing"
+  | "ac_style_transfer";
 
 export interface StylesResponse {
   [key: string]: string;

@@ -75,6 +75,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "animal crossing": (0.78, 0.78),
     "animal_crossing_hybrid": (0.48, 0.48),
     "animal crossing hybrid": (0.48, 0.48),
+    "ac_style_transfer": (0.58, 0.64),
+    "ac style transfer": (0.58, 0.64),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),

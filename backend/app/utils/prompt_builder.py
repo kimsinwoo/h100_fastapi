@@ -220,6 +220,23 @@ STYLE_PROMPTS: dict[str, str] = {
         "soft ambient occlusion, polished Nintendo-like 3D rendering, rounded geometry, no harsh contrast, no painterly strokes. "
         "Modern 3D game asset, Nintendo-style polished render, high quality stylized PBR but simplified."
     ),
+    # STRICT style-transfer only: anatomy/pose/proportions/background layout unchanged. Strength 0.55-0.65.
+    "ac_style_transfer": (
+        "Apply ONLY Nintendo Animal Crossing game rendering style. Do NOT change anatomy, pose, proportions, species, or background layout. "
+        "Rendering only: smooth 3D Nintendo-style shading, soft global illumination, subtle ambient occlusion, plastic-like clean material finish, "
+        "soft rounded edge highlights, simplified flat color blocks, no realistic fur texture, no photographic texture, no film grain, no real-world lighting physics, slight toy-like appearance. "
+        "Color: slightly increased saturation, bright cheerful Nintendo palette, remove realistic shadow harshness, uniform soft shadow transitions. "
+        "Background: keep exact layout and objects, only apply Animal Crossing style rendering. "
+        "Preserve structure mode ON. Preserve pose ON. Preserve depth ON. This is ONLY a rendering style adaptation, NOT a redesign."
+    ),
+    "ac style transfer": (
+        "Apply ONLY Nintendo Animal Crossing game rendering style. Do NOT change anatomy, pose, proportions, species, or background layout. "
+        "Rendering only: smooth 3D Nintendo-style shading, soft global illumination, subtle ambient occlusion, plastic-like clean material finish, "
+        "soft rounded edge highlights, simplified flat color blocks, no realistic fur texture, no photographic texture, no film grain, no real-world lighting physics, slight toy-like appearance. "
+        "Color: slightly increased saturation, bright cheerful Nintendo palette, remove realistic shadow harshness, uniform soft shadow transitions. "
+        "Background: keep exact layout and objects, only apply Animal Crossing style rendering. "
+        "Preserve structure mode ON. Preserve pose ON. Preserve depth ON. This is ONLY a rendering style adaptation, NOT a redesign."
+    ),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -402,6 +419,16 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "long legs, long torso, realistic fur texture, photorealism, low poly, blurry, asymmetrical face, "
         "floating character, incorrect ground shadow, dark cinematic lighting, overly dramatic shadows, hyper detailed whiskers"
     ),
+    "ac_style_transfer": (
+        "resize head, shorten limbs, villager proportions, cartoon exaggeration, replace background, replace environment, "
+        "change camera angle, add new objects, modify composition, change anatomy, change pose, change proportions, redesign character, "
+        "realistic fur texture, photographic texture, film grain, harsh shadows, realistic lighting physics"
+    ),
+    "ac style transfer": (
+        "resize head, shorten limbs, villager proportions, cartoon exaggeration, replace background, replace environment, "
+        "change camera angle, add new objects, modify composition, change anatomy, change pose, change proportions, redesign character, "
+        "realistic fur texture, photographic texture, film grain, harsh shadows, realistic lighting physics"
+    ),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -428,6 +455,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "animal crossing": {"max_side": 768, "steps": 48, "guidance_scale": 8.5},
     "animal_crossing_hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
     "animal crossing hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
+    "ac_style_transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
+    "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -444,6 +473,7 @@ ALLOWED_STYLE_KEYS = [
     "pixel_art",
     "pixel art",
     "animal_crossing",
+    "ac_style_transfer",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())

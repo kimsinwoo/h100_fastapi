@@ -80,8 +80,19 @@ export async function generateImage(
   };
 }
 
+/** API에 없을 때 사용할 동물의숲 기본 표시 (구버전 백엔드 대응) */
+const FALLBACK_STYLES: StylesResponse = {
+  animal_crossing: "동물의숲 (AC 주민 완전 재디자인)",
+  ac_style_transfer: "동물의숲 스타일만 (해부·포즈·배경 유지)",
+};
+
 export async function getStyles(): Promise<StylesResponse> {
   const { data } = await api.get<StylesResponse>("/api/styles");
+  if (!data || typeof data !== "object") return FALLBACK_STYLES;
+  if (Object.keys(data).length === 0) return FALLBACK_STYLES;
+  if (!Object.prototype.hasOwnProperty.call(data, "animal_crossing") || !Object.prototype.hasOwnProperty.call(data, "ac_style_transfer")) {
+    return { ...data, ...FALLBACK_STYLES };
+  }
   return data;
 }
 
