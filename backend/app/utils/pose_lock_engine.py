@@ -29,10 +29,13 @@ POSE_LOCK_BASE = (
     "If pose changes, regenerate."
 )
 
+# PART 4: Full negative enforcement (structure + lighting + style)
 POSE_LOCK_NEGATIVE = (
     "frontal correction, symmetry fix, pose adjustment, extra limbs, missing limbs, "
     "perspective normalization, rotate body, adjust posture, symmetrize face, "
-    "normalize to upright, add limbs, remove limbs, center head"
+    "normalize to upright, add limbs, remove limbs, center head, "
+    "dark dramatic lighting, strong contrast, moody shadows, oversaturated colors, "
+    "clothing blended into fur, garment removed, outfit added when none, overexposure, harsh shadows"
 )
 
 # ---------------------------------------------------------------------------
@@ -89,33 +92,48 @@ def build_conditional_augmentation(analysis: dict[str, Any] | Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — Clothing Handling
+# Phase 4 — Clothing Handling (high-precision; structure preservation)
 # ---------------------------------------------------------------------------
+
+# PART 2: Mandatory blocks — clothing is structural element or no clothing allowed
+CLOTHING_PRESERVATION_WHEN_PRESENT = (
+    "CLOTHING IS A STRUCTURAL ELEMENT. "
+    "Clothing must remain separate from fur. "
+    "Do not blend clothing into body texture. "
+    "Do not remove garment. "
+    "Maintain fabric folds and boundaries."
+)
+
+CLOTHING_PRESERVATION_WHEN_ABSENT = (
+    "No clothing allowed. "
+    "Do not add shirts, sweaters, costumes, or outfits. "
+    "Body must remain fully natural."
+)
+
 
 def build_clothing_rules(
     is_wearing_clothes: bool,
     clothing_type: str = "",
     clothing_color: str = "",
     clothing_pattern: str = "",
+    clothing_coverage: str = "",
 ) -> str:
     """
-    Phase 4. Clothing mandatory vs no clothing.
-    Collar is NOT clothing; fabric covering torso counts as clothing.
+    PART 2. Clothing structure preservation. If wearing clothes: mandatory structural block.
+    If not: no clothing allowed. Collar/harness alone do NOT count as clothing.
     """
     if is_wearing_clothes:
-        parts = [
-            "Clothing is mandatory.",
-            "Clothing must remain separate from fur.",
-            "Do not convert clothing into body texture.",
-        ]
-        if clothing_type:
+        parts = [CLOTHING_PRESERVATION_WHEN_PRESENT]
+        if clothing_type and clothing_type.lower() != "none":
             parts.append(f"Clothing type: {clothing_type}.")
         if clothing_color:
             parts.append(f"Clothing color: {clothing_color}.")
         if clothing_pattern:
             parts.append(f"Clothing pattern: {clothing_pattern}.")
+        if clothing_coverage and clothing_coverage.lower() not in ("none", ""):
+            parts.append(f"Coverage: {clothing_coverage}.")
         return " ".join(parts)
-    return "No clothing allowed. Do not add outfits or costumes."
+    return CLOTHING_PRESERVATION_WHEN_ABSENT
 
 
 def _get_clothing_block(analysis: dict[str, Any] | Any) -> str:
@@ -128,6 +146,7 @@ def _get_clothing_block(analysis: dict[str, Any] | Any) -> str:
         str(analysis.get("clothing_type") or ""),
         str(analysis.get("clothing_color") or ""),
         str(analysis.get("clothing_pattern") or ""),
+        str(analysis.get("clothing_coverage") or ""),
     )
 
 
@@ -222,4 +241,39 @@ def analysis_drift_requires_retry(
         return True
     if (i.get("view_angle") or "").strip() != (r.get("view_angle") or "").strip():
         return True
+    return False
+
+
+def validation_requires_retry(
+    initial: dict[str, Any] | Any,
+    re_analyzed: dict[str, Any] | Any,
+    *,
+    required_cloud_theme: bool = False,
+) -> bool:
+    """
+    PART 5. Validation loop: retry if pose/structure/clothing integrity failed.
+    - Pose/structure drift (delegate to analysis_drift_requires_retry).
+    - Clothing disappeared, clothing added when none, clothing blended into fur (confidence drop).
+    - required_cloud_theme: reserved for future scene classifier (cloud environment missing).
+    """
+    if analysis_drift_requires_retry(initial, re_analyzed):
+        return True
+    def _to_dict(a: Any) -> dict[str, Any]:
+        if hasattr(a, "model_dump"):
+            return a.model_dump()
+        return dict(a) if isinstance(a, dict) else {}
+    i = _to_dict(initial)
+    r = _to_dict(re_analyzed)
+    # Clothing blended: initial had clothes with high confidence, re-analysis shows low confidence
+    if i.get("is_wearing_clothes") and r.get("is_wearing_clothes") is False:
+        return True  # clothing disappeared
+    if not i.get("is_wearing_clothes") and r.get("is_wearing_clothes"):
+        return True  # clothing added when none
+    ci = float(i.get("confidence_score") or 0)
+    cr = float(r.get("confidence_score") or 0)
+    if i.get("is_wearing_clothes") and ci >= 0.6 and cr < 0.4:
+        return True  # likely blended into fur
+    # Cloud theme presence check: not implemented (no scene classifier); reserved for future
+    if required_cloud_theme:
+        pass
     return False

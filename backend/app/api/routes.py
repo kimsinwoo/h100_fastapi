@@ -29,6 +29,8 @@ from app.schemas.image_schema import (
     Environment,
     ViewpointAnalysisResponse,
     UniversalAnalysisResponse,
+    CLOTHING_TYPES,
+    CLOTHING_COVERAGE,
 )
 from app.services.image_service import (
     run_ac_villager_pipeline,
@@ -424,14 +426,16 @@ async def analyze_universal(
     leg_visibility_count: Annotated[str | None, Form(description="0-4")] = None,
     is_full_body_visible: Annotated[str | None, Form(description="true/false")] = None,
     is_wearing_clothes: Annotated[str | None, Form(description="true/false")] = None,
-    clothing_type: Annotated[str | None, Form()] = None,
+    clothing_type: Annotated[str | None, Form(description="sweater | shirt | hoodie | dress | costume | none")] = None,
+    clothing_coverage: Annotated[str | None, Form(description="partial | torso | full-body | none")] = None,
+    fabric_texture_visible: Annotated[str | None, Form(description="true/false")] = None,
     clothing_color: Annotated[str | None, Form()] = None,
     clothing_pattern: Annotated[str | None, Form()] = None,
     clothing_confidence: Annotated[str | None, Form(description="0.0-1.0")] = None,
 ) -> UniversalAnalysisResponse:
     """
-    Universal analysis: pose, camera, gravity, clothing, structure visibility.
-    JSON only. Stub: form overrides or defaults. Collar is NOT clothing.
+    Universal analysis: pose, camera, gravity, high-precision clothing.
+    Only is_wearing_clothes=true if fabric texture visible. Harness/collar alone do NOT count.
     """
     _check_rate_limit(request)
     def _int(s: str | None, lo: int, hi: int, default: int) -> int:
@@ -462,6 +466,17 @@ async def analyze_universal(
     spine = (spine_alignment or "vertical").strip().lower()
     if spine not in ("vertical", "horizontal", "diagonal"):
         spine = "vertical"
+    # High-precision clothing: only true if fabric texture visible; if uncertain do not assume
+    fabric_visible = (fabric_texture_visible or "").strip().lower() in ("true", "1", "yes")
+    form_says_clothes = (is_wearing_clothes or "").strip().lower() in ("true", "1", "yes")
+    is_clothes = fabric_visible if (fabric_texture_visible is not None and str(fabric_texture_visible).strip()) else form_says_clothes
+    ct = (clothing_type or "none").strip().lower()
+    if ct not in CLOTHING_TYPES:
+        ct = "none" if not is_clothes else "sweater"
+    cov = (clothing_coverage or "none").strip().lower()
+    if cov not in CLOTHING_COVERAGE:
+        cov = "none" if not is_clothes else "torso"
+    conf = _float(clothing_confidence, 0.0, 1.0, 0.8 if is_clothes else 0.0)
     return UniversalAnalysisResponse(
         species=(species or "unknown").strip(),
         view_angle=va,
@@ -472,11 +487,13 @@ async def analyze_universal(
         visible_eyes=_int(visible_eyes, 0, 2, 2),
         leg_visibility_count=_int(leg_visibility_count, 0, 4, 4),
         is_full_body_visible=(is_full_body_visible or "").strip().lower() not in ("false", "0", "no"),
-        is_wearing_clothes=(is_wearing_clothes or "").strip().lower() in ("true", "1", "yes"),
-        clothing_type=(clothing_type or "").strip(),
+        is_wearing_clothes=is_clothes,
+        clothing_type=ct,
+        clothing_coverage=cov,
+        fabric_texture_visible=fabric_visible,
         clothing_color=(clothing_color or "").strip(),
         clothing_pattern=(clothing_pattern or "").strip(),
-        clothing_confidence=_float(clothing_confidence, 0.0, 1.0, 0.0),
+        clothing_confidence=conf,
     )
 
 

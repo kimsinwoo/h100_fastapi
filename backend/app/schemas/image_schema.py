@@ -118,12 +118,19 @@ class ViewpointAnalysisResponse(BaseModel):
 # ---------- Universal Animal Image Generation Engine (Phase 1 analysis) ----------
 
 
+# High-precision clothing: only true if fabric texture visible; harness/collar alone does NOT count
+CLOTHING_TYPES = ("sweater", "shirt", "hoodie", "dress", "costume", "none")
+CLOTHING_COVERAGE = ("partial", "torso", "full-body", "none")
+
+
 class UniversalAnalysisResponse(BaseModel):
     """
     Pose, camera, gravity, clothing, structure visibility.
-    Do NOT auto-correct pose; detect only visible attributes. Collar is NOT clothing.
+    Do NOT auto-correct pose; detect only visible attributes.
+    Clothing: fabric-based wearable covering torso/neck/legs/full body. Harness, leash, collar alone do NOT count.
+    Only is_wearing_clothes=true if fabric texture visible; continuous fur without fabric boundary → false.
     """
-    species: str = Field(default="unknown")
+    species: str = Field(default="unknown", description="dog | cat | other")
     view_angle: str = Field(
         default="three-quarter",
         description="front | three-quarter | side-left | side-right | rear",
@@ -144,8 +151,27 @@ class UniversalAnalysisResponse(BaseModel):
     visible_eyes: int = Field(default=2, ge=0, le=2)
     leg_visibility_count: int = Field(default=4, ge=0, le=4)
     is_full_body_visible: bool = Field(default=True)
-    is_wearing_clothes: bool = Field(default=False)
-    clothing_type: str = Field(default="")
+    is_wearing_clothes: bool = Field(
+        default=False,
+        description="True only if fabric texture visible; fur continuous without fabric boundary → false",
+    )
+    clothing_type: str = Field(
+        default="none",
+        description="sweater | shirt | hoodie | dress | costume | none",
+    )
+    clothing_coverage: str = Field(
+        default="none",
+        description="partial | torso | full-body | none",
+    )
+    fabric_texture_visible: bool = Field(
+        default=False,
+        description="Fabric boundary/texture detected; if false do not assume clothing",
+    )
     clothing_color: str = Field(default="")
     clothing_pattern: str = Field(default="")
-    clothing_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    clothing_confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="If uncertain, lower confidence; do not assume clothing",
+    )

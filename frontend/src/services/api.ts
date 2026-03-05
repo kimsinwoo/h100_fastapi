@@ -113,13 +113,15 @@ const FALLBACK_STYLES: StylesResponse = {
   animal_crossing: "게임 캐릭터 (구조 재디자인)",
   ac_style_transfer: "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
   clay_art: "클레이 아트 (손수 제작 점토 조각)",
+  cloud_theme: "클라우드 테마 (고키·부드러운 구름 분위기)",
 };
 
 export async function getStyles(): Promise<StylesResponse> {
   const { data } = await api.get<StylesResponse>("/api/styles");
   if (!data || typeof data !== "object") return FALLBACK_STYLES;
   if (Object.keys(data).length === 0) return FALLBACK_STYLES;
-  const missing = !data.animal_crossing || !data.ac_style_transfer || !data.clay_art;
+  const missing =
+    !data.animal_crossing || !data.ac_style_transfer || !data.clay_art || !data.cloud_theme;
   if (missing) return { ...data, ...FALLBACK_STYLES };
   return data;
 }

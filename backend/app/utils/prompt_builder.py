@@ -7,7 +7,9 @@ Never preserve biological realism. No fur/feather/skin realism, no 3D lighting.
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, Literal
+
+from app.utils.cloud_theme import get_cloud_theme_block, get_cloud_theme_negative
 
 # ========== BASE PROMPT (species-agnostic) ==========
 # Stylized 2D animated character redesign; subject = "small pet animal character"
@@ -275,6 +277,9 @@ STYLE_PROMPTS: dict[str, str] = {
         "Quality: high resolution, macro photography look, shallow depth of field, realistic lens blur, sharp focus on subject. "
         "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
     ),
+    # Cloud theme: high-key, soft clouds, structure preserved; modular for pose-lock injection
+    "cloud_theme": get_cloud_theme_block("medium"),
+    "cloud theme": get_cloud_theme_block("medium"),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -536,6 +541,8 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "harsh directional light, cinematic contrast, dramatic shadows, painterly brush strokes, "
         "sharp micro-detail, high-frequency noise, hyper-real contrast, dark crushed blacks"
     ),
+    "cloud_theme": get_cloud_theme_negative(),
+    "cloud theme": get_cloud_theme_negative(),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -566,6 +573,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
+    "cloud_theme": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
+    "cloud theme": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -584,6 +593,7 @@ ALLOWED_STYLE_KEYS = [
     "animal_crossing",
     "ac_style_transfer",
     "clay_art",
+    "cloud_theme",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())
@@ -632,17 +642,25 @@ def get_generation_rules(style_key: str | None) -> dict[str, Any]:
     return GENERATION_RULES.get(key, default)
 
 
-def get_style_block(style_key: str | None, ac_background: str | None = None) -> str:
+def get_style_block(
+    style_key: str | None,
+    ac_background: str | None = None,
+    cloud_intensity: Literal["low", "medium", "high"] | None = None,
+) -> str:
     """
     Return only the style prompt string for injection (e.g. pose-lock engine).
     No base, no species, no POSE_PRESERVATION. Style never overrides pose when used after pose rules.
+    For cloud_theme, cloud_intensity (low/medium/high) can be passed to tune effect strength.
     """
     if not style_key:
         return ""
     key = _normalize_style(style_key)
     if not key or key not in STYLE_PROMPTS:
         return ""
-    block = STYLE_PROMPTS[key]
+    if key in ("cloud_theme", "cloud theme") and cloud_intensity:
+        block = get_cloud_theme_block(cloud_intensity)
+    else:
+        block = STYLE_PROMPTS[key]
     if "{{AC_BACKGROUND}}" in block:
         block = block.replace("{{AC_BACKGROUND}}", get_random_ac_background(ac_background))
     return block

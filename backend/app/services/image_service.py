@@ -42,7 +42,9 @@ from app.utils.pose_lock_engine import (
     get_pose_lock_strength,
     get_pose_lock_guidance_min,
     analysis_drift_requires_retry,
+    validation_requires_retry,
 )
+from app.utils.cloud_theme import get_cloud_theme_block
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 # API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
@@ -91,6 +93,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
+    "cloud_theme": (0.48, 0.54),
+    "cloud theme": (0.48, 0.54),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -1014,6 +1018,7 @@ async def run_universal_animal_generate(
     seed: int | None = None,
     validate_and_retry: bool = False,
     max_retries: int = 1,
+    cloud_intensity: str | None = None,
 ) -> tuple[bytes, float]:
     """
     Pose-lock, structure-lock generation. Uses UniversalAnalysisResponse (or dict).
@@ -1031,11 +1036,22 @@ async def run_universal_animal_generate(
     guidance_scale = max(get_pose_lock_guidance_min(), float(rules["guidance_scale"]))
     strength = get_pose_lock_strength("normal")
 
-    style_block = get_style_block(style_lower)
+    # PART 3: Cloud theme guaranteed — append AFTER pose-lock and clothing; never omit
+    use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
+    cloud_intensity_val = (cloud_intensity or "medium").strip().lower() if cloud_intensity else "medium"
+    if use_cloud_theme:
+        style_block = ""
+    else:
+        style_block = get_style_block(
+            style_lower,
+            cloud_intensity=cloud_intensity_val if cloud_intensity else None,
+        )
     subject_prefix = ""
     if species_key and species_key in SPECIES_SUBJECT:
         subject_prefix = SPECIES_SUBJECT[species_key]
     prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
+    if use_cloud_theme:
+        prompt = f"{prompt} {get_cloud_theme_block(cloud_intensity_val)}"
     negative = build_pose_lock_negative()
     style_neg = NEGATIVE_BY_STYLE.get(style_lower, "")
     if style_neg:
@@ -1062,7 +1078,7 @@ async def run_universal_animal_generate(
         if not validate_and_retry or attempt >= max_retries:
             break
         re_analyzed = _reanalyze_universal_stub(out_bytes, analysis)
-        if not analysis_drift_requires_retry(analysis, re_analyzed):
+        if not validation_requires_retry(analysis, re_analyzed, required_cloud_theme=use_cloud_theme):
             break
         logger.info("[Universal] Validation drift detected, retrying generation (attempt %s)", attempt + 2)
         image_bytes = out_bytes
