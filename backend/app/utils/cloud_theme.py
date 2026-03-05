@@ -1,7 +1,7 @@
 """
 Cloud Theme Rendering Module for z-image-turbo.
 
-구름이 무조건 보이게 만드는 구조. 2D 블록 없음. strength 0.72, guidance 7.5–8.5.
+구름 배경 + 개체 동일성 유지. Identity Lock을 Cloud 블록 위에 둠. strength 0.60–0.65, guidance 7.5–8.
 """
 
 from __future__ import annotations
@@ -11,7 +11,29 @@ from typing import Literal
 CloudIntensity = Literal["low", "medium", "high"]
 
 # ---------------------------------------------------------------------------
-# Cloud 전용 프롬프트 (맨 앞에 둠 — 모델이 구름을 배경 교체 대상으로 인식)
+# Identity Lock (Cloud 블록 위에 둠 — 재창조 방지, 같은 개체 유지)
+# ---------------------------------------------------------------------------
+CLOUD_IDENTITY_LOCK_BLOCK = (
+    "STRICT IDENTITY PRESERVATION MODE. "
+    "The pet in the generated image must be the SAME individual as in the reference image. "
+    "Do NOT redesign the animal. Do NOT change breed. Do NOT change fur pattern. "
+    "Do NOT change fur color distribution. Do NOT change face structure. "
+    "Do NOT change eye spacing. Do NOT change ear shape. Do NOT modify body proportions. "
+    "Preserve: exact facial markings, exact fur color placement, exact nose color, exact eye color, "
+    "exact body size, exact fur length, exact pattern symmetry. "
+    "This is not a new animal. This is the same pet placed inside a cloud environment. "
+    "Background must change. Subject must not change. "
+    "If the animal looks different from the reference, regenerate."
+)
+
+
+def get_cloud_identity_lock_block() -> str:
+    """Identity 고정 블록. Cloud 프롬프트 맨 앞에 둠."""
+    return CLOUD_IDENTITY_LOCK_BLOCK
+
+
+# ---------------------------------------------------------------------------
+# Cloud 전용 프롬프트 (Identity Lock 다음에 둠 — 배경만 구름으로 교체)
 # 2D/캐릭터 리디자인 제거. Volumetric / high-key / soft bloom.
 # ---------------------------------------------------------------------------
 CLOUD_THEME_FULL_PROMPT_LEAD = (

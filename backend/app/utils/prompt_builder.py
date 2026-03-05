@@ -12,6 +12,7 @@ from typing import Any, Literal
 from app.utils.cloud_theme import (
     get_cloud_theme_block,
     get_cloud_theme_negative,
+    get_cloud_identity_lock_block,
     get_cloud_theme_full_prompt_lead,
     get_gpt_cloud_photoreal_block,
     get_gpt_cloud_photoreal_negative,
@@ -583,9 +584,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    # Cloud: strength 0.72, guidance 7.5–8.5 (텍스트 과적용 방지), steps 35–40
-    "cloud_theme": {"max_side": 768, "steps": 37, "guidance_scale": 8.0},
-    "cloud theme": {"max_side": 768, "steps": 37, "guidance_scale": 8.0},
+    # Cloud + Identity: strength 0.62, guidance 7.8, steps 32 (0.7+ 시 identity 붕괴)
+    "cloud_theme": {"max_side": 768, "steps": 32, "guidance_scale": 7.8},
+    "cloud theme": {"max_side": 768, "steps": 32, "guidance_scale": 7.8},
     # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
     "cloud photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
@@ -737,9 +738,9 @@ def build_prompt(
             species_key, ac_eye_color, ac_pose, ac_sign_text
         )
 
-    # Cloud 테마: 2D 블록 완전 제거. 구름 블록을 맨 앞에 둠 (배경 교체 우선).
+    # Cloud 테마: Identity Lock을 맨 위에, 그 다음 구름 블록 (배경만 바꾸고 개체 동일성 유지).
     if style_key in ("cloud_theme", "cloud theme") and not raw_prompt:
-        parts = [get_cloud_theme_full_prompt_lead()]
+        parts = [get_cloud_identity_lock_block(), get_cloud_theme_full_prompt_lead()]
         if species_key:
             parts.append(species_key)
         if side_profile_lock:

@@ -47,6 +47,7 @@ from app.utils.pose_lock_engine import (
 from app.utils.cloud_theme import (
     get_cloud_theme_block,
     get_cloud_theme_negative,
+    get_cloud_identity_lock_block,
     get_gpt_cloud_photoreal_block,
     get_gpt_cloud_photoreal_negative,
 )
@@ -105,9 +106,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    # Cloud environment dominance: strength 0.70–0.75 (no 2D conflict)
-    "cloud_theme": (0.70, 0.75),
-    "cloud theme": (0.70, 0.75),
+    # Cloud + Identity: 0.60–0.65 (0.7+ 시 identity 붕괴)
+    "cloud_theme": (0.60, 0.65),
+    "cloud theme": (0.60, 0.65),
     # GPT Cloud Photoreal: strength 0.55–0.65, avoid extreme stylization
     "cloud_photoreal": (0.55, 0.65),
     "cloud photoreal": (0.55, 0.65),
@@ -812,9 +813,9 @@ async def run_image_to_image(
         # 측면 고정: strength 0.65~0.75, guidance 8+ (pose/depth 유지). 스타일 상한 무시.
         strength = 0.70 if strength is None else max(0.65, min(0.75, float(strength) if strength is not None else 0.70))
     elif style_lower in ("cloud_theme", "cloud theme"):
-        # Cloud: 배경 교체가 성립하려면 strength 0.70–0.78. 0.58 캡 적용 시 구름 안 나옴.
-        strength = 0.72 if strength is None else max(0.70, min(0.78, float(strength) if strength is not None else 0.72))
-        strength = max(0.0, min(0.78, min(1.0, strength)))
+        # Cloud + Identity: 0.60–0.65 (0.7+ 시 개체 동일성 붕괴. 배경만 바꾸고 subject 유지)
+        strength = 0.62 if strength is None else max(0.60, min(0.65, float(strength) if strength is not None else 0.62))
+        strength = max(0.0, min(0.65, min(1.0, strength)))
     else:
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
@@ -1124,16 +1125,16 @@ async def run_universal_animal_generate(
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
     use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
     if use_cloud_theme:
-        # Cloud: guidance 7.5–8.5 (10은 텍스트 과적용·구조 왜곡), strength 0.72, steps 35–40
-        guidance_scale = max(7.5, min(8.5, float(rules["guidance_scale"])))
-        num_steps = max(35, min(40, rules["steps"]))
-        strength = 0.72
+        # Cloud + Identity: strength 0.62, guidance 7.5–8, steps 30–35 (identity 유지 우선)
+        guidance_scale = max(7.5, min(8.0, float(rules["guidance_scale"])))
+        num_steps = max(30, min(35, rules["steps"]))
+        strength = 0.62
     elif use_cloud_photoreal:
         guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
         strength = 0.60
-    if use_cloud_theme and strength < 0.65:
-        logger.warning("[Universal] cloud_theme strength %.2f < 0.65; auto-adjusting to 0.70", strength)
-        strength = max(0.70, strength)
+    if use_cloud_theme and strength > 0.65:
+        logger.warning("[Universal] cloud_theme strength %.2f > 0.65 may collapse identity; capping at 0.65", strength)
+        strength = min(0.65, strength)
     if use_cloud_theme:
         cloud_intensity_val = (cloud_intensity or "high").strip().lower()
         if cloud_intensity_val not in ("low", "medium", "high"):
@@ -1155,7 +1156,7 @@ async def run_universal_animal_generate(
         subject_prefix = SPECIES_SUBJECT[species_key]
     prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
     if use_cloud_theme:
-        prompt = f"{prompt} {get_cloud_theme_block(cloud_intensity_val)}"
+        prompt = f"{prompt} {get_cloud_identity_lock_block()} {get_cloud_theme_block(cloud_intensity_val)}"
     elif use_cloud_photoreal:
         prompt = f"{prompt} {get_gpt_cloud_photoreal_block()}"
     negative = build_pose_lock_negative()
@@ -1184,8 +1185,8 @@ async def run_universal_animal_generate(
         )
         if composite_bytes is not None:
             input_bytes = composite_bytes
-            blend_strength = 0.58  # Cloud environment dominance; background already replaced
-            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.58")
+            blend_strength = 0.54  # 배경은 이미 교체됨; identity 유지 위해 낮게
+            logger.info("[Universal] Background override applied (segment→cloud→composite); using blend strength=0.54")
         else:
             logger.warning("[Universal] Background replacement unavailable or failed; using full img2img (original bg may remain)")
 
