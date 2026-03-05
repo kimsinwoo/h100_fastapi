@@ -243,7 +243,7 @@ export default function GeneratePage() {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       {(isProcessing || acLoading) && (
-        <LoadingOverlay message={acLoading ? "AC 주민 생성 중..." : "Generating image..."} />
+        <LoadingOverlay message={acLoading ? "게임 캐릭터 생성 중..." : "Generating image..."} />
       )}
 
       <div className="mx-auto max-w-4xl px-4">
@@ -279,7 +279,7 @@ export default function GeneratePage() {
           </div>
         </header>
 
-        {/* 탭: 일반 스타일 | AC 주민 재구성 */}
+        {/* 탭: 일반 스타일 | 게임 캐릭터 재구성 */}
         <div className="mb-4 flex gap-2">
           <button
             type="button"
@@ -301,7 +301,7 @@ export default function GeneratePage() {
                 : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
             }`}
           >
-            AC 주민 재구성 (2단계)
+            게임 캐릭터 재구성 (2단계)
           </button>
         </div>
 
@@ -390,7 +390,7 @@ export default function GeneratePage() {
         {tab === "ac" && (
           <div className="space-y-6 rounded-xl bg-white p-6 shadow">
             <p className="text-sm text-gray-600">
-              업로드 이미지는 참고용입니다. 1단계에서 종·색·무늬를 확인한 뒤, 2단계에서 텍스트만으로 Nintendo 동물의숲 비율의 주민을 생성합니다.
+              업로드 이미지는 참고용입니다. 1단계에서 종·색·무늬를 확인한 뒤, 2단계에서 텍스트만으로 게임 캐릭터 비율로 생성합니다.
             </p>
             <section>
               <h2 className="mb-2 text-sm font-semibold text-gray-700">1단계: 참고 이미지 (선택) + 생물학적 정보</h2>
@@ -486,7 +486,7 @@ export default function GeneratePage() {
                 disabled={!acCanReconstruct}
                 className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                2단계: 주민 생성 (T2I 전용)
+                2단계: 게임 캐릭터 생성 (T2I 전용)
               </button>
             </section>
             {acState.step === "error" && (
