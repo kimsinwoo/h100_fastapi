@@ -278,8 +278,8 @@ STYLE_PROMPTS: dict[str, str] = {
         "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
     ),
     # Cloud theme: high-key, soft clouds, structure preserved; modular for pose-lock injection
-    "cloud_theme": get_cloud_theme_block("medium"),
-    "cloud theme": get_cloud_theme_block("medium"),
+    "cloud_theme": get_cloud_theme_block("high"),   # GPT Cloud Replica (pet-only)
+    "cloud theme": get_cloud_theme_block("high"),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -573,8 +573,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    "cloud_theme": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
-    "cloud theme": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
+    # GPT Cloud Replica: guidance 9–11, strength 0.6–0.7, style intensity HIGH
+    "cloud_theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
+    "cloud theme": {"max_side": 768, "steps": 36, "guidance_scale": 10.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS

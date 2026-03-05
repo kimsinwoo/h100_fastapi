@@ -251,10 +251,13 @@ def validation_requires_retry(
     required_cloud_theme: bool = False,
 ) -> bool:
     """
-    PART 5. Validation loop: retry if pose/structure/clothing integrity failed.
+    PART 5. Validation loop: retry if pose/structure/clothing/cloud integrity failed.
     - Pose/structure drift (delegate to analysis_drift_requires_retry).
     - Clothing disappeared, clothing added when none, clothing blended into fur (confidence drop).
-    - required_cloud_theme: reserved for future scene classifier (cloud environment missing).
+    - required_cloud_theme: when True, future scene classifier should check (GPT Cloud Replica):
+      1. Background fully cloud-dominant? 2. Lighting high-key and low contrast?
+      3. Pet anatomy unchanged? 4. No dark shadows? 5. Scene airy and weightless?
+      If any fail → regenerate.
     """
     if analysis_drift_requires_retry(initial, re_analyzed):
         return True

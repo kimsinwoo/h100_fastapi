@@ -44,7 +44,7 @@ from app.utils.pose_lock_engine import (
     analysis_drift_requires_retry,
     validation_requires_retry,
 )
-from app.utils.cloud_theme import get_cloud_theme_block
+from app.utils.cloud_theme import get_cloud_theme_block, get_cloud_theme_negative
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 # API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
@@ -93,8 +93,9 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    "cloud_theme": (0.48, 0.54),
-    "cloud theme": (0.48, 0.54),
+    # GPT Cloud Replica: strength 0.6–0.7 (pose preserve ON)
+    "cloud_theme": (0.60, 0.70),
+    "cloud theme": (0.60, 0.70),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -223,6 +224,7 @@ def _load_pipeline_sync():
                     pipe = OmniGenPipeline.from_pretrained(model_id, **load_kw)
                     pipe = pipe.to(_device)
                     # UNet/Transformer compile: 추가 ~20% 감소. 첫 요청은 warmup 1회 느려도 됨.
+
                     if _device.type == "cuda" and getattr(settings, "enable_torch_compile", False):
                         target = getattr(pipe, "transformer", None) or getattr(pipe, "unet", None)
                         if target is not None:
@@ -1036,9 +1038,18 @@ async def run_universal_animal_generate(
     guidance_scale = max(get_pose_lock_guidance_min(), float(rules["guidance_scale"]))
     strength = get_pose_lock_strength("normal")
 
-    # PART 3: Cloud theme guaranteed — append AFTER pose-lock and clothing; never omit
+    # GPT Cloud Replica Mode: append after pose-lock and clothing; style intensity HIGH
     use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
-    cloud_intensity_val = (cloud_intensity or "medium").strip().lower() if cloud_intensity else "medium"
+    if use_cloud_theme:
+        # Z-Image-Turbo: guidance 9–11, strength 0.6–0.7, preserve pose ON, no face correction
+        guidance_scale = max(9.0, min(11.0, float(rules["guidance_scale"])))
+        strength = 0.65  # middle of 0.6–0.7 for structural stability
+    if use_cloud_theme:
+        cloud_intensity_val = (cloud_intensity or "high").strip().lower()
+        if cloud_intensity_val not in ("low", "medium", "high"):
+            cloud_intensity_val = "high"
+    else:
+        cloud_intensity_val = (cloud_intensity or "medium").strip().lower() if cloud_intensity else "medium"
     if use_cloud_theme:
         style_block = ""
     else:
@@ -1056,6 +1067,8 @@ async def run_universal_animal_generate(
     style_neg = NEGATIVE_BY_STYLE.get(style_lower, "")
     if style_neg:
         negative = f"{negative}, {style_neg}"
+    if use_cloud_theme:
+        negative = f"{negative}, {get_cloud_theme_negative()}"
 
     loop = asyncio.get_event_loop()
     total_start = time.perf_counter()
