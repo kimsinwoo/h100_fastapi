@@ -161,20 +161,26 @@ STYLE_PROMPTS: dict[str, str] = {
         "sprite composition, clear readable silhouette at 1x zoom, square pixels, bold outline"
     ),
     "animal_crossing": (
-        "A cute pet transformed into an Animal Crossing villager, chibi proportions, big expressive eyes, "
-        "cel-shaded 3D textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective. "
-        "Character standing naturally on a 3D Animal Crossing environment, fully integrated with background: {{AC_BACKGROUND}}. "
-        "Cozy clothing, cheerful pose, species-specific features clearly visible. High-resolution game asset quality, "
-        "crisp clean lines, fully consistent 3D style. Ignore original image background entirely."
+        "A cute pet transformed into an Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
+        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
+        "character standing naturally on the ground, fully integrated with environment, cozy clothing, cheerful pose, "
+        "species-specific features clearly visible (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
+        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers), high-resolution game asset quality, "
+        "crisp clean lines, background randomly selected from Animal Crossing game assets: {{AC_BACKGROUND}}, "
+        "pose and orientation preserved from reference image if provided, character and background fully consistent in Animal Crossing 3D style. "
+        "Ignore original image background completely."
     ),
     "animal crossing": (
-        "A cute pet transformed into an Animal Crossing villager, chibi proportions, big expressive eyes, "
-        "cel-shaded 3D textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
-        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective. "
-        "Character standing naturally on a 3D Animal Crossing environment, fully integrated with background: {{AC_BACKGROUND}}. "
-        "Cozy clothing, cheerful pose, species-specific features clearly visible. High-resolution game asset quality, "
-        "crisp clean lines, fully consistent 3D style. Ignore original image background entirely."
+        "A cute pet transformed into an Animal Crossing villager, fully 3D rendered scene, chibi proportions, big expressive eyes, "
+        "cel-shaded textures, smooth polygon surfaces, vibrant colors, soft sunlight with dynamic shadows, "
+        "volumetric lighting, ambient occlusion, cinematic camera angle, slightly isometric perspective, "
+        "character standing naturally on the ground, fully integrated with environment, cozy clothing, cheerful pose, "
+        "species-specific features clearly visible (dog: rounded ears, short snout; cat: pointed triangular ears, slit pupils; "
+        "rabbit: long ears, fluffy tail; hamster: plump cheeks; bird: colorful feathers), high-resolution game asset quality, "
+        "crisp clean lines, background randomly selected from Animal Crossing game assets: {{AC_BACKGROUND}}, "
+        "pose and orientation preserved from reference image if provided, character and background fully consistent in Animal Crossing 3D style. "
+        "Ignore original image background completely."
     ),
 }
 
@@ -225,13 +231,13 @@ AC_PRESERVE_ORIGINAL_TEMPLATE = (
     "0.5:1 chibi proportions, head large and round, short limbs, soft touchable fur texture."
 )
 
-# 동물의숲 3D 스타일: species별 특징 (dog, cat, rabbit, hamster, bird)
+# 동물의숲 3D 스타일: species별 특징 (지시서와 동일)
 ANIMAL_CROSSING_SPECIES: dict[str, str] = {
-    "dog": "dog villager, rounded ears, short muzzle, canine 3D character, clearly a dog",
-    "cat": "cat villager, pointed triangular ears, small nose no long snout, feline 3D character, clearly a cat",
-    "rabbit": "rabbit villager, long upright ears, round body, clearly a rabbit",
-    "hamster": "hamster villager, small round ears, round compact body, clearly a hamster",
-    "bird": "bird villager, beak wedge, wing shapes, clearly a bird",
+    "dog": "dog villager, rounded ears, short snout, canine 3D character, clearly a dog",
+    "cat": "cat villager, pointed triangular ears, slit pupils, small nose no long snout, feline 3D character, clearly a cat",
+    "rabbit": "rabbit villager, long ears, fluffy tail, round body, clearly a rabbit",
+    "hamster": "hamster villager, plump cheeks, small round ears, round compact body, clearly a hamster",
+    "bird": "bird villager, colorful feathers, beak and wing shapes, clearly a bird",
     "ferret": "ferret villager, elongated body, rounded ears",
     "turtle": "turtle villager, dome shell, simplified limbs",
     "reptile": "reptile villager, simplified 3D character",
@@ -274,11 +280,11 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
     ),
     "animal_crossing": (
         "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
-        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions"
+        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts"
     ),
     "animal crossing": (
         "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
-        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions"
+        "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts"
     ),
 }
 
@@ -301,6 +307,7 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
     "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
     "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
+    # Animal Crossing Full 3D: steps 40-48, guidance 7.5-8, resolution min 512 (768 used)
     "animal_crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
     "animal crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
 }
