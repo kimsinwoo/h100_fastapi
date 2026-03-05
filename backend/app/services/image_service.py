@@ -23,10 +23,13 @@ from typing import Any
 from app.core.config import get_settings
 from app.lora.manager import load_lora
 from app.utils.prompt_builder import (
+    build_ac_pipeline_base_prompt,
+    build_ac_pipeline_color_transfer_prompt,
     build_negative_prompt,
     build_prompt,
     get_allowed_style_keys,
     get_generation_rules,
+    NEGATIVE_AC_PIPELINE,
 )
 
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
@@ -814,6 +817,93 @@ async def run_image_to_image(
 
     elapsed = time.perf_counter() - start
     return result, elapsed
+
+
+# ============================================================
+# AC Villager 4-Stage Pipeline (Stage 1 stub, 2=base img2img, 3=stub, 4=color transfer img2img)
+# ============================================================
+
+def _make_gray_image_bytes(size: int = 768) -> bytes:
+    """Neutral 768x768 RGB gray image for Stage 2 T2I-like generation (high strength img2img)."""
+    from PIL import Image
+    img = Image.new("RGB", (size, size), color=(128, 128, 128))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def run_ac_villager_pipeline(
+    image_bytes: bytes,
+    species_override: str | None = None,
+    main_color: str | None = None,
+    secondary_color: str | None = None,
+    eye_color: str | None = None,
+    markings: str | None = None,
+    seed: int | None = None,
+) -> tuple[bytes, float]:
+    """
+    Stage 1: species = species_override or "other" (no classifier; plug in vision model if needed).
+    Stage 2: Generate base villager via img2img(gray_image, base_prompt, strength=0.92).
+    Stage 3: traits from args or defaults (plug in vision extraction if needed).
+    Stage 4: img2img(base, color_transfer_prompt, strength=0.38).
+    Failsafe: negative prompt rejects realistic proportions and original background.
+    """
+    pipe = await get_pipeline()
+    if pipe is None:
+        raise RuntimeError("Model not available")
+
+    species = (species_override or "other").strip().lower()
+    if species not in ("cat", "dog", "rabbit", "hamster", "bird", "other"):
+        species = "other"
+
+    # Stage 3 defaults (replace with vision extraction when available)
+    main = (main_color or "cream").strip()
+    secondary = (secondary_color or "none").strip()
+    eyes = (eye_color or "amber").strip()
+    mark = (markings or "none").strip()
+
+    loop = asyncio.get_event_loop()
+    total_start = time.perf_counter()
+
+    # Stage 2: base villager (high strength = T2I-like from gray)
+    base_prompt = build_ac_pipeline_base_prompt(species)
+    gray_bytes = _make_gray_image_bytes(768)
+    logger.info("[AC Pipeline] Stage 2: generating base villager (species=%s)", species)
+    stage2_bytes = await loop.run_in_executor(
+        None,
+        lambda: _run_inference_sync(
+            gray_bytes,
+            base_prompt,
+            NEGATIVE_AC_PIPELINE,
+            strength=0.92,
+            num_steps=48,
+            guidance_scale=8.5,
+            max_side=768,
+            seed=seed,
+            force_square=True,
+        ),
+    )
+
+    # Stage 4: color transfer only (low strength)
+    color_prompt = build_ac_pipeline_color_transfer_prompt(species, main, secondary, eyes, mark)
+    logger.info("[AC Pipeline] Stage 4: applying fur/eye/markings (strength=0.38)")
+    final_bytes = await loop.run_in_executor(
+        None,
+        lambda: _run_inference_sync(
+            stage2_bytes,
+            color_prompt,
+            NEGATIVE_AC_PIPELINE,
+            strength=0.38,
+            num_steps=48,
+            guidance_scale=8.5,
+            max_side=768,
+            seed=seed,
+            force_square=True,
+        ),
+    )
+
+    elapsed = time.perf_counter() - total_start
+    return final_bytes, elapsed
 
 
 # ============================================================

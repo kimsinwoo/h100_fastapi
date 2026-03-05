@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.models.style_presets import STYLE_PRESETS
 from app.utils.prompt_builder import get_allowed_style_keys, get_allowed_species_keys, get_prompt_config
 from app.schemas.image_schema import GenerateResponse, GenerateVideoResponse
-from app.services.image_service import run_image_to_image
+from app.services.image_service import run_ac_villager_pipeline, run_image_to_image
 from app.services.video_service import run_image_to_video
 from app.services.training_store import (
     add_item as training_add_item,
@@ -170,6 +170,72 @@ async def generate(
         raise HTTPException(status_code=500, detail="Failed to save generated image")
     generated_url = get_generated_url(generated_filename)
     # 멀티 Pod/K8s: GET /static/generated/xxx 가 다른 Pod로 가면 404. 응답에 base64 포함해 두 번째 요청 없이 표시 가능하게 함.
+    generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
+    return GenerateResponse(
+        original_url=original_url,
+        generated_url=generated_url,
+        processing_time=round(processing_time, 2),
+        generated_image_base64=generated_b64,
+    )
+
+
+@router.post("/generate/ac-villager", response_model=GenerateResponse)
+async def generate_ac_villager(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Pet image (required)")] = None,
+    image: Annotated[UploadFile | None, File(description="Pet image (alias)")] = None,
+    species: Annotated[str | None, Form(description="Stage 1: cat, dog, rabbit, hamster, bird, other. Omit for 'other'.")] = None,
+    main_color: Annotated[str | None, Form(description="Stage 3: main fur color (e.g. cream, orange)")] = None,
+    secondary_color: Annotated[str | None, Form(description="Stage 3: secondary fur color")] = None,
+    eye_color: Annotated[str | None, Form(description="Stage 3: eye color (e.g. amber, green)")] = None,
+    markings: Annotated[str | None, Form(description="Stage 3: major markings (e.g. white chest, stripes)")] = None,
+    seed: Annotated[str | None, Form()] = None,
+) -> GenerateResponse:
+    """
+    4-stage Animal Crossing villager pipeline:
+    Stage 1: species from form or 'other'.
+    Stage 2: base villager (strict AC proportions) via high-strength img2img from gray.
+    Stage 3: traits from form or defaults (plug in vision extraction later).
+    Stage 4: color transfer only (strength 0.35-0.42) to apply fur/eye/markings.
+    """
+    _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing required file. Send as 'file' or 'image'.")
+    settings = get_settings()
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image.")
+    content = await upload.read()
+    if len(content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        original_filename = await save_upload_async(content, suffix=".png")
+    except Exception as e:
+        logger.exception("Failed to save upload: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save uploaded image")
+    original_url = get_generated_url(original_filename)
+    seed_i = int(seed) if seed is not None and str(seed).strip().lstrip("-").isdigit() else None
+    try:
+        out_bytes, processing_time = await run_ac_villager_pipeline(
+            image_bytes=content,
+            species_override=species.strip() if species and species.strip() else None,
+            main_color=main_color,
+            secondary_color=secondary_color,
+            eye_color=eye_color,
+            markings=markings,
+            seed=seed_i,
+        )
+    except RuntimeError as e:
+        logger.exception("AC villager pipeline failed: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        generated_filename = await save_upload_async(out_bytes, suffix=".png")
+    except Exception as e:
+        logger.exception("Failed to save generated image: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save generated image")
+    generated_url = get_generated_url(generated_filename)
     generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
     return GenerateResponse(
         original_url=original_url,

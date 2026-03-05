@@ -232,6 +232,74 @@ AC_BACKGROUNDS: list[str] = [
 ]
 DEFAULT_AC_BACKGROUND = "village path with flowers and trees"
 
+# 4-stage AC Villager pipeline: Stage 1 allowed species (lowercase only)
+AC_PIPELINE_SPECIES = ("cat", "dog", "rabbit", "hamster", "bird", "other")
+
+# Stage 2: strict base villager anatomy (mandatory)
+AC_PIPELINE_BASE_ANATOMY = (
+    "Animal Crossing villager, strict proportions: head exactly 50% of total height, body short and cylindrical, "
+    "legs very short and stubby, arms small and rounded, mitten-like hands, rounded compact feet, "
+    "oversized vertical oval eyes, flat simplified face, no realistic anatomy, no realistic fur physics, no muscles, no real animal proportions. "
+)
+
+# Stage 2: species adaptation (cat, dog, rabbit, hamster, bird; other -> generic)
+AC_PIPELINE_SPECIES_ADAPT: dict[str, str] = {
+    "cat": "Cat villager: upright triangular ears, small rounded snout, no detailed whiskers.",
+    "dog": "Dog villager: short rounded snout, simplified geometric ears, short stylized tail.",
+    "rabbit": "Rabbit villager: thick upright rounded ears, small oval nose, short cotton tail simplified.",
+    "hamster": "Hamster villager: slightly larger head ratio (55%), very small limbs, rounded cheeks, tiny round ears.",
+    "bird": "Bird villager: small rounded beak, tiny wings instead of arms, short legs, no feather detail.",
+    "other": "Villager: rounded simplified animal form, oversized eyes, stubby limbs.",
+}
+
+# Stage 2: environment + rendering
+AC_PIPELINE_ENVIRONMENT = (
+    "Environment: random Animal Crossing island background, bright grass, stone or dirt path, fruit trees, "
+    "cozy villager house, flower patches, soft Nintendo daytime lighting. "
+    "Rendering: polished 3D Nintendo game render, soft global illumination, subtle ambient occlusion, "
+    "smooth plastic-like shading, no painterly effect, no 2D illustration look, game-ready model, high resolution."
+)
+
+# Stage 2 & 4 negative (failsafe: reject realistic proportions / original background)
+NEGATIVE_AC_PIPELINE = (
+    "realistic animal proportions, photorealistic, original background, 2D flat background, "
+    "realistic anatomy, realistic fur, long legs, long torso, painterly, low poly, blurry, "
+    "asymmetrical face, floating character, incorrect shadow, dark cinematic lighting."
+)
+
+
+def build_ac_pipeline_base_prompt(species: str) -> str:
+    """Stage 2: text prompt for base villager (T2I-like via high-strength img2img)."""
+    key = species.lower().strip() if species else "other"
+    if key not in AC_PIPELINE_SPECIES:
+        key = "other"
+    return (
+        AC_PIPELINE_BASE_ANATOMY
+        + AC_PIPELINE_SPECIES_ADAPT.get(key, AC_PIPELINE_SPECIES_ADAPT["other"])
+        + " "
+        + AC_PIPELINE_ENVIRONMENT
+    )
+
+
+def build_ac_pipeline_color_transfer_prompt(
+    species: str,
+    main_color: str,
+    secondary_color: str,
+    eye_color: str,
+    markings: str,
+) -> str:
+    """Stage 4: same villager with only fur/eye/markings applied; proportions unchanged."""
+    key = species.lower().strip() if species else "other"
+    if key not in AC_PIPELINE_SPECIES:
+        key = "other"
+    anatomy = AC_PIPELINE_BASE_ANATOMY + AC_PIPELINE_SPECIES_ADAPT.get(key, AC_PIPELINE_SPECIES_ADAPT["other"])
+    color_desc = f"Main fur color: {main_color or 'cream'}. Secondary fur: {secondary_color or 'none'}. Eye color: {eye_color or 'amber'}. Major markings: {markings or 'none'}."
+    return (
+        f"Same Animal Crossing villager, exact same proportions and pose. Apply only these colors: {color_desc} "
+        f"Do not change head size, limb proportions, pose, background, lighting, or camera angle. "
+        f"{anatomy} {AC_PIPELINE_ENVIRONMENT}"
+    )
+
 
 def get_random_ac_background(override: str | None = None) -> str:
     """동물의숲 배경 랜덤 선택. 실패 시 기본 배경 반환. override가 있으면 해당 문자열 사용."""
