@@ -23,7 +23,8 @@ export type StyleKey =
   | "pixel_art"
   | "pixel art"
   | "animal_crossing"
-  | "ac_style_transfer";
+  | "ac_style_transfer"
+  | "clay_art";
 
 export interface StylesResponse {
   [key: string]: string;

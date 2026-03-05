@@ -235,6 +235,31 @@ STYLE_PROMPTS: dict[str, str] = {
         "Background: keep exact layout and objects, only apply Animal Crossing style rendering. "
         "Preserve structure mode ON. Preserve pose ON. Preserve depth ON. This is ONLY a rendering style adaptation, NOT a redesign."
     ),
+    # Clay art: handcrafted polymer clay sculpture, photographed diorama (not flat illustration, not CGI)
+    "clay_art": (
+        "Premium handcrafted clay sculpture aesthetic. Real photographed clay diorama, NOT flat illustration. "
+        "Render everything as handcrafted polymer clay: soft rounded forms, slightly imperfect hand-molded edges, visible subtle finger smoothing marks, "
+        "gentle clay surface texture, matte to semi-matte material finish, soft diffuse light absorption. "
+        "No glossy plastic, no metallic reflections, no realistic skin texture, no fur strands, no fabric weave. All objects physically sculpted from clay. "
+        "Material: soft subsurface scattering, slight material density, soft edge transitions, slight color blending at edges, no sharp micro-detail, no high-frequency noise, slight handcrafted asymmetry. "
+        "Lighting: studio softbox, warm soft global illumination, very soft shadow falloff, mild ambient occlusion in creases, no harsh directional light, no cinematic contrast. "
+        "Color: slightly pastel palette, moderately increased saturation, warm friendly tone, avoid dark crushed blacks, avoid hyper-real contrast. "
+        "Background: clay diorama environment. Ground, trees, props, sky all made of clay. No real-world textures, no photorealistic background. "
+        "Quality: high resolution, macro photography look, shallow depth of field, realistic lens blur, sharp focus on subject. "
+        "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
+    ),
+    "clay art": (
+        "Premium handcrafted clay sculpture aesthetic. Real photographed clay diorama, NOT flat illustration. "
+        "Render everything as handcrafted polymer clay: soft rounded forms, slightly imperfect hand-molded edges, visible subtle finger smoothing marks, "
+        "gentle clay surface texture, matte to semi-matte material finish, soft diffuse light absorption. "
+        "No glossy plastic, no metallic reflections, no realistic skin texture, no fur strands, no fabric weave. All objects physically sculpted from clay. "
+        "Material: soft subsurface scattering, slight material density, soft edge transitions, slight color blending at edges, no sharp micro-detail, no high-frequency noise, slight handcrafted asymmetry. "
+        "Lighting: studio softbox, warm soft global illumination, very soft shadow falloff, mild ambient occlusion in creases, no harsh directional light, no cinematic contrast. "
+        "Color: slightly pastel palette, moderately increased saturation, warm friendly tone, avoid dark crushed blacks, avoid hyper-real contrast. "
+        "Background: clay diorama environment. Ground, trees, props, sky all made of clay. No real-world textures, no photorealistic background. "
+        "Quality: high resolution, macro photography look, shallow depth of field, realistic lens blur, sharp focus on subject. "
+        "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
+    ),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -484,6 +509,18 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "change camera angle, add new objects, modify composition, change anatomy, change pose, change proportions, redesign character, "
         "realistic fur texture, photographic texture, film grain, harsh shadows, realistic lighting physics"
     ),
+    "clay_art": (
+        "3D plastic toy, smooth CGI render, digital illustration, realistic photo, photorealism, "
+        "glossy plastic, metallic reflections, realistic skin texture, fur strands, fabric weave, "
+        "harsh directional light, cinematic contrast, dramatic shadows, painterly brush strokes, "
+        "sharp micro-detail, high-frequency noise, hyper-real contrast, dark crushed blacks"
+    ),
+    "clay art": (
+        "3D plastic toy, smooth CGI render, digital illustration, realistic photo, photorealism, "
+        "glossy plastic, metallic reflections, realistic skin texture, fur strands, fabric weave, "
+        "harsh directional light, cinematic contrast, dramatic shadows, painterly brush strokes, "
+        "sharp micro-detail, high-frequency noise, hyper-real contrast, dark crushed blacks"
+    ),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -512,6 +549,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "animal crossing hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
     "ac_style_transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
+    "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
+    "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -529,6 +568,7 @@ ALLOWED_STYLE_KEYS = [
     "pixel art",
     "animal_crossing",
     "ac_style_transfer",
+    "clay_art",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())

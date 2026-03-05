@@ -19,6 +19,7 @@ STYLE_PRESETS: dict[str, str] = {
     "pixel art": "Pixel Art (sprite, 16 colors)",
     "animal_crossing": "게임 캐릭터 (구조 재디자인)",
     "ac_style_transfer": "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
+    "clay_art": "클레이 아트 (손수 제작 점토 조각)",
 }
 
 
