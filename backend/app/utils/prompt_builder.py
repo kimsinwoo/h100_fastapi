@@ -182,6 +182,43 @@ STYLE_PROMPTS: dict[str, str] = {
         "pose and orientation preserved from reference image if provided, character and background fully consistent in Animal Crossing 3D style. "
         "Ignore original image background completely."
     ),
+    # Hybrid: preserve 3D quality/lighting from ref; force AC village + villager proportions (fixed village, strength 0.48, guidance 8)
+    "animal_crossing_hybrid": (
+        "Completely ignore and remove original image background. Do not reuse any elements from original environment. "
+        "Fully modeled Animal Crossing village scene: centered dirt path with stone borders, symmetrical flower beds on both sides, "
+        "colorful tulips and seasonal flowers, fruit trees in background (apples, peaches), cozy house with orange roof, "
+        "soft blue sky, wooden fence, bright Nintendo-style daytime lighting. "
+        "Character standing naturally on the ground aligned to the path perspective. Shadows match ground direction. "
+        "Camera angle slightly frontal, eye-level, centered composition. "
+        "Body proportion: Animal Crossing villager anatomy. Head size 45-50% of total body height. Body small and cylindrical. "
+        "Arms short and rounded. Legs short and stubby. Hands simplified mitten-like. Feet rounded and compact. "
+        "No realistic cat anatomy, no long torso, no realistic limb joints. "
+        "Facial structure: large oval eyes (40% wider than realistic), small triangle nose, simple mouth, smooth cheeks, "
+        "no realistic fur detail, minimal whisker thickness, clean symmetrical ears. "
+        "Cat villager: upright triangular ears, pink inner ears, slit pupils, compact rounded snout, tail short and simple curve. "
+        "No realistic feline bone structure. "
+        "Soft 3D shading, subsurface scattering feel, smooth high-resolution textures, global illumination lighting, "
+        "soft ambient occlusion, polished Nintendo-like 3D rendering, rounded geometry, no harsh contrast, no painterly strokes. "
+        "Modern 3D game asset, Nintendo-style polished render, high quality stylized PBR but simplified."
+    ),
+    "animal crossing hybrid": (
+        "Completely ignore and remove original image background. Do not reuse any elements from original environment. "
+        "Fully modeled Animal Crossing village scene: centered dirt path with stone borders, symmetrical flower beds on both sides, "
+        "colorful tulips and seasonal flowers, fruit trees in background (apples, peaches), cozy house with orange roof, "
+        "soft blue sky, wooden fence, bright Nintendo-style daytime lighting. "
+        "Character standing naturally on the ground aligned to the path perspective. Shadows match ground direction. "
+        "Camera angle slightly frontal, eye-level, centered composition. "
+        "Body proportion: Animal Crossing villager anatomy. Head size 45-50% of total body height. Body small and cylindrical. "
+        "Arms short and rounded. Legs short and stubby. Hands simplified mitten-like. Feet rounded and compact. "
+        "No realistic cat anatomy, no long torso, no realistic limb joints. "
+        "Facial structure: large oval eyes (40% wider than realistic), small triangle nose, simple mouth, smooth cheeks, "
+        "no realistic fur detail, minimal whisker thickness, clean symmetrical ears. "
+        "Cat villager: upright triangular ears, pink inner ears, slit pupils, compact rounded snout, tail short and simple curve. "
+        "No realistic feline bone structure. "
+        "Soft 3D shading, subsurface scattering feel, smooth high-resolution textures, global illumination lighting, "
+        "soft ambient occlusion, polished Nintendo-like 3D rendering, rounded geometry, no harsh contrast, no painterly strokes. "
+        "Modern 3D game asset, Nintendo-style polished render, high quality stylized PBR but simplified."
+    ),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -286,6 +323,16 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "2D flat background, hand-drawn textures, low-poly, blurry, realistic photorealism, original background, "
         "asymmetrical ears, human-like anatomy, color bleed, distorted proportions, dark or dull colors, pixelated artifacts"
     ),
+    "animal_crossing_hybrid": (
+        "flat 2D background, original background, photo background, realistic anatomy, real cat proportions, "
+        "long legs, long torso, realistic fur texture, photorealism, low poly, blurry, asymmetrical face, "
+        "floating character, incorrect ground shadow, dark cinematic lighting, overly dramatic shadows, hyper detailed whiskers"
+    ),
+    "animal crossing hybrid": (
+        "flat 2D background, original background, photo background, realistic anatomy, real cat proportions, "
+        "long legs, long torso, realistic fur texture, photorealism, low poly, blurry, asymmetrical face, "
+        "floating character, incorrect ground shadow, dark cinematic lighting, overly dramatic shadows, hyper detailed whiskers"
+    ),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -310,6 +357,9 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     # Animal Crossing Full 3D: steps 40-48, guidance 7.5-8, resolution min 512 (768 used)
     "animal_crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
     "animal crossing": {"max_side": 768, "steps": 44, "guidance_scale": 7.5},
+    # Hybrid: strength 0.48, guidance 8, steps 44, 768x768 (pose preservation effectively ~0.6 via strength)
+    "animal_crossing_hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
+    "animal crossing hybrid": {"max_side": 768, "steps": 44, "guidance_scale": 8.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -326,6 +376,8 @@ ALLOWED_STYLE_KEYS = [
     "pixel art",
     "animal_crossing",
     "animal crossing",
+    "animal_crossing_hybrid",
+    "animal crossing hybrid",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())
@@ -421,9 +473,10 @@ def build_prompt(
     species_key = _normalize_species(species)
     style_key = _normalize_style(style)
     is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
+    is_animal_crossing_hybrid = style_key in ("animal_crossing_hybrid", "animal crossing hybrid")
 
-    # 동물의숲 원본 보존 모드: 단일 마스터피스 프롬프트 사용
-    if is_animal_crossing and ac_preserve_original:
+    # 동물의숲 원본 보존 모드: 단일 마스터피스 프롬프트 사용 (hybrid는 고정 마을 배경 사용)
+    if is_animal_crossing and not is_animal_crossing_hybrid and ac_preserve_original:
         return _build_ac_preserve_prompt(
             species_key, ac_eye_color, ac_pose, ac_sign_text
         )
@@ -449,7 +502,7 @@ def build_prompt(
                 get_random_ac_background(ac_background),
             )
         parts.append(style_part)
-    if is_animal_crossing and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
+    if (is_animal_crossing or is_animal_crossing_hybrid) and species_key and species_key in ANIMAL_CROSSING_SPECIES and ANIMAL_CROSSING_SPECIES[species_key]:
         parts.append(ANIMAL_CROSSING_SPECIES[species_key])
     is_pixel_art = style_key in ("pixel_art", "pixel art")
     if is_pixel_art and species_key and species_key in PIXEL_ART_SPECIES_SPRITE and PIXEL_ART_SPECIES_SPRITE[species_key]:

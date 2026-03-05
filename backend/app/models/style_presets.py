@@ -19,6 +19,8 @@ STYLE_PRESETS: dict[str, str] = {
     "pixel art": "Pixel Art (sprite, 16 colors)",
     "animal_crossing": "동물의숲 3D (AC villager, cel-shaded)",
     "animal crossing": "동물의숲 3D (AC villager, cel-shaded)",
+    "animal_crossing_hybrid": "동물의숲 Hybrid (고정 마을 배경, AC 비율·고양이)",
+    "animal crossing hybrid": "동물의숲 Hybrid (고정 마을 배경, AC 비율·고양이)",
 }
 
 

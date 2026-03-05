@@ -70,6 +70,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "shinchan": (0.38, 0.52),
     "animal_crossing": (0.45, 0.55),  # 3D AC: 포즈 유지·품질 balance
     "animal crossing": (0.45, 0.55),
+    "animal_crossing_hybrid": (0.48, 0.48),  # Hybrid: 고정 strength 0.48 (pose ~0.6 효과)
+    "animal crossing hybrid": (0.48, 0.48),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
