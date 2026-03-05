@@ -80,8 +80,8 @@ _use_omnigen: bool = False  # True면 OmniGen(Omni) 파이프라인 사용 (H100
 _omnigen_scheduler_lock = threading.Lock()
 
 # ===== Z-Image-Turbo 권장값 =====
-# Turbo/Lightning 계열: "원본 보존"이 아니라 "참고해서 새로 생성" 성향. 0.5+ strength 시 identity 재샘플링.
-# 개체 동일성 유지 = Subject 분리 → 배경만 diffusion → 합성 (전체 프레임 img2img 사용 안 함).
+# Turbo: "원본 보존"이 아니라 "참고해서 새로 생성" 성향. 0.5+ strength 시 identity 재샘플링.
+# 개체 동일성 = Subject 분리 → 배경만 diffusion → 합성 (전체 img2img 사용 안 함). See docs/IDENTITY_PRESERVING_PIPELINE.md.
 # Cloud fallback(전체 img2img) 시: strength 0.42, steps 28, guidance 6.5로 "수정" 모드만 사용.
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0

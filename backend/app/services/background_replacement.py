@@ -1,13 +1,13 @@
 """
 Background Override System for cloud-themed pet generation.
 
-구조: Subject 분리 → 배경만 생성 → 합성. Subject 영역에는 노이즈/재생성 없음 (identity 100% 유지).
+구조: Subject 분리 → 배경만 생성 → 합성. Subject 영역에는 노이즈/재생성 없음 (identity 유지).
 
 1. Segment pet (rembg) → subject 픽셀만 추출.
-2. 배경 영역만 구름 생성 (solid → img2img strength 0.85~0.9). Subject 미포함.
-3. 합성: original subject + generated cloud. Subject 픽셀 수정 없음.
+2. 배경만 구름 생성 (solid → img2img). Subject 미포함.
+3. 합성: original subject + generated cloud. Subject 픽셀 수정 없음. 전체 프레임 img2img 없음.
 
-이후 전체 프레임 img2img 하지 않음. (전체 img2img 시 strength와 identity가 구조적 충돌.)
+상세 설계·Turbo 한계·inpaint/QA 권장: docs/IDENTITY_PRESERVING_PIPELINE.md
 """
 
 from __future__ import annotations

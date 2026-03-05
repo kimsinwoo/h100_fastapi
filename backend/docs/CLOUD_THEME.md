@@ -2,6 +2,8 @@
 
 High-key, ultra-soft cloud-themed rendering for z-image-turbo. Preserves subject structure; no overexposure, over-stylization, or contrast distortion.
 
+**개체 동일성(identity) 유지:** 프롬프트만으로는 한계가 있으며, Turbo + 전체 img2img는 구조적으로 identity를 보존하기 어렵다. 권장 구조는 **Subject 분리 → 배경만 생성 → 합성**이며, 상세 원인과 권장 파이프라인은 **[IDENTITY_PRESERVING_PIPELINE.md](./IDENTITY_PRESERVING_PIPELINE.md)** 참고.
+
 ## Module: `app.utils.cloud_theme`
 
 ### 1. Inject into any base prompt (safe merge)
