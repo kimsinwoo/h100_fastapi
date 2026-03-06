@@ -203,10 +203,11 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
     eye_shape = a.get("eye_shape") or "warm expressive eyes"
     eye_color = a.get("eye_color") or "warm brown eyes"
     expression = a.get("expression_mood") or "gentle friendly expression"
-    # 참조 사진의 주체를 인간으로 변환·유지: 구도/포즈/표정 유지, 인간 얼굴·몸만
+    # 참조 사진의 주체를 인간으로 변환: 구도·포즈·표정 유지, 100% 인간만(동물 귀/신체 금지)
     return (
-        "convert the subject in the image to a human being, keep exact same pose and composition and expression, "
-        "human face only, human skin, human body, photorealistic portrait, 35mm, natural lighting, "
+        "convert the subject to a human being, same pose and composition and expression, "
+        "100% human only, human face, human skin, human body, normal human ears only, no animal ears, no ears on head, "
+        "human hairstyle only, no cat ears no dog ears, photorealistic portrait, 35mm, natural lighting, "
         f"{hair_color}{hair_highlights}, {eye_shape}, {eye_color}, "
         f"expression {expression}, {outfit}, studio quality"
     )
@@ -214,7 +215,8 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
 
 PET_TO_HUMAN_NEGATIVE = (
     "cartoon, anime, illustration, 3d render, cgi, painting, clay, "
-    "animal face, animal nose, animal ears, snout, muzzle, whiskers, paws, fur, "
+    "animal face, animal nose, animal ears, cat ears, dog ears, ears on head, pointy ears, furry ears, animal ears on human, "
+    "snout, muzzle, whiskers, paws, fur, tail, "
     "furry, anthropomorphic animal, animal-human hybrid, beast, mutated, "
     "half animal, animal features on human, generic unrelated face, random person different pose"
 )

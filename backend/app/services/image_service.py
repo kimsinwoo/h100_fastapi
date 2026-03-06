@@ -88,8 +88,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    "pet_to_human": (0.55, 0.62),
-    "pet to human": (0.55, 0.62),
+    "pet_to_human": (0.58, 0.65),
+    "pet to human": (0.58, 0.65),
     "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
@@ -806,7 +806,7 @@ async def run_image_to_image(
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
         if style_lower in ("pet_to_human", "pet to human"):
-            strength_cap = 0.62  # 동물→인간 변환에 더 많은 변경 허용
+            strength_cap = 0.65  # 동물→인간 변환에 더 많은 변경 허용(고양이 그대로 나오는 것 방지)
         strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
 
     # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: generation_rules 사용
