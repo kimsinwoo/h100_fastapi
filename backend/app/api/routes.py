@@ -33,6 +33,7 @@ from app.schemas.image_schema import (
     CLOTHING_COVERAGE,
 )
 from app.services.image_service import (
+    extract_pet_attributes_for_human,
     run_ac_villager_pipeline,
     run_ac_villager_reconstruct,
     run_image_to_image,
@@ -381,6 +382,28 @@ async def generate_ac_villager_reconstruct(
 
 
 # ---------- Image Analysis (structured visual attributes, JSON only) ----------
+
+
+@router.post("/image/analyze-pet-to-human")
+async def analyze_pet_to_human(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Pet image for human-reinterpretation attributes")] = None,
+    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
+) -> dict:
+    """
+    Pet → Human: extract attributes from image (fur → hair, expression → face, personality → outfit).
+    Returns JSON: primary_fur_color, secondary_fur_color, eye_shape, eye_color, ear_shape, expression_mood, personality.
+    Stub: returns defaults until vision/LLM is wired. Use result as pet_to_human_attributes in POST /api/generate.
+    """
+    _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing file. Send as multipart field 'file' or 'image'.")
+    content = await upload.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    attrs = await extract_pet_attributes_for_human(content)
+    return attrs
 
 
 @router.post("/image/viewpoint", response_model=ViewpointAnalysisResponse)

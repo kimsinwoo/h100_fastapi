@@ -141,10 +141,15 @@ FUR_TO_HAIR_COLOR: dict[str, str] = {
     "black": "black hair",
     "white": "silver white hair",
     "gray": "gray hair",
+    "light gray": "light gray hair",
     "brown": "brown hair",
+    "dark brown": "dark brown hair",
     "golden": "golden blonde hair",
+    "blonde": "blonde hair",
     "cream": "cream blonde hair",
+    "beige": "beige blonde hair",
     "red": "auburn red hair",
+    "ginger": "ginger red hair",
     "orange": "warm auburn hair",
     "striped": "brown hair with natural highlights",
     "spotted": "dark brown hair with lighter highlights",
@@ -174,7 +179,7 @@ DEFAULT_PET_TO_HUMAN_ATTRIBUTES: dict[str, str] = {
 
 def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
     """
-    Structured prompt for Pet → Human reinterpretation. No long narrative.
+    Structured prompt for Pet → Human reinterpretation. Short, model-friendly tokens.
     Attributes: primary_fur_color, secondary_fur_color, eye_shape, eye_color, ear_shape,
     expression_mood, personality. Missing keys use defaults.
     """
@@ -183,14 +188,14 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
         for k, v in attributes.items():
             if v is not None and str(v).strip():
                 a[k] = str(v).strip()
-    primary = (a.get("primary_fur_color") or "brown").lower()
+    primary = (a.get("primary_fur_color") or "brown").lower().strip()
     hair_color = FUR_TO_HAIR_COLOR.get(primary) or f"{primary} hair"
     secondary = (a.get("secondary_fur_color") or "").strip().lower()
     hair_highlights = ""
     if secondary and secondary in FUR_TO_HAIR_COLOR:
         hair_highlights = f", {FUR_TO_HAIR_COLOR.get(secondary, secondary + ' highlights')}"
     elif secondary:
-        hair_highlights = f", hair with {secondary} highlights"
+        hair_highlights = f", {secondary} highlights"
     personality = (a.get("personality") or "calm").lower()
     if personality not in PERSONALITY_TO_OUTFIT:
         personality = "calm"
@@ -198,22 +203,20 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
     eye_shape = a.get("eye_shape") or "warm expressive eyes"
     eye_color = a.get("eye_color") or "warm brown eyes"
     expression = a.get("expression_mood") or "gentle friendly expression"
+    # Turbo-friendly: 핵심 키워드 먼저, 반복 최소화
     return (
-        "realistic human portrait inspired by a pet, "
-        "photorealistic, natural skin texture, high detail face, natural lighting, "
-        "shallow depth of field, 35mm portrait photography, "
-        f"{hair_color}{hair_highlights}, "
-        f"hair style inspired by pet fur pattern, "
-        f"{eye_shape} inspired by pet eyes, {eye_color}, "
-        f"facial expression {expression}, "
-        f"outfit reflecting the personality: {outfit}, modern fashion, studio portrait composition"
+        "realistic human portrait, photorealistic, 35mm portrait photography, "
+        "natural skin texture, high detail face, natural lighting, shallow depth of field, "
+        f"{hair_color}{hair_highlights}, {eye_shape}, {eye_color}, "
+        f"facial expression {expression}, {outfit}, modern fashion, studio portrait"
     )
 
 
 PET_TO_HUMAN_NEGATIVE = (
     "cartoon, anime, illustration, 3d render, cgi, painting, clay, "
-    "animal face, animal nose, animal ears, furry, anthropomorphic animal, "
-    "animal-human hybrid, beast, mutated"
+    "animal face, animal nose, animal ears, snout, muzzle, whiskers, paws, "
+    "furry, anthropomorphic animal, animal-human hybrid, beast, mutated, "
+    "half animal, animal features on human"
 )
 
 # ========== STYLE LAYER (construction rules) ==========

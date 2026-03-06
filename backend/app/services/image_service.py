@@ -28,6 +28,7 @@ from app.utils.prompt_builder import (
     build_ac_reconstruct_prompt,
     build_negative_prompt,
     build_prompt,
+    DEFAULT_PET_TO_HUMAN_ATTRIBUTES,
     get_allowed_style_keys,
     get_generation_rules,
     get_style_block,
@@ -670,6 +671,21 @@ def _run_inference_omnigen_sync(
 
 
 # ============================================================
+# Pet → Human: attribute extraction (stub; plug in vision/LLM later)
+# ============================================================
+
+async def extract_pet_attributes_for_human(image_bytes: bytes) -> dict[str, Any]:
+    """
+    Extract pet attributes for human reinterpretation (fur → hair, expression → face, etc.).
+    Returns dict with keys: primary_fur_color, secondary_fur_color, eye_shape, eye_color,
+    ear_shape, expression_mood, personality.
+    Stub: returns defaults. Replace with vision/LLM call (e.g. analyze image → map to attributes).
+    """
+    # TODO: call vision/LLM to analyze image_bytes and map to human-equivalent attributes
+    return dict(DEFAULT_PET_TO_HUMAN_ATTRIBUTES)
+
+
+# ============================================================
 # Public API
 # ============================================================
 
@@ -699,6 +715,10 @@ async def run_image_to_image(
     logger.info("Pipeline ready, preparing inference (style=%s)", style_key)
     settings = get_settings()
     style_lower = style_key.lower().strip()
+
+    # Pet → Human: 속성 미제공 시 이미지 기반 추출(스텁) 사용
+    if style_lower in ("pet_to_human", "pet to human") and pet_to_human_attributes is None:
+        pet_to_human_attributes = await extract_pet_attributes_for_human(image_bytes)
 
     # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
     if _use_omnigen:
