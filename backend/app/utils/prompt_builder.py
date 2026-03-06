@@ -203,21 +203,20 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
     eye_shape = a.get("eye_shape") or "warm expressive eyes"
     eye_color = a.get("eye_color") or "warm brown eyes"
     expression = a.get("expression_mood") or "gentle friendly expression"
-    # 참조 사진을 인간으로 재해석: 구도·표정·분위기 유지, 동물→인간만 치환
+    # 참조 사진의 주체를 인간으로 변환·유지: 구도/포즈/표정 유지, 인간 얼굴·몸만
     return (
-        "reinterpret reference photo as a human portrait, same pose and composition as reference image, "
-        "expression and mood from reference, human face and body only, "
-        "photorealistic, 35mm portrait, natural skin texture, natural lighting, shallow depth of field, "
+        "convert the subject in the image to a human being, keep exact same pose and composition and expression, "
+        "human face only, human skin, human body, photorealistic portrait, 35mm, natural lighting, "
         f"{hair_color}{hair_highlights}, {eye_shape}, {eye_color}, "
-        f"facial expression {expression}, {outfit}, modern fashion"
+        f"expression {expression}, {outfit}, studio quality"
     )
 
 
 PET_TO_HUMAN_NEGATIVE = (
     "cartoon, anime, illustration, 3d render, cgi, painting, clay, "
-    "animal face, animal nose, animal ears, snout, muzzle, whiskers, paws, "
+    "animal face, animal nose, animal ears, snout, muzzle, whiskers, paws, fur, "
     "furry, anthropomorphic animal, animal-human hybrid, beast, mutated, "
-    "half animal, animal features on human"
+    "half animal, animal features on human, generic unrelated face, random person different pose"
 )
 
 # ========== STYLE LAYER (construction rules) ==========
@@ -666,8 +665,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    "pet_to_human": {"max_side": 768, "steps": 45, "guidance_scale": 7.0},
-    "pet to human": {"max_side": 768, "steps": 45, "guidance_scale": 7.0},
+    "pet_to_human": {"max_side": 768, "steps": 50, "guidance_scale": 7.5},
+    "pet to human": {"max_side": 768, "steps": 50, "guidance_scale": 7.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
