@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
 
-# 기본 해상도/프레임 (VRAM에 맞게 조정 가능)
-DEFAULT_WIDTH = 768
-DEFAULT_HEIGHT = 512
-DEFAULT_NUM_FRAMES = 81  # 121은 무거우므로 81로 줄임 (약 3.4초 @ 24fps)
+# 기본 해상도/프레임 (1분 이내 생성 목표. 품질 우선 시 768×512, 81프레임, 25스텝으로 증설)
+DEFAULT_WIDTH = 704
+DEFAULT_HEIGHT = 448
+DEFAULT_NUM_FRAMES = 49  # 8n+1 (121→49 대비 약 2.5배 단축)
 DEFAULT_FRAME_RATE = 24.0
-DEFAULT_NUM_STEPS = 25
+DEFAULT_NUM_STEPS = 18  # 25→18 (약 1.4배 단축)
 DEFAULT_GUIDANCE_SCALE = 4.0
 DEFAULT_NEGATIVE = (
     "worst quality, inconsistent motion, blurry, jittery, distorted, "
