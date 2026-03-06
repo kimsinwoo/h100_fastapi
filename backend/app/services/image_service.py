@@ -88,8 +88,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    "pet_to_human": (0.35, 0.40),
-    "pet to human": (0.35, 0.40),
+    "pet_to_human": (0.45, 0.52),
+    "pet to human": (0.45, 0.52),
     "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
