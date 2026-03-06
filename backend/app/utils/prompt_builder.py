@@ -203,11 +203,12 @@ def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
     eye_shape = a.get("eye_shape") or "warm expressive eyes"
     eye_color = a.get("eye_color") or "warm brown eyes"
     expression = a.get("expression_mood") or "gentle friendly expression"
-    # 참조 사진의 주체를 인간으로 변환: 구도·포즈·표정 유지, 100% 인간만(동물 귀/신체 금지)
+    # 참조 사진의 주체를 인간으로 변환: 동물이 아닌 인간 초상만 출력
     return (
-        "convert the subject to a human being, same pose and composition and expression, "
-        "100% human only, human face, human skin, human body, normal human ears only, no animal ears, no ears on head, "
-        "human hairstyle only, no cat ears no dog ears, photorealistic portrait, 35mm, natural lighting, "
+        "human portrait only, replace the animal with a human person, do not keep the animal, output must be human, "
+        "same pose and composition and expression as reference, human face human skin human body, "
+        "normal human ears only, no animal ears no ears on head, human hairstyle only, "
+        "photorealistic, 35mm portrait, natural lighting, "
         f"{hair_color}{hair_highlights}, {eye_shape}, {eye_color}, "
         f"expression {expression}, {outfit}, studio quality"
     )
@@ -667,8 +668,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    "pet_to_human": {"max_side": 768, "steps": 50, "guidance_scale": 7.5},
-    "pet to human": {"max_side": 768, "steps": 50, "guidance_scale": 7.5},
+    "pet_to_human": {"max_side": 768, "steps": 55, "guidance_scale": 8.0},
+    "pet to human": {"max_side": 768, "steps": 55, "guidance_scale": 8.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
