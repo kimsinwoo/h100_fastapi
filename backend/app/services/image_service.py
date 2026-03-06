@@ -87,6 +87,8 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
+    "pet_to_human": (0.35, 0.40),
+    "pet to human": (0.35, 0.40),
     "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
@@ -687,6 +689,7 @@ async def run_image_to_image(
     ac_pose: str | None = None,
     ac_sign_text: str | None = None,
     side_profile_lock: bool = False,
+    pet_to_human_attributes: dict[str, Any] | None = None,
 ):
 
     pipe = await get_pipeline()
@@ -758,6 +761,7 @@ async def run_image_to_image(
         ac_pose=ac_pose,
         ac_sign_text=ac_sign_text,
         side_profile_lock=side_profile_lock,
+        pet_to_human_attributes=pet_to_human_attributes,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None,

@@ -125,6 +125,97 @@ SPECIES_NEGATIVE_AVOID: dict[str, str] = {
     "pet": "",
 }
 
+# ========== PET → HUMAN REINTERPRETATION (structured, model-friendly) ==========
+# Output: real human portrait that visually reminds you of the pet. No furry, no cartoon.
+PET_TO_HUMAN_PERSONALITIES = (
+    "playful",
+    "calm",
+    "elegant",
+    "mischievous",
+    "loyal",
+    "sleepy",
+    "energetic",
+)
+# Fur color → human hair color (diffusion-friendly tokens)
+FUR_TO_HAIR_COLOR: dict[str, str] = {
+    "black": "black hair",
+    "white": "silver white hair",
+    "gray": "gray hair",
+    "brown": "brown hair",
+    "golden": "golden blonde hair",
+    "cream": "cream blonde hair",
+    "red": "auburn red hair",
+    "orange": "warm auburn hair",
+    "striped": "brown hair with natural highlights",
+    "spotted": "dark brown hair with lighter highlights",
+    "tabby": "brown hair with subtle streaks",
+}
+# Personality → outfit style (structured, no long narrative)
+PERSONALITY_TO_OUTFIT: dict[str, str] = {
+    "playful": "casual streetwear",
+    "calm": "soft minimalist clothing",
+    "elegant": "formal fashion",
+    "mischievous": "edgy fashion",
+    "loyal": "simple warm clothing",
+    "sleepy": "comfortable relaxed clothing",
+    "energetic": "sporty casual wear",
+}
+# Default attributes when none extracted (neutral, photorealistic human)
+DEFAULT_PET_TO_HUMAN_ATTRIBUTES: dict[str, str] = {
+    "primary_fur_color": "brown",
+    "secondary_fur_color": "",
+    "eye_shape": "warm expressive eyes",
+    "eye_color": "warm brown eyes",
+    "ear_shape": "natural hairstyle",
+    "expression_mood": "gentle friendly expression",
+    "personality": "calm",
+}
+
+
+def build_pet_to_human_prompt(attributes: dict[str, Any] | None = None) -> str:
+    """
+    Structured prompt for Pet → Human reinterpretation. No long narrative.
+    Attributes: primary_fur_color, secondary_fur_color, eye_shape, eye_color, ear_shape,
+    expression_mood, personality. Missing keys use defaults.
+    """
+    a = dict(DEFAULT_PET_TO_HUMAN_ATTRIBUTES)
+    if attributes:
+        for k, v in attributes.items():
+            if v is not None and str(v).strip():
+                a[k] = str(v).strip()
+    primary = (a.get("primary_fur_color") or "brown").lower()
+    hair_color = FUR_TO_HAIR_COLOR.get(primary) or f"{primary} hair"
+    secondary = (a.get("secondary_fur_color") or "").strip().lower()
+    hair_highlights = ""
+    if secondary and secondary in FUR_TO_HAIR_COLOR:
+        hair_highlights = f", {FUR_TO_HAIR_COLOR.get(secondary, secondary + ' highlights')}"
+    elif secondary:
+        hair_highlights = f", hair with {secondary} highlights"
+    personality = (a.get("personality") or "calm").lower()
+    if personality not in PERSONALITY_TO_OUTFIT:
+        personality = "calm"
+    outfit = PERSONALITY_TO_OUTFIT[personality]
+    eye_shape = a.get("eye_shape") or "warm expressive eyes"
+    eye_color = a.get("eye_color") or "warm brown eyes"
+    expression = a.get("expression_mood") or "gentle friendly expression"
+    return (
+        "realistic human portrait inspired by a pet, "
+        "photorealistic, natural skin texture, high detail face, natural lighting, "
+        "shallow depth of field, 35mm portrait photography, "
+        f"{hair_color}{hair_highlights}, "
+        f"hair style inspired by pet fur pattern, "
+        f"{eye_shape} inspired by pet eyes, {eye_color}, "
+        f"facial expression {expression}, "
+        f"outfit reflecting the personality: {outfit}, modern fashion, studio portrait composition"
+    )
+
+
+PET_TO_HUMAN_NEGATIVE = (
+    "cartoon, anime, illustration, 3d render, cgi, painting, clay, "
+    "animal face, animal nose, animal ears, furry, anthropomorphic animal, "
+    "animal-human hybrid, beast, mutated"
+)
+
 # ========== STYLE LAYER (construction rules) ==========
 # Outline thickness, shading layer count, color palette, eye rendering, highlight, shadow geometry.
 STYLE_PROMPTS: dict[str, str] = {
@@ -275,6 +366,9 @@ STYLE_PROMPTS: dict[str, str] = {
         "Quality: high resolution, macro photography look, shallow depth of field, realistic lens blur, sharp focus on subject. "
         "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
     ),
+    # Pet → Human: prompt built from attributes in build_prompt (build_pet_to_human_prompt)
+    "pet_to_human": "realistic human portrait inspired by a pet, photorealistic, natural skin texture, high detail face, natural lighting, shallow depth of field, 35mm portrait photography, studio portrait composition",
+    "pet to human": "realistic human portrait inspired by a pet, photorealistic, natural skin texture, high detail face, natural lighting, shallow depth of field, 35mm portrait photography, studio portrait composition",
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -536,6 +630,8 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "harsh directional light, cinematic contrast, dramatic shadows, painterly brush strokes, "
         "sharp micro-detail, high-frequency noise, hyper-real contrast, dark crushed blacks"
     ),
+    "pet_to_human": PET_TO_HUMAN_NEGATIVE,
+    "pet to human": PET_TO_HUMAN_NEGATIVE,
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -566,6 +662,8 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
+    "pet_to_human": {"max_side": 768, "steps": 40, "guidance_scale": 6.5},
+    "pet to human": {"max_side": 768, "steps": 40, "guidance_scale": 6.5},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -584,6 +682,8 @@ ALLOWED_STYLE_KEYS = [
     "animal_crossing",
     "ac_style_transfer",
     "clay_art",
+    "pet_to_human",
+    "pet to human",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())
@@ -690,14 +790,18 @@ def build_prompt(
     ac_pose: str | None = None,
     ac_sign_text: str | None = None,
     side_profile_lock: bool = False,
+    pet_to_human_attributes: dict[str, Any] | None = None,
 ) -> str:
     """
     Final prompt = (종 주어) + user_prompt + BASE_PROMPT + species_modifier + style rules.
     animal_crossing + ac_preserve_original 이면 원본 보존 템플릿 사용(참조 이미지 구성·배경·의상·포즈 유지).
+    pet_to_human 스타일이면 build_pet_to_human_prompt(attributes)만 사용(구조화된 인간 초상).
     """
-    text = (user_prompt or "").strip()
     species_key = _normalize_species(species)
     style_key = _normalize_style(style)
+    if style_key in ("pet_to_human", "pet to human") and not raw_prompt:
+        return build_pet_to_human_prompt(pet_to_human_attributes)
+    text = (user_prompt or "").strip()
     is_animal_crossing = style_key in ("animal_crossing", "animal crossing")
     is_animal_crossing_hybrid = style_key in ("animal_crossing_hybrid", "animal crossing hybrid")
 
@@ -756,6 +860,8 @@ def build_negative_prompt(
     if raw_prompt:
         return ""
     style_key = _normalize_style(style)
+    if style_key in ("pet_to_human", "pet to human"):
+        return PET_TO_HUMAN_NEGATIVE
     parts = [BASE_NEGATIVE, POSE_NEGATIVE]
     species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
