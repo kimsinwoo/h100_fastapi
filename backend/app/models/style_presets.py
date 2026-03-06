@@ -20,8 +20,6 @@ STYLE_PRESETS: dict[str, str] = {
     "animal_crossing": "게임 캐릭터 (구조 재디자인)",
     "ac_style_transfer": "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
     "clay_art": "클레이 아트 (손수 제작 점토 조각)",
-    "pet_to_human": "Pet → Human (실사 인간 초상, 반려동물 느낌)",
-    "pet to human": "Pet → Human (실사 인간 초상, 반려동물 느낌)",
 }
 
 

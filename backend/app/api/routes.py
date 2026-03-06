@@ -33,7 +33,6 @@ from app.schemas.image_schema import (
     CLOTHING_COVERAGE,
 )
 from app.services.image_service import (
-    extract_pet_attributes_for_human,
     run_ac_villager_pipeline,
     run_ac_villager_reconstruct,
     run_image_to_image,
@@ -117,7 +116,6 @@ async def generate(
     custom_prompt: Annotated[str | None, Form(description="Optional custom prompt")] = None,
     raw_prompt: Annotated[str | None, Form(description="If 'true'/'1'/'yes', use custom_prompt as-is")] = None,
     side_profile_lock: Annotated[str | None, Form(description="If 'true'/'1'/'yes', enforce 90° side profile (strength 0.65-0.75, guidance ≥8)")] = None,
-    pet_to_human_attributes: Annotated[str | None, Form(description="JSON object for pet→human: primary_fur_color, secondary_fur_color, eye_shape, eye_color, ear_shape, expression_mood, personality. Omit for defaults.")] = None,
     use_pose_lock: Annotated[str | None, Form(description="If 'true' and analysis provided, use Universal pose-lock engine")] = None,
     analysis: Annotated[str | None, Form(description="JSON from /api/image/analyze-universal for pose-lock generation")] = None,
     validate_and_retry: Annotated[str | None, Form(description="If 'true' with use_pose_lock, re-analyze output and retry on drift")] = None,
@@ -168,14 +166,6 @@ async def generate(
     raw_prompt_bool = (raw_prompt or "").strip().lower() in ("true", "1", "yes")
     use_pose_lock_bool = (use_pose_lock or "").strip().lower() in ("true", "1", "yes")
     validate_and_retry_bool = (validate_and_retry or "").strip().lower() in ("true", "1", "yes")
-    pet_to_human_attrs = None
-    if pet_to_human_attributes and pet_to_human_attributes.strip():
-        try:
-            pet_to_human_attrs = _json.loads(pet_to_human_attributes.strip())
-            if not isinstance(pet_to_human_attrs, dict):
-                pet_to_human_attrs = None
-        except _json.JSONDecodeError:
-            pet_to_human_attrs = None
     analysis_dict = None
     if use_pose_lock_bool and analysis and analysis.strip():
         try:
@@ -211,7 +201,6 @@ async def generate(
                 ac_pose=ac_pose.strip() if ac_pose and ac_pose.strip() else None,
                 ac_sign_text=ac_sign_text.strip() if ac_sign_text and ac_sign_text.strip() else None,
                 side_profile_lock=(side_profile_lock or "").strip().lower() in ("true", "1", "yes"),
-                pet_to_human_attributes=pet_to_human_attrs,
             )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -382,28 +371,6 @@ async def generate_ac_villager_reconstruct(
 
 
 # ---------- Image Analysis (structured visual attributes, JSON only) ----------
-
-
-@router.post("/image/analyze-pet-to-human")
-async def analyze_pet_to_human(
-    request: Request,
-    file: Annotated[UploadFile | None, File(description="Pet image for human-reinterpretation attributes")] = None,
-    image: Annotated[UploadFile | None, File(description="Alias for file")] = None,
-) -> dict:
-    """
-    Pet → Human: extract attributes from image (fur → hair, expression → face, personality → outfit).
-    Returns JSON: primary_fur_color, secondary_fur_color, eye_shape, eye_color, ear_shape, expression_mood, personality.
-    Stub: returns defaults until vision/LLM is wired. Use result as pet_to_human_attributes in POST /api/generate.
-    """
-    _check_rate_limit(request)
-    upload = file if (file and file.filename) else image
-    if not upload or not upload.filename:
-        raise HTTPException(status_code=422, detail="Missing file. Send as multipart field 'file' or 'image'.")
-    content = await upload.read()
-    if len(content) == 0:
-        raise HTTPException(status_code=400, detail="Empty file")
-    attrs = await extract_pet_attributes_for_human(content)
-    return attrs
 
 
 @router.post("/image/viewpoint", response_model=ViewpointAnalysisResponse)

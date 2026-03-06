@@ -28,7 +28,6 @@ from app.utils.prompt_builder import (
     build_ac_reconstruct_prompt,
     build_negative_prompt,
     build_prompt,
-    DEFAULT_PET_TO_HUMAN_ATTRIBUTES,
     get_allowed_style_keys,
     get_generation_rules,
     get_style_block,
@@ -88,8 +87,6 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    "pet_to_human": (0.68, 0.76),
-    "pet to human": (0.68, 0.76),
     "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
@@ -419,10 +416,12 @@ def _run_inference_sync(
         if img.width != target_w or img.height != target_h:
             img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-    # Deterministic seed
+    # seed 미지정 시 요청마다 다른 결과 (재생성 시 다른 이미지)
+    actual_seed = seed
+    if actual_seed is None:
+        actual_seed = int((time.perf_counter() * 1e6) % (2**31))
     generator = torch.Generator(device=_device)
-    if seed is not None:
-        generator.manual_seed(seed)
+    generator.manual_seed(actual_seed)
 
     logger.info(
         "Running img2img | steps=%d | guidance=%.2f | strength=%.2f",
@@ -671,21 +670,6 @@ def _run_inference_omnigen_sync(
 
 
 # ============================================================
-# Pet → Human: attribute extraction (stub; plug in vision/LLM later)
-# ============================================================
-
-async def extract_pet_attributes_for_human(image_bytes: bytes) -> dict[str, Any]:
-    """
-    Extract pet attributes for human reinterpretation (fur → hair, expression → face, etc.).
-    Returns dict with keys: primary_fur_color, secondary_fur_color, eye_shape, eye_color,
-    ear_shape, expression_mood, personality.
-    Stub: returns defaults. Replace with vision/LLM call (e.g. analyze image → map to attributes).
-    """
-    # TODO: call vision/LLM to analyze image_bytes and map to human-equivalent attributes
-    return dict(DEFAULT_PET_TO_HUMAN_ATTRIBUTES)
-
-
-# ============================================================
 # Public API
 # ============================================================
 
@@ -705,7 +689,6 @@ async def run_image_to_image(
     ac_pose: str | None = None,
     ac_sign_text: str | None = None,
     side_profile_lock: bool = False,
-    pet_to_human_attributes: dict[str, Any] | None = None,
 ):
 
     pipe = await get_pipeline()
@@ -715,10 +698,6 @@ async def run_image_to_image(
     logger.info("Pipeline ready, preparing inference (style=%s)", style_key)
     settings = get_settings()
     style_lower = style_key.lower().strip()
-
-    # Pet → Human: 속성 미제공 시 이미지 기반 추출(스텁) 사용
-    if style_lower in ("pet_to_human", "pet to human") and pet_to_human_attributes is None:
-        pet_to_human_attributes = await extract_pet_attributes_for_human(image_bytes)
 
     # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
     if _use_omnigen:
@@ -781,7 +760,6 @@ async def run_image_to_image(
         ac_pose=ac_pose,
         ac_sign_text=ac_sign_text,
         side_profile_lock=side_profile_lock,
-        pet_to_human_attributes=pet_to_human_attributes,
     )
     negative_prompt = build_negative_prompt(
         style_lower if not raw_prompt else None,
@@ -805,8 +783,6 @@ async def run_image_to_image(
     else:
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
-        if style_lower in ("pet_to_human", "pet to human"):
-            strength_cap = 0.76  # 동물→인간: 고양이 그대로 나오지 않도록 강한 변환
         strength = max(0.0, min(strength_cap, min(1.0, strength), max_st))
 
     # Omni-Image-Editor: 50~70 steps, guidance 7~8 / 그 외: generation_rules 사용
