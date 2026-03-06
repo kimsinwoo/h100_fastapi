@@ -32,29 +32,68 @@ DEFAULT_NEGATIVE = (
 )
 
 
-def _load_pipeline_sync() -> Any:
-    import torch
+def _get_image_to_video_pipeline_class() -> tuple:
+    """LTX2ImageToVideoPipeline 또는 LTX2ConditionPipeline 클래스 정보 반환. 없으면 ImportError."""
     try:
         from diffusers import LTX2ImageToVideoPipeline
+        return ("image2video", LTX2ImageToVideoPipeline)
+    except ImportError:
+        pass
+    try:
+        from diffusers.pipelines.ltx2 import LTX2ImageToVideoPipeline
+        return ("image2video", LTX2ImageToVideoPipeline)
+    except ImportError:
+        pass
+    try:
+        from diffusers.pipelines.ltx2.pipeline_ltx2_image2video import LTX2ImageToVideoPipeline
+        return ("image2video", LTX2ImageToVideoPipeline)
+    except ImportError:
+        pass
+    try:
+        from diffusers import LTX2ConditionPipeline
+        from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
+        return ("condition", LTX2ConditionPipeline, LTX2VideoCondition)
     except ImportError:
         try:
-            from diffusers.pipelines.ltx2 import LTX2ImageToVideoPipeline
+            from diffusers.pipelines.ltx2 import LTX2ConditionPipeline
+            from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
+            return ("condition", LTX2ConditionPipeline, LTX2VideoCondition)
         except ImportError as e:
             raise ImportError(
-                "LTX2ImageToVideoPipeline을 불러올 수 없습니다. LTX-2 비디오는 diffusers main 브랜치 필요 (0.37 미출시). "
+                "LTX-2 비디오 파이프라인을 불러올 수 없습니다. diffusers main 브랜치 필요. "
                 "설치: pip install git+https://github.com/huggingface/diffusers.git"
             ) from e
 
+
+def _load_pipeline_sync() -> Any:
+    import torch
+
+    pipeline_type = _get_image_to_video_pipeline_class()
     global _pipeline
     model_id = getattr(get_settings(), "ltx2_model_id", "Lightricks/LTX-2")
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    _pipeline = LTX2ImageToVideoPipeline.from_pretrained(model_id, torch_dtype=dtype)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cuda":
-        _pipeline.enable_sequential_cpu_offload(device=device)
+
+    if pipeline_type[0] == "image2video":
+        PipeClass = pipeline_type[1]
+        _pipeline = PipeClass.from_pretrained(model_id, torch_dtype=dtype)
+        if device == "cuda":
+            _pipeline.enable_sequential_cpu_offload(device=device)
+        else:
+            _pipeline = _pipeline.to(device)
+        logger.info("LTX-2 Image-to-Video pipeline loaded (model=%s)", model_id)
     else:
-        _pipeline = _pipeline.to(device)
-    logger.info("LTX-2 Image-to-Video pipeline loaded (model=%s)", model_id)
+        PipeClass = pipeline_type[1]
+        LTX2VideoCondition = pipeline_type[2]
+        _pipeline = PipeClass.from_pretrained(model_id, torch_dtype=dtype)
+        if device == "cuda":
+            _pipeline.enable_sequential_cpu_offload(device=device)
+        else:
+            _pipeline = _pipeline.to(device)
+        if hasattr(_pipeline, "vae") and _pipeline.vae is not None:
+            _pipeline.vae.enable_tiling()
+        _pipeline._ltx_video_condition_class = LTX2VideoCondition
+        logger.info("LTX-2 Condition pipeline loaded for image-to-video (model=%s)", model_id)
     return _pipeline
 
 
@@ -110,21 +149,44 @@ def _run_image_to_video_sync(
         "LTX-2 image2video | %dx%d | frames=%d | steps=%d",
         width, height, num_frames, num_inference_steps,
     )
-    out = _pipeline(
-        image=img,
-        prompt=prompt,
-        negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
-        width=width,
-        height=height,
-        num_frames=num_frames,
-        frame_rate=frame_rate,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale,
-        output_type="np",
-        return_dict=False,
-        generator=generator,
-    )
-    video_frames = out[0]
+
+    use_condition = getattr(_pipeline, "_ltx_video_condition_class", None) is not None
+    if use_condition:
+        LTX2VideoCondition = _pipeline._ltx_video_condition_class
+        condition = LTX2VideoCondition(frames=img, index=0, strength=1.0)
+        out = _pipeline(
+            conditions=[condition],
+            prompt=prompt,
+            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            output_type="np",
+            return_dict=False,
+            generator=generator,
+        )
+    else:
+        out = _pipeline(
+            image=img,
+            prompt=prompt,
+            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            output_type="np",
+            return_dict=False,
+            generator=generator,
+        )
+
+    # out = (video, audio); video는 배치 리스트이므로 video[0]이 [T,H,W,C] numpy
+    video_out = out[0]
+    video_frames = video_out[0] if isinstance(video_out, (list, tuple)) else video_out
     audio = out[1] if len(out) > 1 else None
 
     from diffusers.pipelines.ltx2.export_utils import encode_video
@@ -136,9 +198,13 @@ def _run_image_to_video_sync(
     try:
         kwargs = {"output_path": tmp_path, "fps": frame_rate}
         if audio is not None and len(audio) > 0 and hasattr(_pipeline, "vocoder") and _pipeline.vocoder is not None:
-            kwargs["audio"] = audio[0].float().cpu()
-            kwargs["audio_sample_rate"] = _pipeline.vocoder.config.output_sampling_rate
-        encode_video(video_frames[0], **kwargs)
+            audio_tensor = audio[0] if isinstance(audio, (list, tuple)) else audio
+            if hasattr(audio_tensor, "float"):
+                kwargs["audio"] = audio_tensor.float().cpu()
+            kwargs["audio_sample_rate"] = getattr(
+                _pipeline.vocoder.config, "output_sampling_rate", 24000
+            )
+        encode_video(video_frames, **kwargs)
         with open(tmp_path, "rb") as f:
             return f.read()
     finally:
