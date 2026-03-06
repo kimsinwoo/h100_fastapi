@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.api.routes import router as api_router
 from app.utils.file_handler import ensure_generated_dir
-from app.services.image_service import is_pipeline_loaded
+from app.services.image_service import is_pipeline_loaded, preload_pipeline
 
 # Configure logging
 logging.basicConfig(
@@ -51,13 +51,15 @@ def _gpu_available() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: static dir, Z-Image-Turbo API만 사용. 파이프라인은 첫 /api/generate 시 lazy 로드."""
+    """Startup: static dir, 파이프라인 기동 시 preload. 첫 요청 대기 없음."""
     settings = get_settings()
     ensure_generated_dir()
-    # 실제 저장/서빙 경로 확인용 (K8s 멀티 Pod에서 404 시 로그로 경로·단일 Pod 여부 확인)
     static_abs = settings.static_dir if settings.static_dir.is_absolute() else settings.backend_dir / settings.static_dir
     logger.info("Static directory ready: %s (resolved: %s)", settings.generated_dir, static_abs.resolve())
     logger.info("Z-Image-Turbo API: http://0.0.0.0:%s (API: /api/generate, /api/styles, 상태: /health)", settings.port)
+    # 파이프라인 기동 시 로드 (첫 요청에서 로드하지 않음)
+    logger.info("Preloading image pipeline...")
+    await preload_pipeline()
     if not settings.llm_use_local and settings.llm_api_base:
         logger.info(
             "LLM (vLLM): 요청 주소=%s — 7001 vLLM에 로그가 안 뜨면 메인과 vLLM이 같은 호스트인지 확인하고, 다른 호스트면 LLM_API_BASE를 vLLM이 도는 주소로 설정하세요.",

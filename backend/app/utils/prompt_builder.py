@@ -563,17 +563,17 @@ NEGATIVE_AC_PRESERVE = (
 )
 
 # ========== GENERATION RULES ==========
-# pixel_art: 384 생성 후 512로 리사이즈(nearest). steps/guidance 상향으로 품질·종 구분 강화.
+# pixel_art: 384 생성 후 512 리사이즈. manga/2D: steps·guidance 상향해 pixel·동숲·클레이와 비슷한 품질.
 GENERATION_RULES: dict[str, dict[str, Any]] = {
     "pixel_art": {"max_side": 384, "steps": 48, "guidance_scale": 7.5},
     "pixel art": {"max_side": 384, "steps": 48, "guidance_scale": 7.5},
-    "dragonball": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "slamdunk": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "sailor_moon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "pokemon": {"max_side": 768, "steps": 30, "guidance_scale": 6.5},
-    "dooly": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    "mazinger": {"max_side": 768, "steps": 30, "guidance_scale": 7.0},
-    "shinchan": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
+    "dragonball": {"max_side": 768, "steps": 38, "guidance_scale": 7.0},
+    "slamdunk": {"max_side": 768, "steps": 38, "guidance_scale": 7.0},
+    "sailor_moon": {"max_side": 768, "steps": 38, "guidance_scale": 7.0},
+    "pokemon": {"max_side": 768, "steps": 38, "guidance_scale": 7.0},
+    "dooly": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
+    "mazinger": {"max_side": 768, "steps": 38, "guidance_scale": 7.0},
+    "shinchan": {"max_side": 768, "steps": 36, "guidance_scale": 7.0},
     # 동물의숲 단일 스타일: strength 0.78, guidance 8.5, steps 48, 768x768, pose preservation OFF
     "animal_crossing": {"max_side": 768, "steps": 48, "guidance_scale": 8.5},
     "animal crossing": {"max_side": 768, "steps": 48, "guidance_scale": 8.5},

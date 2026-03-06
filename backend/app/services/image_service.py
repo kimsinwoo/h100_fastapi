@@ -1,6 +1,14 @@
 """
-Production-grade Z-Image-Turbo img2img service
-Optimized for quality, stability, and commercial deployment
+이미지 생성 서비스: Z-Image-Turbo / OmniGen 파이프라인 + 추론 + AC Villager + Pose Lock.
+
+구조:
+- 파이프라인 로딩: _load_pipeline_sync, get_pipeline, preload_pipeline (서버 기동 시 preload 권장)
+- img2img 추론: _run_inference_sync, run_image_to_image (스타일별 strength/steps/guidance)
+- 픽셀아트/동물의숲/클레이: GENERATION_RULES·STRENGTH_BY_STYLE로 품질 유지
+- AC Villager: run_ac_villager_pipeline, run_ac_villager_reconstruct
+- Pose Lock: run_universal_animal_generate (분석 JSON + 의류 보존)
+
+안정성: 추론 실패 시 로그 후 RuntimeError 재발생.
 """
 
 from __future__ import annotations
@@ -77,6 +85,11 @@ MODEL_RESOLUTION = 1024
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "pixel_art": (0.40, 0.52),   # 원본 형태 유지하며 픽셀화 (종 구분·품질 강화)
     "pixel art": (0.40, 0.52),
+    "dragonball": (0.46, 0.54),
+    "slamdunk": (0.46, 0.54),
+    "pokemon": (0.46, 0.54),
+    "dooly": (0.46, 0.54),
+    "shinchan": (0.46, 0.54),
     "sailor_moon": (0.40, 0.52),
     "mazinger": (0.42, 0.54),
     "animal_crossing": (0.78, 0.78),  # 동물의숲 완전 재디자인: pose OFF, background influence OFF
@@ -324,6 +337,17 @@ def is_pipeline_loaded() -> bool:
     return _pipeline is not None
 
 
+async def preload_pipeline() -> bool:
+    """서버 기동 시 파이프라인 미리 로드. lifespan에서 호출하면 첫 요청 시 대기 없음. 성공 시 True."""
+    try:
+        await get_pipeline()
+        logger.info("Pipeline preloaded at startup")
+        return True
+    except Exception as e:
+        logger.warning("Pipeline preload at startup failed (will load on first request): %s", e)
+        return False
+
+
 def is_omnigen_in_use() -> bool:
     """현재 OmniGen(Omni) 파이프라인 사용 중인지."""
     return _use_omnigen
@@ -458,19 +482,22 @@ def _run_inference_sync(
     ctx_autocast = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
     logger.info("_run_inference_sync: calling pipeline (GPU inference, first run may compile kernels)")
-    with torch.inference_mode(), _optimized_inference_context(), ctx_autocast:
-        result = _pipeline(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            image=img,
-            strength=strength,
-            num_inference_steps=num_steps,
-            guidance_scale=guidance_scale,
-            generator=generator,
-            output_type="pil",
-        )
-
-    image = result.images[0]
+    try:
+        with torch.inference_mode(), _optimized_inference_context(), ctx_autocast:
+            result = _pipeline(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image=img,
+                strength=strength,
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                generator=generator,
+                output_type="pil",
+            )
+        image = result.images[0]
+    except Exception as e:
+        logger.exception("img2img pipeline failed: %s", e)
+        raise RuntimeError(f"이미지 생성 실패: {e}") from e
     logger.info("_run_inference_sync: pipeline returned")
 
     buf = io.BytesIO()
@@ -691,7 +718,11 @@ async def run_image_to_image(
     side_profile_lock: bool = False,
 ):
 
-    pipe = await get_pipeline()
+    try:
+        pipe = await get_pipeline()
+    except Exception as e:
+        logger.exception("get_pipeline failed: %s", e)
+        raise RuntimeError(f"모델 로드 실패: {e}") from e
     if pipe is None:
         raise RuntimeError("Model not available")
 
