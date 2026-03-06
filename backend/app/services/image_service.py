@@ -44,21 +44,6 @@ from app.utils.pose_lock_engine import (
     analysis_drift_requires_retry,
     validation_requires_retry,
 )
-from app.utils.cloud_theme import (
-    get_cloud_theme_block,
-    get_cloud_theme_negative,
-    get_cloud_identity_lock_block,
-    get_gpt_cloud_photoreal_block,
-    get_gpt_cloud_photoreal_negative,
-)
-from app.services.background_replacement import (
-    is_background_replacement_available,
-    segment_foreground,
-    composite_foreground_on_background,
-    create_cloud_background_prompt,
-    create_cloud_background_negative,
-)
-
 # 스타일 키(소문자) -> lora_output 내 파일명. 학습된 LoRA가 있으면 추론 시 로드
 # API/프론트는 pixel_art(언더스코어)로 보낼 수 있으므로 둘 다 매핑
 STYLE_TO_LORA_FILENAME: dict[str, str] = {
@@ -81,8 +66,6 @@ _omnigen_scheduler_lock = threading.Lock()
 
 # ===== Z-Image-Turbo 권장값 =====
 # Turbo: "원본 보존"이 아니라 "참고해서 새로 생성" 성향. 0.5+ strength 시 identity 재샘플링.
-# 개체 동일성 = Subject 분리 → 배경만 diffusion → 합성 (전체 img2img 사용 안 함). See docs/IDENTITY_PRESERVING_PIPELINE.md.
-# Cloud fallback(전체 img2img) 시: strength 0.42, steps 28, guidance 6.5로 "수정" 모드만 사용.
 # guidance_scale=0 이면 negative_prompt는 무시됨(공식 문서). 픽셀아트만 1.8로 올려 네거티브 적용.
 DEFAULT_GUIDANCE_SCALE = 0.0
 PIXEL_ART_GUIDANCE_SCALE = 1.8  # 픽셀아트: voxel/3D 블록 차단하려면 1 이상 필요
@@ -109,12 +92,6 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    # Cloud fallback: Turbo 0.5+ 시 identity 재샘플링. 0.38–0.45로 "수정" 모드만.
-    "cloud_theme": (0.38, 0.45),
-    "cloud theme": (0.38, 0.45),
-    # GPT Cloud Photoreal: strength 0.55–0.65, avoid extreme stylization
-    "cloud_photoreal": (0.55, 0.65),
-    "cloud photoreal": (0.55, 0.65),
     "anime": (0.48, 0.56),
     "realistic": (0.46, 0.56),
     "watercolor": (0.48, 0.56),
@@ -734,29 +711,6 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # Cloud: img2img 전체 변환 사용 안 함. Subject 분리 → 배경만 구름 → 합성 후 즉 반환.
-    if style_lower in ("cloud_theme", "cloud theme", "cloud_photoreal", "cloud photoreal") and is_background_replacement_available():
-        rules = get_generation_rules(style_lower)
-        max_side = size or rules["max_side"]
-        loop = asyncio.get_event_loop()
-        start = time.perf_counter()
-        composite_bytes = await loop.run_in_executor(
-            None,
-            lambda: _run_background_replacement_cloud_sync(
-                image_bytes,
-                max_side=max_side,
-                seed=seed,
-                photoreal=style_lower in ("cloud_photoreal", "cloud photoreal"),
-            ),
-        )
-        elapsed = time.perf_counter() - start
-        if composite_bytes is not None:
-            logger.info(
-                "[Cloud] Subject separation → background only → composite. No img2img on subject (identity preserved)."
-            )
-            return composite_bytes, elapsed
-        logger.warning("[Cloud] Background replacement failed; falling back to full img2img")
-
     # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
     if _use_omnigen:
         user_text = (custom_prompt or "").strip()
@@ -838,10 +792,6 @@ async def run_image_to_image(
     if side_profile_lock:
         # 측면 고정: strength 0.65~0.75, guidance 8+ (pose/depth 유지). 스타일 상한 무시.
         strength = 0.70 if strength is None else max(0.65, min(0.75, float(strength) if strength is not None else 0.70))
-    elif style_lower in ("cloud_theme", "cloud theme"):
-        # Turbo: 0.5 이상이면 "참고해서 새로 그려라" 동작. Fallback 전체 img2img 시 0.42로 "수정" 모드만.
-        strength = 0.42 if strength is None else max(0.35, min(0.45, float(strength) if strength is not None else 0.42))
-        strength = max(0.0, min(0.45, min(1.0, strength)))
     else:
         strength = strength if strength is not None else default_st
         strength_cap = OMNI_STRENGTH_MAX if style_lower == "omni" else STRENGTH_GLOBAL_MAX
@@ -907,69 +857,6 @@ def _make_gray_image_bytes(size: int = 768) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
-
-
-def _make_solid_image_bytes(width: int, height: int, r: int = 0xE8, g: int = 0xF4, b: int = 0xFC) -> bytes:
-    """Solid-color RGB image for cloud background seed (light sky blue). Dimensions must be 8-multiple for pipeline."""
-    from PIL import Image
-    w8 = max(64, (width // 8) * 8)
-    h8 = max(64, (height // 8) * 8)
-    img = Image.new("RGB", (w8, h8), color=(r, g, b))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _run_background_replacement_cloud_sync(
-    image_bytes: bytes,
-    max_side: int,
-    seed: int | None,
-    photoreal: bool,
-) -> bytes | None:
-    """
-    Subject 분리 → 배경만 구름 생성 → 합성. Subject에는 노이즈 미주입.
-    Returns composite RGB bytes, or None if segmentation unavailable/failed.
-    Caller must NOT run img2img on the composite (subject would be re-sampled).
-    """
-    from PIL import Image, ImageOps
-    if not is_background_replacement_available():
-        return None
-    img = Image.open(io.BytesIO(image_bytes))
-    img = ImageOps.exif_transpose(img)
-    img = img.convert("RGB")
-    target_w, target_h = _resize_keep_ratio(img.width, img.height, max_side)
-    if img.width != target_w or img.height != target_h:
-        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    resized_bytes = buf.getvalue()
-    pet_rgba_bytes = segment_foreground(resized_bytes)
-    if not pet_rgba_bytes:
-        logger.warning("[BackgroundOverride] Segmentation failed; falling back to img2img-only.")
-        return None
-    cloud_prompt = create_cloud_background_prompt(photoreal=photoreal)
-    cloud_negative = create_cloud_background_negative()
-    solid_bytes = _make_solid_image_bytes(target_w, target_h)
-    try:
-        cloud_bytes = _run_inference_sync(
-            solid_bytes,
-            cloud_prompt,
-            cloud_negative,
-            strength=0.88,  # 배경만 생성 → 0.85~0.9. Subject 미포함이므로 높게.
-            num_steps=30,
-            guidance_scale=7.5,
-            max_side=max_side,
-            seed=seed,
-            force_square=False,
-        )
-    except Exception as e:
-        logger.exception("[BackgroundOverride] Cloud background generation failed: %s", e)
-        return None
-    cloud_pil = Image.open(io.BytesIO(cloud_bytes)).convert("RGB")
-    if cloud_pil.size != (target_w, target_h):
-        cloud_pil = cloud_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
-    composite_bytes = composite_foreground_on_background(pet_rgba_bytes, cloud_pil)
-    return composite_bytes
 
 
 async def run_ac_villager_pipeline(
@@ -1129,7 +1016,6 @@ async def run_universal_animal_generate(
     seed: int | None = None,
     validate_and_retry: bool = False,
     max_retries: int = 1,
-    cloud_intensity: str | None = None,
 ) -> tuple[bytes, float]:
     """
     Pose-lock, structure-lock generation. Uses UniversalAnalysisResponse (or dict).
@@ -1147,75 +1033,13 @@ async def run_universal_animal_generate(
     guidance_scale = max(get_pose_lock_guidance_min(), float(rules.get("guidance_scale", 8.0)))
     strength = get_pose_lock_strength("normal")
 
-    # GPT Cloud Replica Mode: append after pose-lock and clothing; style intensity HIGH
-    use_cloud_theme = style_lower in ("cloud_theme", "cloud theme")
-    use_cloud_photoreal = style_lower in ("cloud_photoreal", "cloud photoreal")
-    if use_cloud_theme:
-        # Cloud fallback(전체 img2img) 시: Turbo는 0.5+ identity 재샘플링. 0.42 / steps 28 / guidance 6.5로 "수정" 모드.
-        guidance_scale = 6.5
-        num_steps = 28
-        strength = 0.42
-    elif use_cloud_photoreal:
-        guidance_scale = max(8.0, min(10.0, float(rules["guidance_scale"])))
-        strength = 0.60
-    if use_cloud_theme and strength > 0.45:
-        logger.warning("[Universal] Turbo cloud fallback: strength %.2f > 0.45 may resample identity; capping at 0.45", strength)
-        strength = min(0.45, strength)
-    if use_cloud_theme:
-        cloud_intensity_val = (cloud_intensity or "high").strip().lower()
-        if cloud_intensity_val not in ("low", "medium", "high"):
-            cloud_intensity_val = "high"
-    else:
-        cloud_intensity_val = (cloud_intensity or "medium").strip().lower() if cloud_intensity else "medium"
-    if use_cloud_theme or use_cloud_photoreal:
-        style_block = ""
-    else:
-        style_block = get_style_block(
-            style_lower,
-            cloud_intensity=cloud_intensity_val if cloud_intensity else None,
-        )
-    # Cloud mode: no 2D character redesign; use plain species (dog, cat) not "dog character"
-    subject_prefix = ""
-    if use_cloud_theme or use_cloud_photoreal:
-        subject_prefix = (species_key or "pet").strip() if species_key else "pet"
-    elif species_key and species_key in SPECIES_SUBJECT:
-        subject_prefix = SPECIES_SUBJECT[species_key]
-    prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix or None)
-    if use_cloud_theme:
-        prompt = f"{prompt} {get_cloud_identity_lock_block()} {get_cloud_theme_block(cloud_intensity_val)}"
-    elif use_cloud_photoreal:
-        prompt = f"{prompt} {get_gpt_cloud_photoreal_block()}"
+    style_block = get_style_block(style_lower)
+    subject_prefix = (SPECIES_SUBJECT.get(species_key) if species_key else None) or None
+    prompt = build_pose_lock_prompt(analysis, style_block=style_block, subject_prefix=subject_prefix)
     negative = build_pose_lock_negative()
     style_neg = NEGATIVE_BY_STYLE.get(style_lower, "")
     if style_neg:
         negative = f"{negative}, {style_neg}"
-    if use_cloud_theme:
-        negative = f"{negative}, {get_cloud_theme_negative()}"
-    elif use_cloud_photoreal:
-        negative = f"{negative}, {get_gpt_cloud_photoreal_negative()}"
-
-    # 구조적 해결: 배경만 교체. Subject에는 노이즈 주지 않음 (img2img 전체 변환 사용 안 함).
-    # Subject 분리 → 배경만 구름 생성 → 합성. 합성 성공 시 img2img 스킵 → identity 100% 유지.
-    use_background_override = (use_cloud_theme or use_cloud_photoreal) and is_background_replacement_available()
-    if use_background_override:
-        loop_bg = asyncio.get_event_loop()
-        total_start = time.perf_counter()
-        composite_bytes = await loop_bg.run_in_executor(
-            None,
-            lambda: _run_background_replacement_cloud_sync(
-                image_bytes,
-                max_side=max_side,
-                seed=seed,
-                photoreal=use_cloud_photoreal,
-            ),
-        )
-        elapsed = time.perf_counter() - total_start
-        if composite_bytes is not None:
-            logger.info(
-                "[Universal] Cloud: subject separation → background only → composite. No img2img on subject (identity preserved)."
-            )
-            return composite_bytes, elapsed
-        logger.warning("[Universal] Background replacement failed; falling back to full img2img (identity may change)")
 
     input_bytes = image_bytes
     loop = asyncio.get_event_loop()
@@ -1239,7 +1063,7 @@ async def run_universal_animal_generate(
         if not validate_and_retry or attempt >= max_retries:
             break
         re_analyzed = _reanalyze_universal_stub(out_bytes, analysis)
-        if not validation_requires_retry(analysis, re_analyzed, required_cloud_theme=use_cloud_theme):
+        if not validation_requires_retry(analysis, re_analyzed, required_cloud_theme=False):
             break
         logger.info("[Universal] Validation drift detected, retrying generation (attempt %s)", attempt + 2)
         input_bytes = out_bytes

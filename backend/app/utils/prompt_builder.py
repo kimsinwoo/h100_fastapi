@@ -9,15 +9,6 @@ from __future__ import annotations
 import random
 from typing import Any, Literal
 
-from app.utils.cloud_theme import (
-    get_cloud_theme_block,
-    get_cloud_theme_negative,
-    get_cloud_identity_lock_block,
-    get_cloud_theme_full_prompt_lead,
-    get_gpt_cloud_photoreal_block,
-    get_gpt_cloud_photoreal_negative,
-)
-
 # ========== BASE PROMPT (species-agnostic) ==========
 # Stylized 2D animated character redesign; subject = "small pet animal character"
 BASE_PROMPT = (
@@ -284,11 +275,6 @@ STYLE_PROMPTS: dict[str, str] = {
         "Quality: high resolution, macro photography look, shallow depth of field, realistic lens blur, sharp focus on subject. "
         "No painterly brush strokes, no digital illustration look, no CGI plastic look. Professional stop-motion clay animation still frame."
     ),
-    # Cloud theme: high-key, soft clouds, structure preserved; modular for pose-lock injection
-    "cloud_theme": get_cloud_theme_block("high"),   # GPT Cloud Replica (pet-only)
-    "cloud theme": get_cloud_theme_block("high"),
-    "cloud_photoreal": get_gpt_cloud_photoreal_block(),   # Real photo in real sky
-    "cloud photoreal": get_gpt_cloud_photoreal_block(),
 }
 
 # 동물의숲 3D: 배경 랜덤 선택 (원본 이미지와 무관, 게임 배경과 캐릭터 3D 통일)
@@ -550,10 +536,6 @@ NEGATIVE_BY_STYLE: dict[str, str] = {
         "harsh directional light, cinematic contrast, dramatic shadows, painterly brush strokes, "
         "sharp micro-detail, high-frequency noise, hyper-real contrast, dark crushed blacks"
     ),
-    "cloud_theme": get_cloud_theme_negative(),
-    "cloud theme": get_cloud_theme_negative(),
-    "cloud_photoreal": get_gpt_cloud_photoreal_negative(),
-    "cloud photoreal": get_gpt_cloud_photoreal_negative(),
 }
 
 # 동물의숲 원본 보존 모드 전용 네거티브 (배경/의상 변경 금지, 원본 유지 유도)
@@ -584,12 +566,6 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
     "ac style transfer": {"max_side": 768, "steps": 46, "guidance_scale": 7.5},
     "clay_art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
     "clay art": {"max_side": 768, "steps": 50, "guidance_scale": 8.5},
-    # Cloud fallback용 (Turbo: 0.5+ 시 identity 재해석. 0.42 이하에서만 "수정" 모드.)
-    "cloud_theme": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    "cloud theme": {"max_side": 768, "steps": 28, "guidance_scale": 6.5},
-    # GPT Cloud Photoreal: guidance 8–10, strength 0.55–0.65, avoid extreme stylization
-    "cloud_photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
-    "cloud photoreal": {"max_side": 768, "steps": 36, "guidance_scale": 9.0},
 }
 
 STYLE_TEMPLATES = STYLE_PROMPTS
@@ -608,8 +584,6 @@ ALLOWED_STYLE_KEYS = [
     "animal_crossing",
     "ac_style_transfer",
     "clay_art",
-    "cloud_theme",
-    "cloud_photoreal",
 ]
 
 ALLOWED_SPECIES_KEYS = list(SPECIES_MODIFIERS.keys())
@@ -661,22 +635,17 @@ def get_generation_rules(style_key: str | None) -> dict[str, Any]:
 def get_style_block(
     style_key: str | None,
     ac_background: str | None = None,
-    cloud_intensity: Literal["low", "medium", "high"] | None = None,
 ) -> str:
     """
     Return only the style prompt string for injection (e.g. pose-lock engine).
     No base, no species, no POSE_PRESERVATION. Style never overrides pose when used after pose rules.
-    For cloud_theme, cloud_intensity (low/medium/high) can be passed to tune effect strength.
     """
     if not style_key:
         return ""
     key = _normalize_style(style_key)
     if not key or key not in STYLE_PROMPTS:
         return ""
-    if key in ("cloud_theme", "cloud theme") and cloud_intensity:
-        block = get_cloud_theme_block(cloud_intensity)
-    else:
-        block = STYLE_PROMPTS[key]
+    block = STYLE_PROMPTS[key]
     if "{{AC_BACKGROUND}}" in block:
         block = block.replace("{{AC_BACKGROUND}}", get_random_ac_background(ac_background))
     return block
@@ -738,15 +707,6 @@ def build_prompt(
             species_key, ac_eye_color, ac_pose, ac_sign_text
         )
 
-    # Cloud 테마: Identity Lock을 맨 위에, 그 다음 구름 블록 (배경만 바꾸고 개체 동일성 유지).
-    if style_key in ("cloud_theme", "cloud theme") and not raw_prompt:
-        parts = [get_cloud_identity_lock_block(), get_cloud_theme_full_prompt_lead()]
-        if species_key:
-            parts.append(species_key)
-        if side_profile_lock:
-            parts.append(SIDE_PROFILE_LOCK_PROMPT)
-        return ", ".join(parts)
-
     if not raw_prompt and species_key and species_key in SPECIES_SUBJECT:
         subject = SPECIES_SUBJECT[species_key]
         if not text:
@@ -796,12 +756,6 @@ def build_negative_prompt(
     if raw_prompt:
         return ""
     style_key = _normalize_style(style)
-    # Cloud 테마: BASE_NEGATIVE 사용 안 함 (photorealistic/real fur/real skin 제거 — 구름 질감 억제 방지)
-    if style_key in ("cloud_theme", "cloud theme"):
-        parts = [POSE_NEGATIVE, get_cloud_theme_negative()]
-        if side_profile_lock:
-            parts.append(NEGATIVE_SIDE_PROFILE_LOCK)
-        return ", ".join(p for p in parts if p)
     parts = [BASE_NEGATIVE, POSE_NEGATIVE]
     species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
