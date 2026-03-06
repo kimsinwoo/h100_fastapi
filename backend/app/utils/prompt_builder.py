@@ -53,13 +53,21 @@ POSE_NEGATIVE = (
     "reposed, pose change, different angle"
 )
 
+# ========== COLOR PRESERVATION (참조 이미지의 털색·옷색 동일 유지) ==========
+COLOR_PRESERVATION = (
+    "match exact fur color and coat color from reference image, "
+    "match exact clothing color and garment color from reference, "
+    "do not change pet fur color, do not change outfit color"
+)
 # ========== CLOTHING/ACCESSORIES PRESERVATION (참조 이미지에 옷·소품이 있으면 유지) ==========
 CLOTHING_PRESERVATION = (
     "preserve any clothing or accessories visible in the reference image, "
+    "same clothing color and same garment color as reference, "
     "do not blend clothing into fur, keep same outfit and garments as reference"
 )
 CLOTHING_NEGATIVE = (
-    "clothing removed, clothing blended into body, outfit missing, garment disappeared, naked when reference has clothes"
+    "clothing removed, clothing blended into body, outfit missing, garment disappeared, naked when reference has clothes, "
+    "wrong fur color, wrong coat color, different fur color, wrong clothing color, different outfit color, changed garment color"
 )
 
 # ========== SPECIES SUBJECT (주어 명시: 고양이/강아지 구분 확실히) ==========
@@ -730,6 +738,7 @@ def build_prompt(
     # 동물의숲: 완전 재디자인 모드 → 포즈/원본 구도 보존 안 함 (pose preservation OFF)
     if not (is_animal_crossing or is_animal_crossing_hybrid):
         parts.append(POSE_PRESERVATION)
+        parts.append(COLOR_PRESERVATION)
         parts.append(CLOTHING_PRESERVATION)
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
