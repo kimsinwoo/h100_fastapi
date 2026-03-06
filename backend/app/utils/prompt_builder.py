@@ -53,6 +53,15 @@ POSE_NEGATIVE = (
     "reposed, pose change, different angle"
 )
 
+# ========== CLOTHING/ACCESSORIES PRESERVATION (참조 이미지에 옷·소품이 있으면 유지) ==========
+CLOTHING_PRESERVATION = (
+    "preserve any clothing or accessories visible in the reference image, "
+    "do not blend clothing into fur, keep same outfit and garments as reference"
+)
+CLOTHING_NEGATIVE = (
+    "clothing removed, clothing blended into body, outfit missing, garment disappeared, naked when reference has clothes"
+)
+
 # ========== SPECIES SUBJECT (주어 명시: 고양이/강아지 구분 확실히) ==========
 # 프롬프트 맨 앞에 올려 모델이 종을 명확히 인식하도록 함.
 SPECIES_SUBJECT: dict[str, str] = {
@@ -721,6 +730,7 @@ def build_prompt(
     # 동물의숲: 완전 재디자인 모드 → 포즈/원본 구도 보존 안 함 (pose preservation OFF)
     if not (is_animal_crossing or is_animal_crossing_hybrid):
         parts.append(POSE_PRESERVATION)
+        parts.append(CLOTHING_PRESERVATION)
     if species_key and species_key in SPECIES_MODIFIERS:
         parts.append(SPECIES_MODIFIERS[species_key])
     if style_key and style_key in STYLE_PROMPTS:
@@ -756,7 +766,7 @@ def build_negative_prompt(
     if raw_prompt:
         return ""
     style_key = _normalize_style(style)
-    parts = [BASE_NEGATIVE, POSE_NEGATIVE]
+    parts = [BASE_NEGATIVE, POSE_NEGATIVE, CLOTHING_NEGATIVE]
     species_key = _normalize_species(species)
     if species_key and species_key in SPECIES_NEGATIVE_AVOID and SPECIES_NEGATIVE_AVOID[species_key]:
         parts.append(SPECIES_NEGATIVE_AVOID[species_key])
