@@ -77,13 +77,8 @@ MODEL_RESOLUTION = 1024
 STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "pixel_art": (0.40, 0.52),   # 원본 형태 유지하며 픽셀화 (종 구분·품질 강화)
     "pixel art": (0.40, 0.52),
-    "dragonball": (0.40, 0.52),  # 자세 유지: 누움/앉음 등 참조 유지
-    "slamdunk": (0.40, 0.52),
     "sailor_moon": (0.40, 0.52),
-    "pokemon": (0.40, 0.52),
-    "dooly": (0.38, 0.52),
     "mazinger": (0.42, 0.54),
-    "shinchan": (0.38, 0.52),
     "animal_crossing": (0.78, 0.78),  # 동물의숲 완전 재디자인: pose OFF, background influence OFF
     "animal crossing": (0.78, 0.78),
     "animal_crossing_hybrid": (0.48, 0.48),
@@ -92,15 +87,6 @@ STRENGTH_BY_STYLE: dict[str, tuple[float, float]] = {
     "ac style transfer": (0.58, 0.64),
     "clay_art": (0.60, 0.68),
     "clay art": (0.60, 0.68),
-    "anime": (0.48, 0.56),
-    "realistic": (0.46, 0.56),
-    "watercolor": (0.48, 0.56),
-    "cyberpunk": (0.48, 0.56),
-    "oil painting": (0.48, 0.56),
-    "sketch": (0.48, 0.56),
-    "cinematic": (0.46, 0.54),
-    "fantasy art": (0.48, 0.56),
-    "3d render": (0.50, 0.58),
     "omni": (0.65, 0.80),
 }
 DEFAULT_STRENGTH_FALLBACK = 0.50
