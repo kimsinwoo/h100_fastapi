@@ -1,8 +1,8 @@
 """
 Dance / Motion Transfer pipeline: pose extraction → normalization → video generation.
 
-프롬프트: 관절 단순화(몸통 sway + 꼬리만), 루프 명시(repeating rhythm, simple loop), head steady, static camera.
-condition_strength 0.55~0.65: 높으면 몸/얼굴 변형. frames 49~65 권장.
+프롬프트: slow start + small subtle sway + tiny steps + consistent structure across frames, stable head and face.
+울렁임 방지: 구조 고정 문장, small/subtle sway, 해상도 512~768, frames 33~49.
 파라미터: 640x384, 49 frames(8n+1), 8 steps, guidance 2.5~3.5, fps 8, condition_strength 0.6.
 """
 
@@ -25,33 +25,41 @@ MOTION_VIDEOS: dict[str, str] = {
     "rat_dance": "rat_dance.mp4",
 }
 
-# 관절 단순화: 몸통 sway + 꼬리만. body+steps+paw+bounce+tail 동시는 깨짐.
-# 루프: left→center→right→center. repeating rhythm, simple loop, head steady, static camera.
+# 울렁임/깨짐 방지: 1) 프레임 간 구조 유지 2) small subtle sway 3) slow start
+# 구조 고정: consistent body structure across frames, stable head and face
+# sway: small subtle body sway (큰 sway는 몸 회전으로 해석되어 찌그러짐)
+# 초기 프레임: the motion starts slowly
 DANCE_PROMPTS: dict[str, str] = {
     "rat_dance": (
-        "a cute dog standing on the ground, full body visible, weight slightly shifted to one side. "
-        "the dog gently sways its body left and right in a slow repeating rhythm, "
-        "its tail wagging naturally while it moves. "
-        "the motion repeats in a simple loop, smooth natural dog movement, stable body structure, head steady. "
+        "a cute dog standing on the ground, full body visible. "
+        "the dog slowly starts a simple dance, "
+        "making a small subtle body sway left and right, taking tiny steps in place. "
+        "its tail wagging gently. "
+        "the movement is slow and repeating in a simple rhythm. "
+        "consistent dog appearance across frames, consistent body structure, stable head and face. "
         "static camera, fixed framing."
     ),
 }
 
-# 강아지: 몸통 sway + 꼬리만. weight slightly shifted → sway 자연스럽게.
+# 강아지: slow start + small subtle sway + tiny steps + 구조 고정 문장
 PROMPT_DOG_DANCE = (
-    "a cute dog standing on the ground, full body visible, weight slightly shifted to one side. "
-    "the dog gently sways its body left and right in a slow repeating rhythm, "
-    "its tail wagging naturally while it moves. "
-    "the motion repeats in a simple loop, smooth natural dog movement, stable body structure, head steady. "
+    "a cute dog standing on the ground, full body visible. "
+    "the dog slowly starts a simple dance, "
+    "making a small subtle body sway left and right, taking tiny steps in place. "
+    "its tail wagging gently. "
+    "the movement is slow and repeating in a simple rhythm. "
+    "consistent dog appearance across frames, consistent body structure, stable head and face. "
     "static camera, fixed framing."
 )
 
-# 고양이: 동일 (sway + tail, loop, head steady)
+# 고양이: 동일 (slow start, small subtle sway, 구조 고정)
 PROMPT_CAT_DANCE = (
-    "a cute cat standing on the ground, full body visible, weight slightly shifted to one side. "
-    "the cat gently sways its body left and right in a slow repeating rhythm, "
-    "its tail swaying naturally while it moves. "
-    "the motion repeats in a simple loop, smooth natural cat movement, stable body structure, head steady. "
+    "a cute cat standing on the ground, full body visible. "
+    "the cat slowly starts a simple dance, "
+    "making a small subtle body sway left and right, taking tiny steps in place. "
+    "its tail swaying gently. "
+    "the movement is slow and repeating in a simple rhythm. "
+    "consistent cat appearance across frames, consistent body structure, stable head and face. "
     "static camera, fixed framing."
 )
 

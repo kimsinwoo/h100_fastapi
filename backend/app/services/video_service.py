@@ -53,12 +53,12 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
-# ---------- 반려동물 짧은 춤 영상 (관절 단순화·루프 구조·motion strength) ----------
-# 관절: 몸통 sway + 꼬리만 강조, 발 동작 최소화. 루프: left→center→right→center.
-# motion strength 0.55~0.65: 너무 높으면 몸/얼굴 변형. frames 49~65 권장(8n+1).
+# ---------- 반려동물 짧은 춤 영상 (울렁임/깨짐 최소화) ----------
+# 해상도 512~768 권장(높으면 micro morphing 증가). frames 33~49 권장(길수록 structure drift).
+# motion strength 0.55~0.65: 너무 높으면 몸/얼굴 변형.
 DANCE_SHORT_WIDTH = 640
 DANCE_SHORT_HEIGHT = 384
-DANCE_SHORT_NUM_FRAMES = 49  # 8n+1. 49~65 구간에서 루프 안정
+DANCE_SHORT_NUM_FRAMES = 49  # 8n+1. 33~49 구간에서 구조 drift 최소화
 DANCE_SHORT_NUM_STEPS = 8
 DANCE_SHORT_GUIDANCE_SCALE = 3.0
 DANCE_SHORT_FRAME_RATE = 8.0
