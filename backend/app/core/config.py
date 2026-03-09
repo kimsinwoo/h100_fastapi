@@ -177,6 +177,28 @@ class Settings(BaseSettings):
         """한국어 LLM LoRA 어댑터 경로 (adapter_config.json 위치)."""
         return self.backend_dir / self.korean_lora_output_dir
 
+    # Dance / Motion Transfer: reference videos and pose cache
+    motions_dir_name: str = Field(
+        default="motions",
+        description="Reference dance videos (backend_dir relative). Put rat_dance.mp4 etc.",
+    )
+    pose_cache_dir_name: str = Field(
+        default="data/pose_cache",
+        description="Cached normalized pose JSON per motion_id.",
+    )
+
+    @property
+    def motions_dir(self) -> Path:
+        p = self.backend_dir / self.motions_dir_name
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def pose_cache_dir(self) -> Path:
+        p = self.backend_dir / self.pose_cache_dir_name
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     @property
     def upload_max_bytes(self) -> int:
         return self.upload_max_size_mb * 1024 * 1024

@@ -142,6 +142,8 @@ def create_app() -> FastAPI:
     )
     static_path.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+    motions_dir = settings.motions_dir
+    app.mount("/motions", StaticFiles(directory=str(motions_dir)), name="motions")
 
     # 빌드된 프론트엔드 서빙
     frontend_path = settings.frontend_dir if settings.frontend_dir else Path("static_frontend")

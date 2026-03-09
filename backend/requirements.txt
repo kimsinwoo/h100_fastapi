@@ -23,6 +23,10 @@ Pillow>=10.0.0
 # LTX-2 비디오 인코딩 (encode_video → mp4)
 av>=10.0.0
 
+# Dance / Motion: pose extraction (MediaPipe + OpenCV)
+opencv-python-headless>=4.8.0
+mediapipe>=0.10.0
+
 # 한국어 LoRA 파인튜닝 등 (선택)
 datasets>=2.16.0
 peft>=0.10.0

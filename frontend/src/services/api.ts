@@ -172,6 +172,49 @@ export async function getHealth(): Promise<{ status: string; gpu_available: bool
   return data;
 }
 
+// ---------- Dance / Motion Transfer ----------
+
+export type DanceMotionItem = {
+  id: string;
+  label: string;
+  videoReference: string;
+};
+
+export type DanceGenerateResponse = {
+  video_url: string;
+  processing_time: number;
+  motion_id: string;
+  character: string;
+};
+
+export async function getDanceMotions(): Promise<DanceMotionItem[]> {
+  const { data } = await api.get<DanceMotionItem[]>("/api/dance/motions");
+  return Array.isArray(data) ? data : [];
+}
+
+export async function generateDance(
+  file: File,
+  motionId: string,
+  character: "dog" | "cat"
+): Promise<DanceGenerateResponse> {
+  const form = new FormData();
+  form.append("image", file);
+  form.append("motion_id", motionId);
+  form.append("character", character);
+  const uploadApi = axios.create({
+    baseURL: api.defaults.baseURL ?? "/",
+    timeout: VIDEO_TIMEOUT_MS,
+  });
+  uploadApi.interceptors.request.use((config) => {
+    if (config.data instanceof FormData && config.headers) {
+      delete (config.headers as Record<string, unknown>)["Content-Type"];
+    }
+    return config;
+  });
+  const { data } = await uploadApi.post<DanceGenerateResponse>("/api/dance/generate", form);
+  return data;
+}
+
 // ---------- AC Villager Reconstruction (Stage 1 + Stage 2) ----------
 
 /** Stage 1: biological analysis. Optional image + form overrides. Returns structured data only. */

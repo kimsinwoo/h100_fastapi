@@ -59,9 +59,19 @@ from app.services.training_store import (
     update_item as training_update_item,
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
+from app.schemas.dance_schema import DanceGenerateResponse
+from app.services.dance_service import (
+    get_motion_video_path,
+    run_dance_generate,
+)
 import base64
 
 logger = logging.getLogger(__name__)
+
+# Dance Style: motion_id -> label and reference path (for UI)
+DANCE_MOTIONS: list[dict[str, str]] = [
+    {"id": "rat_dance", "label": "RAT Dance Challenge", "videoReference": "/motions/rat_dance.mp4"},
+]
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -699,6 +709,71 @@ async def generate_video(
         video_url=video_url,
         processing_time=round(processing_time, 2),
         video_base64=generated_b64,
+    )
+
+
+# ---------- Dance / Motion Transfer (Pose → Video) ----------
+
+
+@router.get("/dance/motions")
+async def list_dance_motions() -> list[dict[str, str]]:
+    """List available dance styles for motion transfer (id, label, videoReference)."""
+    return list(DANCE_MOTIONS)
+
+
+@router.post("/dance/generate", response_model=DanceGenerateResponse)
+async def generate_dance(
+    request: Request,
+    motion_id: Annotated[str, Form(description="e.g. rat_dance")],
+    character: Annotated[str, Form(description="dog or cat")] = "dog",
+    file: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
+    image: Annotated[UploadFile | None, File(description="Character image (alias)")] = None,
+) -> DanceGenerateResponse:
+    """
+    Generate video of character performing the selected dance (pose extraction + LTX-2).
+    Requires: motion_id, character, and an image file of the character.
+    """
+    _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing image file. Send as 'file' or 'image'.")
+    mid = (motion_id or "").strip()
+    if not mid:
+        raise HTTPException(status_code=400, detail="motion_id is required")
+    char = (character or "dog").strip().lower()
+    if char not in ("dog", "cat"):
+        char = "dog"
+    settings = get_settings()
+    content = await upload.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
+    if len(content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    if get_motion_video_path(mid) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Motion '{mid}' not found. Add reference video to motions/ (e.g. rat_dance.mp4).",
+        )
+    try:
+        out_bytes, processing_time = await run_dance_generate(image_bytes=content, motion_id=mid, character=char)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.exception("Dance video generation failed: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+    except Exception as e:
+        logger.exception("Failed to save generated dance video: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save generated video")
+    video_url = get_generated_url(video_filename)
+    return DanceGenerateResponse(
+        video_url=video_url,
+        processing_time=round(processing_time, 2),
+        motion_id=mid,
+        character=char,
     )
 
 

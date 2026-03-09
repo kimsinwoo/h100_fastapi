@@ -8,8 +8,14 @@ import {
   getHealth,
   getErrorMessage,
   getApiResourceUrl,
+  getDanceMotions,
+  generateDance,
 } from "../services/api";
-import type { GenerateVideoResponse, VideoPresetsResponse } from "../services/api";
+import type {
+  GenerateVideoResponse,
+  VideoPresetsResponse,
+  DanceMotionItem,
+} from "../services/api";
 
 type VideoState =
   | { phase: "idle" }
@@ -25,6 +31,9 @@ export default function VideoPage() {
   const [presets, setPresets] = useState<VideoPresetsResponse | null>(null);
   const [state, setState] = useState<VideoState>({ phase: "idle" });
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
+  const [danceMotions, setDanceMotions] = useState<DanceMotionItem[]>([]);
+  const [selectedMotionId, setSelectedMotionId] = useState<string>("rat_dance");
+  const [danceCharacter, setDanceCharacter] = useState<"dog" | "cat">("dog");
 
   useEffect(() => {
     getHealth()
@@ -33,6 +42,9 @@ export default function VideoPage() {
     getVideoPresets()
       .then(setPresets)
       .catch(() => setPresets({ smile_turn: "", wind_leaves: "", dancing_pet: "", golden_hour: "", cozy_moment: "", neon_night: "", dreamy_bokeh: "" }));
+    getDanceMotions()
+      .then(setDanceMotions)
+      .catch(() => setDanceMotions([]));
   }, []);
 
   const handlePreset = useCallback(
@@ -57,6 +69,27 @@ export default function VideoPage() {
       setState({ phase: "error", message: getErrorMessage(err) });
     }
   }, [file, prompt]);
+
+  const handleDanceGenerate = useCallback(async () => {
+    if (!file) {
+      setState({ phase: "error", message: "캐릭터 이미지를 업로드해주세요." });
+      return;
+    }
+    setState({ phase: "loading" });
+    try {
+      const data = await generateDance(file, selectedMotionId, danceCharacter);
+      setState({
+        phase: "success",
+        data: {
+          video_url: data.video_url,
+          processing_time: data.processing_time,
+          video_base64: null,
+        },
+      });
+    } catch (err) {
+      setState({ phase: "error", message: getErrorMessage(err) });
+    }
+  }, [file, selectedMotionId, danceCharacter]);
 
   const videoSrc =
     state.phase === "success"
@@ -98,6 +131,7 @@ export default function VideoPage() {
 
   const isProcessing = state.phase === "loading";
   const canGenerate = file !== null && prompt.trim().length > 0 && !isProcessing;
+  const canDanceGenerate = file !== null && selectedMotionId.length > 0 && !isProcessing;
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
@@ -180,6 +214,54 @@ export default function VideoPage() {
               className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               동영상 생성
+            </button>
+          </section>
+
+          <section className="border-t border-gray-200 pt-6">
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">Dance Style (Pose 기반 댄스)</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              참조 영상의 안무를 추출해 캐릭터가 따라하는 영상을 생성합니다. 위에서 업로드한 이미지를 캐릭터로 사용합니다.
+            </p>
+            {danceMotions.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {danceMotions.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedMotionId(m.id)}
+                    disabled={isProcessing}
+                    className={`rounded-lg border-2 px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${
+                      selectedMotionId === m.id
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-indigo-400"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="mb-3 flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <span>캐릭터</span>
+                <select
+                  value={danceCharacter}
+                  onChange={(e) => setDanceCharacter(e.target.value as "dog" | "cat")}
+                  disabled={isProcessing}
+                  className="rounded border border-gray-300 px-2 py-1 text-sm"
+                >
+                  <option value="dog">강아지</option>
+                  <option value="cat">고양이</option>
+                </select>
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={handleDanceGenerate}
+              disabled={!canDanceGenerate}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Dance Style 생성 (RAT 등)
             </button>
           </section>
 
