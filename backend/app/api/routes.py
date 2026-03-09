@@ -617,7 +617,7 @@ async def generate_video(
     num_f = _parse_optional_int(num_frames)
     num_f = 33 if num_f is None or num_f < 1 else min(121, num_f)
     steps = _parse_optional_int(num_inference_steps)
-    steps = 12 if steps is None or steps < 1 else min(50, steps)
+    steps = 10 if steps is None or steps < 1 else min(50, steps)
     seed_i = _parse_optional_int(seed)
     try:
         out_bytes, processing_time = await run_image_to_video(
