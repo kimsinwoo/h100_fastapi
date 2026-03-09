@@ -38,7 +38,15 @@ from app.services.image_service import (
     run_image_to_image,
     run_universal_animal_generate,
 )
-from app.services.video_service import run_image_to_video
+from app.services.video_service import (
+    run_image_to_video,
+    DEFAULT_WIDTH,
+    DEFAULT_HEIGHT,
+    QUALITY_WIDTH,
+    QUALITY_HEIGHT,
+    QUALITY_NUM_FRAMES,
+    QUALITY_NUM_STEPS,
+)
 from app.services.training_store import (
     add_item as training_add_item,
     delete_item as training_delete_item,
@@ -614,16 +622,25 @@ async def generate_video(
     settings = get_settings()
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    quality_mode = getattr(settings, "ltx2_quality_mode", False)
     num_f = _parse_optional_int(num_frames)
-    num_f = 33 if num_f is None or num_f < 1 else min(121, num_f)
+    if num_f is None or num_f < 1:
+        num_f = QUALITY_NUM_FRAMES if quality_mode else 33
+    num_f = min(121, num_f)
     steps = _parse_optional_int(num_inference_steps)
-    steps = 10 if steps is None or steps < 1 else min(50, steps)
+    if steps is None or steps < 1:
+        steps = QUALITY_NUM_STEPS if quality_mode else 10
+    steps = min(50, steps)
+    width = QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH
+    height = QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT
     seed_i = _parse_optional_int(seed)
     try:
         out_bytes, processing_time = await run_image_to_video(
             image_bytes=content,
             prompt=prompt,
             negative_prompt=negative_prompt,
+            width=width,
+            height=height,
             num_frames=num_f,
             num_inference_steps=steps,
             seed=seed_i,

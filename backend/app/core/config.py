@@ -77,11 +77,12 @@ class Settings(BaseSettings):
     omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. HF와 동일하게 1024 기본")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
 
-    # LTX-2 Image-to-Video (H100 60초 미만 목표)
+    # LTX-2 Image-to-Video (ltx-2-TURBO 기준 품질 옵션)
     ltx2_model_id: str = Field(default="Lightricks/LTX-2", description="LTX-2 Hugging Face model ID")
     ltx2_use_full_cuda: bool = Field(default=True, description="True면 CPU offload 없이 전체 GPU 로드 (H100 권장). VRAM 부족 시 False")
     ltx2_use_dpm_scheduler: bool = Field(default=False, description="True면 DPMSolverMultistepScheduler 시도 (LTX-2는 Flow 기반이라 비권장)")
     ltx2_warmup: bool = Field(default=True, description="서버 시작 시 warmup inference로 torch.compile 캐시 생성")
+    ltx2_quality_mode: bool = Field(default=False, description="True면 ltx-2-TURBO 품질: 768×512, 49 frames, 25 steps, guidance 4.0 (API에서 미지정 시)")
 
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")
 

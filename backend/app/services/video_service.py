@@ -20,17 +20,37 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
 
-# 기본 해상도/프레임 (목표 60초 미만: 640×384, 33프레임, 8~10 steps)
+# ---------- ltx-2-TURBO 기준 (packages/ltx-pipelines/utils/constants.py) ----------
+# 품질 모드: 768×512, 49/81 frames, 25 steps, guidance 4.0
+QUALITY_WIDTH = 768
+QUALITY_HEIGHT = 512
+QUALITY_NUM_FRAMES = 49  # 8n+1. TURBO는 121, diffusers는 49~81 권장
+QUALITY_NUM_STEPS = 25
+QUALITY_GUIDANCE_SCALE = 4.0
+# TURBO DEFAULT_NEGATIVE_PROMPT (시네마틱 품질용)
+NEGATIVE_PROMPT_TURBO = (
+    "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, "
+    "grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, "
+    "deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, "
+    "wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of "
+    "field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent "
+    "lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny "
+    "valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, "
+    "mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, "
+    "off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward "
+    "pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, "
+    "inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+)
+
+# 기본(속도 우선): 60초 미만 목표
 DEFAULT_WIDTH = 640
 DEFAULT_HEIGHT = 384
 DEFAULT_NUM_FRAMES = 33  # 8n+1
 DEFAULT_FRAME_RATE = 24.0
-DEFAULT_NUM_STEPS = 10  # 스케줄러 최적화 시 8~10으로 동일 품질
+DEFAULT_NUM_STEPS = 10
 DEFAULT_GUIDANCE_SCALE = 3.5
-DEFAULT_NEGATIVE = (
-    "worst quality, inconsistent motion, blurry, jittery, distorted, "
-    "shaky, glitchy, deformed, motion smear, motion artifacts, bad anatomy, static."
-)
+# 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
+DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
 
 def _get_image_to_video_pipeline_class() -> tuple:
