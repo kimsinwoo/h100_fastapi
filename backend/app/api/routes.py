@@ -580,42 +580,41 @@ async def list_species() -> dict[str, str]:
 # 테스트 프리셋 + 트렌디 스타일 (6W·시네마틱 구조)
 VIDEO_PROMPT_PRESETS: dict[str, str] = {
     "smile_turn": (
-        "Static shot, locked camera, zero camera movement. "
-        "The person's head slowly turns toward the camera; body and background do not move. "
-        "Natural details: gentle eye blink, subtle smile, slight hair or skin movement from head turn. "
-        "Only the head and neck rotate. No pan, no tilt, no zoom."
+        "A fixed camera medium shot. The person starts facing slightly away, then slowly begins turning their head toward the camera. "
+        "The turn continues smoothly; eyes blink naturally, a subtle smile appears, and hair or skin shifts with the motion. "
+        "The head and neck keep rotating until facing the lens. Body and background stay still; camera stays locked. No pan, no tilt, no zoom."
     ),
     "wind_leaves": (
-        "Static shot, locked camera, zero camera movement. "
-        "Only leaves and branches move in the wind. Person or subject in frame is completely still. "
-        "Leaves sway and rustle; branches bend slightly. No movement of the subject or camera."
+        "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
+        "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
     "dancing_pet": (
-        "Static shot, locked camera, zero camera movement. "
-        "A dog or cat dances: bobbing, swaying, paw movements, happy playful motion. "
-        "Natural details: ear movement, tail wag or sway, blinking, breathing. "
-        "Pet is dancing in place; background and camera do not move."
+        "A fixed camera medium shot of a cute dog or cat standing upright on its hind legs in the center of the frame. "
+        "The pet suddenly begins dancing energetically, swaying its body from left to right while raising and waving its front paws. "
+        "It performs small rhythmic hops on its hind legs, bouncing lightly while shifting its weight from side to side. "
+        "Its tail wags happily and its ears bounce slightly with each movement while the head tilts playfully. "
+        "The pet continues dancing with repeated paw waves, little jumps, and lively body sways, creating continuous motion while the camera and background remain completely still."
     ),
     # 트렌디 스타일 4종
     "golden_hour": (
-        "Cinematic medium shot in warm golden hour sunlight. Soft, directional light creates long shadows and a glowing rim. "
-        "The subject stands or sits still; only subtle natural motion: gentle breathing, slight hair or fabric movement from a breeze. "
-        "Static shot, locked camera. Film grain and warm color palette. No camera movement, no pan or zoom."
+        "Fixed camera medium shot in warm golden hour sunlight. Soft, directional light creates long shadows and a glowing rim. "
+        "The subject begins with a small breath, then hair or fabric moves gently in the breeze; the motion continues with subtle shifts. "
+        "Film grain and warm color palette. Camera stays locked; no pan or zoom."
     ),
     "cozy_moment": (
-        "Cozy indoor scene with soft diffused lighting, warm tones, and a calm atmosphere. "
-        "Subject is relaxed; minimal motion: slow blink, gentle shift in posture or a small gesture. "
-        "Static shot, locked camera. Shallow depth of field, soft bokeh in background. No camera movement."
+        "Fixed camera. Cozy indoor scene with soft diffused lighting, warm tones, and a calm atmosphere. "
+        "The subject starts relaxed, then slowly blinks, shifts posture, or makes a small gesture; the movement repeats gently. "
+        "Shallow depth of field, soft bokeh in background. Camera does not move."
     ),
     "neon_night": (
-        "Night scene with neon reflections on wet pavement and soft fog in the air. "
-        "Subject remains in frame; only subtle motion: breathing, slight turn of head or eyes catching the neon glow. "
-        "Static shot, locked camera. Cinematic color grading, cyan and magenta highlights. No camera movement."
+        "Fixed camera. Night scene with neon reflections on wet pavement and soft fog in the air. "
+        "The subject begins still, then breathes, turns their head slightly, or their eyes catch the neon glow; the motion continues. "
+        "Cinematic color grading, cyan and magenta highlights. Camera stays locked."
     ),
     "dreamy_bokeh": (
-        "Dreamy soft-focus shot with shallow depth of field and creamy bokeh in the background. "
-        "Subject moves gently: soft blink, slight smile, or slow turn toward camera. Soft morning or backlit light. "
-        "Static shot, locked camera. Ethereal atmosphere, fine film grain. No camera movement, no pan or zoom."
+        "Fixed camera. Dreamy soft-focus shot with shallow depth of field and creamy bokeh in the background. "
+        "The subject starts neutral, then blinks softly, smiles slightly, or slowly turns toward camera; the motion continues gently. "
+        "Ethereal atmosphere, fine film grain. Camera stays locked; no pan or zoom."
     ),
 }
 
