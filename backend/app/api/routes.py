@@ -40,6 +40,7 @@ from app.services.image_service import (
 )
 from app.services.video_service import (
     run_image_to_video,
+    _clamp_num_frames_to_8n_plus_1,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_NUM_FRAMES,
@@ -643,7 +644,7 @@ async def generate_video(
     if num_f is None or num_f < 1:
         # 기본 5초(121), 품질 모드 10초(241)
         num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
-    num_f = min(241, max(33, num_f))  # 33~241 (약 1.4초~10초)
+    num_f = _clamp_num_frames_to_8n_plus_1(min(241, max(33, num_f)))  # LTX-2: 8n+1 (33~241)
     steps = _parse_optional_int(num_inference_steps)
     if steps is None or steps < 1:
         steps = QUALITY_NUM_STEPS if quality_mode else 25

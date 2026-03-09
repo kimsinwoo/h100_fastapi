@@ -54,6 +54,22 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
 
+def _clamp_num_frames_to_8n_plus_1(n: int) -> int:
+    """LTX-2는 num_frames가 8n+1 형태여야 함. 가장 가까운 유효값으로 보정."""
+    if n <= 0:
+        return 33
+    # 8n+1: 33, 41, 49, 57, 65, 73, 81, ..., 121, 241
+    remainder = (n - 1) % 8
+    if remainder == 0:
+        return max(33, min(241, n))
+    # n보다 작은 최대 8k+1 또는 n보다 큰 최소 8k+1 중 가까운 쪽
+    low = ((n - 1) // 8) * 8 + 1
+    high = low + 8
+    low = max(33, low)
+    high = min(241, high)
+    return low if (n - low) <= (high - n) else high
+
+
 def _get_image_to_video_pipeline_class() -> tuple:
     """LTX2ImageToVideoPipeline 또는 LTX2ConditionPipeline 클래스 정보 반환."""
     try:
@@ -299,11 +315,19 @@ def _run_image_to_video_sync(
     seed: int | None,
 ) -> bytes:
     import torch
+    import numpy as np
     from PIL import Image, ImageOps
 
     global _pipeline
     if _pipeline is None:
         raise RuntimeError("Video pipeline not loaded")
+
+    # 추론 파라미터 보정: num_frames는 8n+1 필수
+    num_frames = _clamp_num_frames_to_8n_plus_1(num_frames)
+    num_inference_steps = max(4, min(50, num_inference_steps))
+    guidance_scale = max(1.0, min(10.0, guidance_scale))
+    if not (prompt or "").strip():
+        raise ValueError("prompt is required for image-to-video")
 
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
@@ -319,13 +343,19 @@ def _run_image_to_video_sync(
     top = (new_h - height) // 2
     img = img.crop((left, top, left + width, top + height))
 
+    # generator: 파이프라인 device와 맞추면 재현성·안정성에 유리
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     generator = None
     if seed is not None:
-        generator = torch.Generator(device="cpu").manual_seed(seed)
+        try:
+            generator = torch.Generator(device=device).manual_seed(seed)
+        except Exception:
+            generator = torch.Generator(device="cpu").manual_seed(seed)
 
+    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
     logger.info(
-        "LTX-2 image2video | %dx%d | frames=%d | steps=%d",
-        width, height, num_frames, num_inference_steps,
+        "LTX-2 image2video | %dx%d | frames=%d (8n+1) | steps=%d | cfg=%.1f",
+        width, height, num_frames, num_inference_steps, guidance_scale,
     )
 
     use_condition = getattr(_pipeline, "_ltx_video_condition_class", None) is not None
@@ -335,8 +365,8 @@ def _run_image_to_video_sync(
             condition = LTX2VideoCondition(frames=img, index=0, strength=1.0)
             out = _pipeline(
                 conditions=[condition],
-                prompt=prompt,
-                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                prompt=prompt.strip(),
+                negative_prompt=neg,
                 width=width,
                 height=height,
                 num_frames=num_frames,
@@ -350,8 +380,8 @@ def _run_image_to_video_sync(
         else:
             out = _pipeline(
                 image=img,
-                prompt=prompt,
-                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                prompt=prompt.strip(),
+                negative_prompt=neg,
                 width=width,
                 height=height,
                 num_frames=num_frames,
@@ -376,6 +406,22 @@ def _run_image_to_video_sync(
     # (batch, T, H, W, C) → (T, H, W, C); encode_video는 (T, H, W, C) 기대
     if hasattr(video_frames, "shape") and len(getattr(video_frames, "shape", ())) == 5:
         video_frames = video_frames[0]
+    # torch.Tensor → numpy; 값 범위 [0,1] float → [0,255] uint8
+    if hasattr(video_frames, "cpu"):
+        video_frames = video_frames.float().cpu().numpy()
+    if not isinstance(video_frames, np.ndarray):
+        video_frames = np.asarray(video_frames)
+    if video_frames.dtype != np.uint8:
+        if video_frames.size > 0 and float(video_frames.max()) <= 1.0 and float(video_frames.min()) >= 0:
+            video_frames = (np.clip(video_frames, 0.0, 1.0) * 255.0).astype(np.uint8)
+        elif video_frames.dtype in (np.float32, np.float64):
+            video_frames = np.clip(video_frames, 0, 255).astype(np.uint8)
+    # (T, H, W, C) 형태 검증
+    if len(video_frames.shape) != 4 or video_frames.shape[3] not in (3, 4):
+        raise RuntimeError(
+            f"LTX-2 pipeline returned invalid video shape: {getattr(video_frames, 'shape', 'unknown')}. "
+            "Expected (num_frames, height, width, 3)."
+        )
     if hasattr(out, "audios"):
         audio = out.audios
     elif isinstance(out, (list, tuple)) and len(out) >= 2:
