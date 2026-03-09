@@ -1,12 +1,9 @@
 """
 Dance / Motion Transfer pipeline: pose extraction → normalization → video generation.
 
-프롬프트 구조 (이미지 고정력 깨기):
-  subject → clear action → repeated motion → rhythm → camera stability
-  필수: "starts/begins" + "repeatedly" + "continuously" (again and again, continuous movement)
-  "dance challenge"보다 "the dog starts dancing", "the dog moves" 같은 직접 행동 문장이 잘 먹힘.
-
-파라미터: 640x384, 25 frames(8n+1), 8 steps, guidance 3, fps 8.
+프롬프트: 관절 단순화(몸통 sway + 꼬리만), 루프 명시(repeating rhythm, simple loop), head steady, static camera.
+condition_strength 0.55~0.65: 높으면 몸/얼굴 변형. frames 49~65 권장.
+파라미터: 640x384, 49 frames(8n+1), 8 steps, guidance 2.5~3.5, fps 8, condition_strength 0.6.
 """
 
 from __future__ import annotations
@@ -28,38 +25,34 @@ MOTION_VIDEOS: dict[str, str] = {
     "rat_dance": "rat_dance.mp4",
 }
 
-# image→video 모션 트리거: "상태"가 아니라 "행동"으로 써야 이미지 고정력이 깨짐.
-# 구조: subject → clear action → repeated motion → rhythm → camera stability
-# 필수: starts/begins + repeatedly + continuously (again and again, continuous movement)
+# 관절 단순화: 몸통 sway + 꼬리만. body+steps+paw+bounce+tail 동시는 깨짐.
+# 루프: left→center→right→center. repeating rhythm, simple loop, head steady, static camera.
 DANCE_PROMPTS: dict[str, str] = {
     "rat_dance": (
-        "a cute dog standing on the ground, full body visible. "
-        "the dog begins a simple dance, "
-        "moving its body left and right repeatedly, "
-        "taking small steps in place again and again, "
-        "its tail wagging while it dances. "
-        "clear continuous movement, simple looping dance motion, static camera."
+        "a cute dog standing on the ground, full body visible, weight slightly shifted to one side. "
+        "the dog gently sways its body left and right in a slow repeating rhythm, "
+        "its tail wagging naturally while it moves. "
+        "the motion repeats in a simple loop, smooth natural dog movement, stable body structure, head steady. "
+        "static camera, fixed framing."
     ),
 }
 
-# 강아지: 행동 동사(begins) + repeatedly + again and again + continuous movement
+# 강아지: 몸통 sway + 꼬리만. weight slightly shifted → sway 자연스럽게.
 PROMPT_DOG_DANCE = (
-    "a cute dog standing on the ground, full body visible. "
-    "the dog begins a simple dance, "
-    "moving its body left and right repeatedly, "
-    "taking small steps in place again and again, "
-    "its tail wagging while it dances. "
-    "clear continuous movement, simple looping dance motion, smooth natural dog motion, static camera."
+    "a cute dog standing on the ground, full body visible, weight slightly shifted to one side. "
+    "the dog gently sways its body left and right in a slow repeating rhythm, "
+    "its tail wagging naturally while it moves. "
+    "the motion repeats in a simple loop, smooth natural dog movement, stable body structure, head steady. "
+    "static camera, fixed framing."
 )
 
-# 고양이: 동일 구조 (행동 트리거)
+# 고양이: 동일 (sway + tail, loop, head steady)
 PROMPT_CAT_DANCE = (
-    "a cute cat standing on the ground, full body visible. "
-    "the cat begins a simple dance, "
-    "moving its body left and right repeatedly, "
-    "taking small steps in place again and again, "
-    "its tail swaying while it dances. "
-    "clear continuous movement, simple looping dance motion, smooth natural cat motion, static camera."
+    "a cute cat standing on the ground, full body visible, weight slightly shifted to one side. "
+    "the cat gently sways its body left and right in a slow repeating rhythm, "
+    "its tail swaying naturally while it moves. "
+    "the motion repeats in a simple loop, smooth natural cat movement, stable body structure, head steady. "
+    "static camera, fixed framing."
 )
 
 PROMPT_PET_GENERIC = PROMPT_DOG_DANCE
@@ -148,6 +141,7 @@ async def run_dance_generate(
     await loop.run_in_executor(None, get_or_extract_pose, motion_id)
 
     from app.services.video_service import (
+        DANCE_CONDITION_STRENGTH,
         DANCE_SHORT_FRAME_RATE,
         DANCE_SHORT_GUIDANCE_SCALE,
         DANCE_SHORT_HEIGHT,
@@ -169,5 +163,6 @@ async def run_dance_generate(
         num_inference_steps=DANCE_SHORT_NUM_STEPS,
         guidance_scale=DANCE_SHORT_GUIDANCE_SCALE,
         seed=None,
+        condition_strength=DANCE_CONDITION_STRENGTH,
     )
     return out_bytes, elapsed

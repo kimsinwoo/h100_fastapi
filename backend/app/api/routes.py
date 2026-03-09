@@ -44,6 +44,7 @@ from app.services.video_service import (
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_NUM_FRAMES,
+    DANCE_CONDITION_STRENGTH,
     DANCE_SHORT_WIDTH,
     DANCE_SHORT_HEIGHT,
     DANCE_SHORT_NUM_FRAMES,
@@ -605,14 +606,13 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
         "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
-    # 반려동물 춤: 행동 트리거(starts/begins + repeatedly + continuously). 이미지 고정력 깨기.
+    # 반려동물 춤: 관절 단순화(몸통 sway+꼬리만), 루프(repeating rhythm, simple loop), head steady, static camera.
     "dancing_pet": (
         "a cute dog standing on the ground, full body visible. "
-        "the dog begins a simple dance, "
-        "moving its body left and right repeatedly, "
-        "taking small steps in place again and again, "
-        "its tail wagging while it dances. "
-        "clear continuous movement, simple looping dance motion, static camera."
+        "the dog gently sways its body left and right in a slow repeating rhythm, "
+        "its tail wagging naturally while it moves. "
+        "the motion repeats in a simple loop, smooth natural dog movement, stable body structure, head steady. "
+        "static camera, fixed framing."
     ),
     # 트렌디 스타일 4종
     "golden_hour": (
@@ -714,6 +714,7 @@ async def generate_video(
     if use_dance_short:
         run_kw["guidance_scale"] = DANCE_SHORT_GUIDANCE_SCALE
         run_kw["frame_rate"] = DANCE_SHORT_FRAME_RATE
+        run_kw["condition_strength"] = DANCE_CONDITION_STRENGTH
     try:
         out_bytes, processing_time = await run_image_to_video(**run_kw)
     except ValueError as e:

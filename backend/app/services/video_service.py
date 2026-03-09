@@ -53,15 +53,17 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
-# ---------- 반려동물 짧은 춤 영상 (4단계 프롬프트·동작 시퀀스·관절 제한) ----------
-# LTX-2: frames 24~28 권장, 8n+1 필수 → 25(=8*3+1) 사용. 많으면 motion exaggeration.
-# steps 8, guidance 3, fps 8 → 짧은 영상·자연스러운 움직임 밸런스
+# ---------- 반려동물 짧은 춤 영상 (관절 단순화·루프 구조·motion strength) ----------
+# 관절: 몸통 sway + 꼬리만 강조, 발 동작 최소화. 루프: left→center→right→center.
+# motion strength 0.55~0.65: 너무 높으면 몸/얼굴 변형. frames 49~65 권장(8n+1).
 DANCE_SHORT_WIDTH = 640
 DANCE_SHORT_HEIGHT = 384
-DANCE_SHORT_NUM_FRAMES = 25  # 8n+1 (25, 33, 41, ...). 25 = 24~28 구간
+DANCE_SHORT_NUM_FRAMES = 49  # 8n+1. 49~65 구간에서 루프 안정
 DANCE_SHORT_NUM_STEPS = 8
 DANCE_SHORT_GUIDANCE_SCALE = 3.0
 DANCE_SHORT_FRAME_RATE = 8.0
+# 이미지 고정력 완화: 0.55~0.65 권장. 1.0이면 얼굴/몸 변형 가능
+DANCE_CONDITION_STRENGTH = 0.6
 # 반드시 넣어야 하는 negative motion (없으면 과한 앞발·흔들림)
 NEGATIVE_PET_DANCE = (
     "no aggressive paw movement, no fast shaking, no chaotic movement, no exaggerated motion, "
@@ -330,6 +332,7 @@ def _run_image_to_video_sync(
     num_inference_steps: int,
     guidance_scale: float,
     seed: int | None,
+    condition_strength: float = 1.0,
 ) -> bytes:
     import torch
     import numpy as np
@@ -376,10 +379,11 @@ def _run_image_to_video_sync(
     )
 
     use_condition = getattr(_pipeline, "_ltx_video_condition_class", None) is not None
+    strength = max(0.0, min(1.0, condition_strength))
     with torch.inference_mode():
         if use_condition:
             LTX2VideoCondition = _pipeline._ltx_video_condition_class
-            condition = LTX2VideoCondition(frames=img, index=0, strength=1.0)
+            condition = LTX2VideoCondition(frames=img, index=0, strength=strength)
             out = _pipeline(
                 conditions=[condition],
                 prompt=prompt.strip(),
@@ -490,7 +494,9 @@ async def run_image_to_video(
     num_inference_steps: int = DEFAULT_NUM_STEPS,
     guidance_scale: float = DEFAULT_GUIDANCE_SCALE,
     seed: int | None = None,
+    condition_strength: float | None = None,
 ) -> tuple[bytes, float]:
+    strength = condition_strength if condition_strength is not None else 1.0
     await get_video_pipeline()
     loop = asyncio.get_event_loop()
     start = time.perf_counter()
@@ -507,6 +513,7 @@ async def run_image_to_video(
             num_inference_steps,
             guidance_scale,
             seed,
+            condition_strength=strength,
         ),
     )
     elapsed = time.perf_counter() - start
