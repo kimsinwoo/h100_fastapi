@@ -53,17 +53,17 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
-# ---------- 반려동물 짧은 춤 영상 (울렁임/깨짐 최소화) ----------
-# 해상도 512~768 권장(높으면 micro morphing 증가). frames 33~49 권장(길수록 structure drift).
-# motion strength 0.55~0.65: 너무 높으면 몸/얼굴 변형.
+# ---------- 반려동물 영상 (모션 안정성: 스피드맨/일그러짐 방지) ----------
+# motion strength 0.35~0.50: 0.60+면 움직임 과장·관절 폭발·스피드맨. guidance 2.0~2.8: 4+면 과장 동작.
+# frames 25~41 권장, 60+면 구조 drift. resolution 640, fps 12 권장.
 DANCE_SHORT_WIDTH = 640
 DANCE_SHORT_HEIGHT = 384
-DANCE_SHORT_NUM_FRAMES = 49  # 8n+1. 33~49 구간에서 구조 drift 최소화
+DANCE_SHORT_NUM_FRAMES = 33  # 8n+1. 25~41 구간에서 가장 안정
 DANCE_SHORT_NUM_STEPS = 8
-DANCE_SHORT_GUIDANCE_SCALE = 3.0
-DANCE_SHORT_FRAME_RATE = 8.0
-# 이미지 고정력 완화: 0.55~0.65 권장. 1.0이면 얼굴/몸 변형 가능
-DANCE_CONDITION_STRENGTH = 0.6
+DANCE_SHORT_GUIDANCE_SCALE = 2.3  # 2.0~2.8. 높으면 sway/steps/dance 과장
+DANCE_SHORT_FRAME_RATE = 12.0
+# 동물 모델에서 0.60+는 거의 깨짐. 0.35~0.50 권장
+DANCE_CONDITION_STRENGTH = 0.42
 # 반드시 넣어야 하는 negative motion (없으면 과한 앞발·흔들림)
 NEGATIVE_PET_DANCE = (
     "no aggressive paw movement, no fast shaking, no chaotic movement, no exaggerated motion, "

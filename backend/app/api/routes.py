@@ -606,14 +606,13 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
         "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
-    # 반려동물 춤: slow start + small subtle sway + 구조 고정(consistent across frames, stable head). 울렁임 최소화.
+    # 반려동물: dance 단어 제거 → shift weight + very small steps. motion strength 0.42, guidance 2.3.
     "dancing_pet": (
         "a cute dog standing on the ground, full body visible. "
-        "the dog slowly starts a simple dance, "
-        "making a small subtle body sway left and right, taking tiny steps in place. "
-        "its tail wagging gently. "
-        "the movement is slow and repeating in a simple rhythm. "
-        "consistent dog appearance across frames, consistent body structure, stable head and face. "
+        "the dog gently shifts its body weight left and right, making very small steps in place. "
+        "its tail wagging slowly. "
+        "slow natural dog movement, simple repeating motion. "
+        "consistent dog appearance across frames, stable head and body. "
         "static camera, fixed framing."
     ),
     # 트렌디 스타일 4종
