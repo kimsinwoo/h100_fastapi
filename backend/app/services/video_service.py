@@ -27,7 +27,7 @@ QUALITY_HEIGHT = 512
 QUALITY_NUM_FRAMES = 241  # 8n+1. 10초 @ 24fps = 241 (TURBO는 121=5초)
 QUALITY_NUM_STEPS = 25
 QUALITY_GUIDANCE_SCALE = 4.0
-# TURBO DEFAULT_NEGATIVE_PROMPT (시네마틱 품질용)
+# TURBO DEFAULT_NEGATIVE_PROMPT (시네마틱 품질용) + 구도 고정 유도
 NEGATIVE_PROMPT_TURBO = (
     "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, "
     "grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, "
@@ -39,7 +39,8 @@ NEGATIVE_PROMPT_TURBO = (
     "mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, "
     "off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward "
     "pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, "
-    "inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+    "inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts. "
+    "camera movement, camera pan, panning shot, camera tilt, zoom in, zoom out, dolly, tracking shot, moving camera, crane shot."
 )
 
 # 기본: 최소 5초 영상 + TURBO 수준 품질 (768×512, 25 steps, guidance 4.0)

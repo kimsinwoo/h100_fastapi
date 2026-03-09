@@ -576,10 +576,21 @@ async def list_species() -> dict[str, str]:
 
 
 # ---------- LTX-2 Image-to-Video ----------
-# 테스트용 프리셋 2종 (사용자가 선택하거나 프롬프트 직접 입력)
+# 테스트 프리셋: 구도/카메라 고정, 원하는 동작만 강하게 유도 (카메라 움직임 제거)
 VIDEO_PROMPT_PRESETS: dict[str, str] = {
-    "smile_turn": "The character smiles and slowly turns their head toward the camera.",
-    "wind_leaves": "Leaves sway gently in the wind in the background, soft natural lighting.",
+    "smile_turn": (
+        "Fixed camera, no camera movement, no pan, no tilt, no zoom. "
+        "Only the person's head rotates slowly from side to facing the camera. "
+        "Head turn only: neck and head move, body and shoulders stay completely still. "
+        "Slight natural smile as they turn to look at camera. "
+        "Background static. No camera motion."
+    ),
+    "wind_leaves": (
+        "Fixed camera, no camera movement, no pan, no tilt. "
+        "Only the leaves and branches move in the wind; the person or subject in frame does not move. "
+        "Wind blows through the foliage: leaves sway, branches bend slightly, vegetation rustles. "
+        "Foreground subject completely still. Background trees and leaves in motion only."
+    ),
 }
 
 
