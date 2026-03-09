@@ -32,7 +32,7 @@ export default function VideoPage() {
       .catch(() => setGpuAvailable(null));
     getVideoPresets()
       .then(setPresets)
-      .catch(() => setPresets({ smile_turn: "The character smiles and slowly turns their head toward the camera.", wind_leaves: "Leaves sway gently in the wind in the background, soft natural lighting." }));
+      .catch(() => setPresets({ smile_turn: "", wind_leaves: "", dancing_pet: "" }));
   }, []);
 
   const handlePreset = useCallback(
@@ -147,7 +147,9 @@ export default function VideoPage() {
                       ? "테스트 스타일 1: 고개 돌리기"
                       : key === "wind_leaves"
                         ? "테스트 스타일 2: 바람/나뭇잎"
-                        : key}
+                        : key === "dancing_pet"
+                          ? "테스트 스타일 3: 춤추는 강아지/고양이"
+                          : key}
                   </button>
                 ))}
               </div>

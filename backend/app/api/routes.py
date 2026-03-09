@@ -576,20 +576,24 @@ async def list_species() -> dict[str, str]:
 
 
 # ---------- LTX-2 Image-to-Video ----------
-# 테스트 프리셋: 구도/카메라 고정, 원하는 동작만 강하게 유도 (카메라 움직임 제거)
+# 테스트 프리셋: 카메라 고정 + 자연스러운 동작(눈 깜빡임 등) 유도
 VIDEO_PROMPT_PRESETS: dict[str, str] = {
     "smile_turn": (
-        "Fixed camera, no camera movement, no pan, no tilt, no zoom. "
-        "Only the person's head rotates slowly from side to facing the camera. "
-        "Head turn only: neck and head move, body and shoulders stay completely still. "
-        "Slight natural smile as they turn to look at camera. "
-        "Background static. No camera motion."
+        "Static shot, locked camera, zero camera movement. "
+        "The person's head slowly turns toward the camera; body and background do not move. "
+        "Natural details: gentle eye blink, subtle smile, slight hair or skin movement from head turn. "
+        "Only the head and neck rotate. No pan, no tilt, no zoom."
     ),
     "wind_leaves": (
-        "Fixed camera, no camera movement, no pan, no tilt. "
-        "Only the leaves and branches move in the wind; the person or subject in frame does not move. "
-        "Wind blows through the foliage: leaves sway, branches bend slightly, vegetation rustles. "
-        "Foreground subject completely still. Background trees and leaves in motion only."
+        "Static shot, locked camera, zero camera movement. "
+        "Only leaves and branches move in the wind. Person or subject in frame is completely still. "
+        "Leaves sway and rustle; branches bend slightly. No movement of the subject or camera."
+    ),
+    "dancing_pet": (
+        "Static shot, locked camera, zero camera movement. "
+        "A dog or cat dances: bobbing, swaying, paw movements, happy playful motion. "
+        "Natural details: ear movement, tail wag or sway, blinking, breathing. "
+        "Pet is dancing in place; background and camera do not move."
     ),
 }
 
