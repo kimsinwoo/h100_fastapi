@@ -53,6 +53,20 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
+# ---------- 반려동물 짧은 춤 영상 (3~4초, 속도·자연스러움 밸런스) ----------
+# resolution 640x384, frames 25~33, steps 8~10, guidance 3.5, fps 8~10
+DANCE_SHORT_WIDTH = 640
+DANCE_SHORT_HEIGHT = 384
+DANCE_SHORT_NUM_FRAMES = 33  # 8n+1. 8fps 기준 약 4초
+DANCE_SHORT_NUM_STEPS = 8
+DANCE_SHORT_GUIDANCE_SCALE = 3.5
+DANCE_SHORT_FRAME_RATE = 8.0
+# 반려동물 관절에 맞지 않아 프레임 깨짐 유발 → 네거티브에 추가
+NEGATIVE_PET_DANCE = (
+    "breakdance, acrobat, spin fast, jump high, backflip, somersault, "
+    "extreme motion, unnatural pose, human dance, standing on two legs like human."
+)
+
 
 def _clamp_num_frames_to_8n_plus_1(n: int) -> int:
     """LTX-2는 num_frames가 8n+1 형태여야 함. 가장 가까운 유효값으로 보정."""

@@ -44,6 +44,13 @@ from app.services.video_service import (
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_NUM_FRAMES,
+    DANCE_SHORT_WIDTH,
+    DANCE_SHORT_HEIGHT,
+    DANCE_SHORT_NUM_FRAMES,
+    DANCE_SHORT_NUM_STEPS,
+    DANCE_SHORT_GUIDANCE_SCALE,
+    DANCE_SHORT_FRAME_RATE,
+    NEGATIVE_PET_DANCE,
     QUALITY_WIDTH,
     QUALITY_HEIGHT,
     QUALITY_NUM_FRAMES,
@@ -598,12 +605,11 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
         "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
+    # 반려동물 춤: 리듬에 맞춘 작은 움직임 (small movement, rhythmic, playful, tail wagging, paw movement)
     "dancing_pet": (
-        "A fixed camera medium shot of a cute dog or cat standing upright on its hind legs in the center of the frame. "
-        "The pet suddenly begins dancing energetically, swaying its body from left to right while raising and waving its front paws. "
-        "It performs small rhythmic hops on its hind legs, bouncing lightly while shifting its weight from side to side. "
-        "Its tail wags happily and its ears bounce slightly with each movement while the head tilts playfully. "
-        "The pet continues dancing with repeated paw waves, little jumps, and lively body sways, creating continuous motion while the camera and background remain completely still."
+        "a cute pet dancing happily to music, wagging tail and moving front paws rhythmically, "
+        "playful and joyful mood, smooth animation, natural motion, small rhythmic movements, "
+        "swaying body, paw movement to the beat, lively atmosphere."
     ),
     # 트렌디 스타일 4종
     "golden_hour": (
@@ -670,29 +676,41 @@ async def generate_video(
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
     quality_mode = getattr(settings, "ltx2_quality_mode", False)
+    use_dance_short = preset and preset.strip() == "dancing_pet"  # 반려동물 짧은 춤: 640x384, 33f, 8 steps, 3.5 guidance
     num_f = _parse_optional_int(num_frames)
     if num_f is None or num_f < 1:
-        # 기본 5초(121), 품질 모드 10초(241)
-        num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
+        if use_dance_short:
+            num_f = DANCE_SHORT_NUM_FRAMES
+        else:
+            num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
     num_f = _clamp_num_frames_to_8n_plus_1(min(241, max(33, num_f)))  # LTX-2: 8n+1 (33~241)
     steps = _parse_optional_int(num_inference_steps)
     if steps is None or steps < 1:
-        steps = QUALITY_NUM_STEPS if quality_mode else 25
-    steps = min(50, max(10, steps))
-    width = QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH
-    height = QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT
+        steps = DANCE_SHORT_NUM_STEPS if use_dance_short else (QUALITY_NUM_STEPS if quality_mode else 25)
+    steps = min(50, max(8, steps)) if use_dance_short else min(50, max(10, steps))
+    width = DANCE_SHORT_WIDTH if use_dance_short else (QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH)
+    height = DANCE_SHORT_HEIGHT if use_dance_short else (QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT)
+    neg = (negative_prompt or "").strip()
+    if use_dance_short and NEGATIVE_PET_DANCE:
+        neg = f"{neg} {NEGATIVE_PET_DANCE}".strip() if neg else NEGATIVE_PET_DANCE
+    else:
+        neg = negative_prompt
     seed_i = _parse_optional_int(seed)
+    run_kw: dict = {
+        "image_bytes": content,
+        "prompt": prompt,
+        "negative_prompt": neg,
+        "width": width,
+        "height": height,
+        "num_frames": num_f,
+        "num_inference_steps": steps,
+        "seed": seed_i,
+    }
+    if use_dance_short:
+        run_kw["guidance_scale"] = DANCE_SHORT_GUIDANCE_SCALE
+        run_kw["frame_rate"] = DANCE_SHORT_FRAME_RATE
     try:
-        out_bytes, processing_time = await run_image_to_video(
-            image_bytes=content,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            num_frames=num_f,
-            num_inference_steps=steps,
-            seed=seed_i,
-        )
+        out_bytes, processing_time = await run_image_to_video(**run_kw)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

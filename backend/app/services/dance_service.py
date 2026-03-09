@@ -9,9 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from pathlib import Path
-from typing import Any
 
 from app.core.config import get_settings
 from app.schemas.dance_schema import MotionSequence
@@ -25,22 +23,31 @@ MOTION_VIDEOS: dict[str, str] = {
     "rat_dance": "rat_dance.mp4",
 }
 
-# Dance prompts per motion_id (LTX-2; pose conditioning TBD with AnimateDiff+ControlNet)
+# 반려동물 춤: 리듬에 맞춘 작은 움직임 위주 (과한 춤은 관절 구조상 비자연스러움)
+# 키워드: small movement, rhythmic movement, playful, cute, swaying, tail wagging, paw movement
 DANCE_PROMPTS: dict[str, str] = {
     "rat_dance": (
-        "A fixed camera medium shot of a cute dog standing on its hind legs in the center of the frame. "
-        "The dog performs the RAT Dance Challenge: it suddenly begins dancing energetically, swaying body left and right, "
-        "raising and waving its front paws in rhythm. It does small rhythmic hops on hind legs, bouncing lightly, "
-        "shifting weight side to side. Tail wags happily, ears bounce with each move, head tilts playfully. "
-        "The dog continues with repeated paw waves, little jumps, and lively body sways. Camera and background stay still."
+        "a cute dog dancing happily to music, wagging tail and moving front paws rhythmically, "
+        "playful and joyful mood, smooth animation, natural motion, small rhythmic movements, "
+        "swaying body, paw movement to the beat, lively atmosphere."
     ),
 }
 
-DEFAULT_DANCE_PROMPT = (
-    "A fixed camera medium shot of a cute dog dancing on its hind legs in the center of the frame. "
-    "The pet begins dancing energetically, swaying and waving its front paws, bouncing with small hops. "
-    "Tail wags, ears bounce, head tilts playfully. Continuous motion; camera and background remain still."
+# 기본/강아지/고양이용 자연스러운 프롬프트 (실전용)
+PROMPT_PET_GENERIC = (
+    "a cute pet dancing happily, small rhythmic movements, swaying body, "
+    "moving front paws to the beat, playful expression, smooth motion, natural movement, lively atmosphere."
 )
+PROMPT_DOG_DANCE = (
+    "a cute dog dancing playfully, wagging tail, moving front paws up and down like dancing, "
+    "small jumps, joyful energy, rhythmic movement, smooth animation, natural motion."
+)
+PROMPT_CAT_DANCE = (
+    "a cute cat dancing slowly, moving paws rhythmically, slight body sway, "
+    "playful cute movement, soft and natural animation, smooth motion."
+)
+
+DEFAULT_DANCE_PROMPT = PROMPT_DOG_DANCE
 
 
 def get_motion_video_path(motion_id: str) -> Path | None:
@@ -103,11 +110,12 @@ def get_or_extract_pose(motion_id: str) -> MotionSequence | None:
 
 
 def get_dance_prompt(motion_id: str, character: str) -> str:
-    """Return LTX-2 prompt for the given motion and character."""
-    prompt = DANCE_PROMPTS.get(motion_id) or DEFAULT_DANCE_PROMPT
+    """Return LTX-2 prompt for the given motion and character (반려동물 관절에 맞는 자연스러운 춤)."""
     if character == "cat":
-        prompt = prompt.replace("dog", "cat").replace("Dog", "Cat")
-    return prompt
+        return PROMPT_CAT_DANCE
+    if character == "dog":
+        return DANCE_PROMPTS.get(motion_id) or PROMPT_DOG_DANCE
+    return PROMPT_PET_GENERIC
 
 
 async def run_dance_generate(
@@ -124,24 +132,26 @@ async def run_dance_generate(
     await loop.run_in_executor(None, get_or_extract_pose, motion_id)
 
     from app.services.video_service import (
-        DEFAULT_HEIGHT,
-        DEFAULT_NUM_FRAMES,
-        DEFAULT_WIDTH,
+        DANCE_SHORT_FRAME_RATE,
+        DANCE_SHORT_GUIDANCE_SCALE,
+        DANCE_SHORT_HEIGHT,
+        DANCE_SHORT_NUM_FRAMES,
+        DANCE_SHORT_NUM_STEPS,
+        DANCE_SHORT_WIDTH,
+        NEGATIVE_PET_DANCE,
     )
 
     prompt = get_dance_prompt(motion_id, character)
-    negative = None
-    start = time.perf_counter()
     out_bytes, elapsed = await run_image_to_video(
         image_bytes=image_bytes,
         prompt=prompt,
-        negative_prompt=negative,
-        width=DEFAULT_WIDTH,
-        height=DEFAULT_HEIGHT,
-        num_frames=DEFAULT_NUM_FRAMES,
-        frame_rate=30.0,
-        num_inference_steps=25,
-        guidance_scale=4.0,
+        negative_prompt=NEGATIVE_PET_DANCE,
+        width=DANCE_SHORT_WIDTH,
+        height=DANCE_SHORT_HEIGHT,
+        num_frames=DANCE_SHORT_NUM_FRAMES,
+        frame_rate=DANCE_SHORT_FRAME_RATE,
+        num_inference_steps=DANCE_SHORT_NUM_STEPS,
+        guidance_scale=DANCE_SHORT_GUIDANCE_SCALE,
         seed=None,
     )
     return out_bytes, elapsed
