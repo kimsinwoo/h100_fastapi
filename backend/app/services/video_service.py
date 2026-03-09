@@ -1,8 +1,8 @@
 """
 LTX-2 Image-to-Video (Lightricks LTX-2).
 사진 + 프롬프트 → 동영상 생성. Hugging Face diffusers LTX2ImageToVideoPipeline 사용.
-H100 목표: 60초 미만 (640×384, 33 frames, 8~10 steps).
-Ref: https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2
+기본: 768×512, 121 frames(약 5초), 25 steps, guidance 4.0 (ltx-2-TURBO 품질).
+품질 모드: 241 frames(약 10초). Ref: https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
 
 # ---------- ltx-2-TURBO 기준 (packages/ltx-pipelines/utils/constants.py) ----------
-# 품질 모드: 768×512, 49/81 frames, 25 steps, guidance 4.0
+# 품질 모드: 768×512, 10초(241 frames), 25 steps, guidance 4.0
 QUALITY_WIDTH = 768
 QUALITY_HEIGHT = 512
-QUALITY_NUM_FRAMES = 49  # 8n+1. TURBO는 121, diffusers는 49~81 권장
+QUALITY_NUM_FRAMES = 241  # 8n+1. 10초 @ 24fps = 241 (TURBO는 121=5초)
 QUALITY_NUM_STEPS = 25
 QUALITY_GUIDANCE_SCALE = 4.0
 # TURBO DEFAULT_NEGATIVE_PROMPT (시네마틱 품질용)
@@ -42,13 +42,13 @@ NEGATIVE_PROMPT_TURBO = (
     "inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
 )
 
-# 기본(속도 우선): 60초 미만 목표
-DEFAULT_WIDTH = 640
-DEFAULT_HEIGHT = 384
-DEFAULT_NUM_FRAMES = 33  # 8n+1
+# 기본: 최소 5초 영상 + TURBO 수준 품질 (768×512, 25 steps, guidance 4.0)
+DEFAULT_WIDTH = 768
+DEFAULT_HEIGHT = 512
+DEFAULT_NUM_FRAMES = 121  # 8n+1. 5초 @ 24fps (33이면 1초대라 너무 짧음)
 DEFAULT_FRAME_RATE = 24.0
-DEFAULT_NUM_STEPS = 10
-DEFAULT_GUIDANCE_SCALE = 3.5
+DEFAULT_NUM_STEPS = 25
+DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 

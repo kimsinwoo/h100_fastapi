@@ -42,6 +42,7 @@ from app.services.video_service import (
     run_image_to_video,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
+    DEFAULT_NUM_FRAMES,
     QUALITY_WIDTH,
     QUALITY_HEIGHT,
     QUALITY_NUM_FRAMES,
@@ -625,12 +626,13 @@ async def generate_video(
     quality_mode = getattr(settings, "ltx2_quality_mode", False)
     num_f = _parse_optional_int(num_frames)
     if num_f is None or num_f < 1:
-        num_f = QUALITY_NUM_FRAMES if quality_mode else 33
-    num_f = min(121, num_f)
+        # 기본 5초(121), 품질 모드 10초(241)
+        num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
+    num_f = min(241, max(33, num_f))  # 33~241 (약 1.4초~10초)
     steps = _parse_optional_int(num_inference_steps)
     if steps is None or steps < 1:
-        steps = QUALITY_NUM_STEPS if quality_mode else 10
-    steps = min(50, steps)
+        steps = QUALITY_NUM_STEPS if quality_mode else 25
+    steps = min(50, max(10, steps))
     width = QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH
     height = QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT
     seed_i = _parse_optional_int(seed)
