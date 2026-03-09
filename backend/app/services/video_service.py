@@ -233,7 +233,7 @@ def _load_pipeline_sync() -> Any:
                         num_inference_steps=4,
                         guidance_scale=3.5,
                         output_type="latent",
-                        return_dict=False,
+                        return_dict=True,
                     )
                 else:
                     _pipeline(
@@ -247,7 +247,7 @@ def _load_pipeline_sync() -> Any:
                         num_inference_steps=4,
                         guidance_scale=3.5,
                         output_type="latent",
-                        return_dict=False,
+                        return_dict=True,
                     )
             logger.info("LTX-2: warmup done (num_frames=8, steps=4, compile cache ready)")
         except Exception as w:
@@ -323,7 +323,7 @@ def _run_image_to_video_sync(
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 output_type="np",
-                return_dict=False,
+                return_dict=True,
                 generator=generator,
             )
         else:
@@ -338,13 +338,29 @@ def _run_image_to_video_sync(
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 output_type="np",
-                return_dict=False,
+                return_dict=True,
                 generator=generator,
             )
 
-    video_out = out[0]
+    # 반환: return_dict=True면 객체 속성, False면 (videos, audios) 튜플. 둘 다 안전 처리.
+    if hasattr(out, "frames"):
+        video_out = out.frames
+    elif hasattr(out, "videos"):
+        video_out = out.videos
+    elif isinstance(out, (list, tuple)) and len(out) >= 1:
+        video_out = out[0]
+    else:
+        video_out = out
     video_frames = video_out[0] if isinstance(video_out, (list, tuple)) else video_out
-    audio = out[1] if len(out) > 1 else None
+    # (batch, T, H, W, C) → (T, H, W, C); encode_video는 (T, H, W, C) 기대
+    if hasattr(video_frames, "shape") and len(getattr(video_frames, "shape", ())) == 5:
+        video_frames = video_frames[0]
+    if hasattr(out, "audios"):
+        audio = out.audios
+    elif isinstance(out, (list, tuple)) and len(out) >= 2:
+        audio = out[1]
+    else:
+        audio = None
 
     from diffusers.pipelines.ltx2.export_utils import encode_video
     import tempfile
@@ -353,15 +369,23 @@ def _run_image_to_video_sync(
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
         tmp_path = f.name
     try:
-        kwargs = {"output_path": tmp_path, "fps": frame_rate}
-        if audio is not None and len(audio) > 0 and hasattr(_pipeline, "vocoder") and _pipeline.vocoder is not None:
-            audio_tensor = audio[0] if isinstance(audio, (list, tuple)) else audio
-            if hasattr(audio_tensor, "float"):
-                kwargs["audio"] = audio_tensor.float().cpu()
-            kwargs["audio_sample_rate"] = getattr(
-                _pipeline.vocoder.config, "output_sampling_rate", 24000
-            )
-        encode_video(video_frames, **kwargs)
+        # encode_video(video, fps=..., output_path=..., audio=..., audio_sample_rate=...)
+        audio_arg = None
+        audio_sr = 24000
+        if audio is not None and hasattr(_pipeline, "vocoder") and _pipeline.vocoder is not None:
+            a_list = audio if isinstance(audio, (list, tuple)) else [audio]
+            if len(a_list) > 0:
+                audio_arg = a_list[0]
+                if hasattr(audio_arg, "float"):
+                    audio_arg = audio_arg.float().cpu()
+                audio_sr = getattr(_pipeline.vocoder.config, "output_sampling_rate", 24000)
+        encode_video(
+            video_frames,
+            fps=frame_rate,
+            output_path=tmp_path,
+            audio=audio_arg,
+            audio_sample_rate=audio_sr,
+        )
         with open(tmp_path, "rb") as f:
             return f.read()
     finally:
