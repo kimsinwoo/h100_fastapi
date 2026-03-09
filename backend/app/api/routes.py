@@ -605,15 +605,14 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
         "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
-    # 반려동물 춤: 4단계 구조 (캐릭터→동작범위→리듬 시퀀스→금지). 동작 시퀀스로 모션 안정화.
+    # 반려동물 춤: 행동 트리거(starts/begins + repeatedly + continuously). 이미지 고정력 깨기.
     "dancing_pet": (
-        "a cute dog, full body visible, standing on the ground, "
-        "doing a simple viral dance challenge, "
-        "slow rhythmic body sway left and right, small steps in place, "
-        "slightly lifting front paws to the rhythm, wagging tail happily, "
-        "playful and cute movement, smooth natural animation, "
-        "realistic dog motion, stable body posture, "
-        "no wild paw waving, no chaotic movement, no exaggerated motion."
+        "a cute dog standing on the ground, full body visible. "
+        "the dog begins a simple dance, "
+        "moving its body left and right repeatedly, "
+        "taking small steps in place again and again, "
+        "its tail wagging while it dances. "
+        "clear continuous movement, simple looping dance motion, static camera."
     ),
     # 트렌디 스타일 4종
     "golden_hour": (
@@ -680,7 +679,7 @@ async def generate_video(
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
     quality_mode = getattr(settings, "ltx2_quality_mode", False)
-    use_dance_short = preset and preset.strip() == "dancing_pet"  # 반려동물 짧은 춤: 640x384, 33f, 8 steps, 3.5 guidance
+    use_dance_short = preset and preset.strip() == "dancing_pet"  # 반려동물 짧은 춤: 640x384, 25f, 8 steps, guidance 3
     num_f = _parse_optional_int(num_frames)
     if num_f is None or num_f < 1:
         if use_dance_short:

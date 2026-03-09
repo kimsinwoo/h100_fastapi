@@ -1,7 +1,12 @@
 """
 Dance / Motion Transfer pipeline: pose extraction → normalization → video generation.
-Orchestrates: reference video → pose extraction (OpenPose-style) → motion normalization
-→ LTX-2 image-to-video with dance prompt (pose conditioning can be added later via ControlNet).
+
+프롬프트 구조 (이미지 고정력 깨기):
+  subject → clear action → repeated motion → rhythm → camera stability
+  필수: "starts/begins" + "repeatedly" + "continuously" (again and again, continuous movement)
+  "dance challenge"보다 "the dog starts dancing", "the dog moves" 같은 직접 행동 문장이 잘 먹힘.
+
+파라미터: 640x384, 25 frames(8n+1), 8 steps, guidance 3, fps 8.
 """
 
 from __future__ import annotations
@@ -23,38 +28,38 @@ MOTION_VIDEOS: dict[str, str] = {
     "rat_dance": "rat_dance.mp4",
 }
 
-# 4단계 구조: 캐릭터 → 동작범위 제한 → 리듬 동작 정의 → 금지 동작 (LTX-2 안정용)
-# 모션 키워드: dance challenge, rhythmic, swaying, step in place, bounce, grooving to the beat
+# image→video 모션 트리거: "상태"가 아니라 "행동"으로 써야 이미지 고정력이 깨짐.
+# 구조: subject → clear action → repeated motion → rhythm → camera stability
+# 필수: starts/begins + repeatedly + continuously (again and again, continuous movement)
 DANCE_PROMPTS: dict[str, str] = {
     "rat_dance": (
-        "a cute dog, full body visible, standing on the ground, "
-        "doing a simple viral dance challenge, "
-        "slow rhythmic body sway left and right, small steps in place, "
-        "slightly lifting front paws to the rhythm, wagging tail happily, "
-        "playful and cute movement, smooth natural animation, "
-        "realistic dog motion, stable body posture, "
-        "no wild paw waving, no chaotic movement, no exaggerated motion."
+        "a cute dog standing on the ground, full body visible. "
+        "the dog begins a simple dance, "
+        "moving its body left and right repeatedly, "
+        "taking small steps in place again and again, "
+        "its tail wagging while it dances. "
+        "clear continuous movement, simple looping dance motion, static camera."
     ),
 }
 
-# 강아지: 캐릭터 → 포즈 → 리듬 시퀀스 → 관절 안정화 → 금지
+# 강아지: 행동 동사(begins) + repeatedly + again and again + continuous movement
 PROMPT_DOG_DANCE = (
-    "a cute dog, full body visible, standing on the ground, "
-    "doing a simple viral dance challenge, "
-    "slow rhythmic body sway left and right, small steps in place, "
-    "slightly lifting front paws to the rhythm, wagging tail happily, "
-    "playful and cute movement, smooth natural animation, "
-    "realistic dog motion, stable body posture, small controlled paw movement, "
-    "no wild paw waving, no chaotic movement, no exaggerated motion."
+    "a cute dog standing on the ground, full body visible. "
+    "the dog begins a simple dance, "
+    "moving its body left and right repeatedly, "
+    "taking small steps in place again and again, "
+    "its tail wagging while it dances. "
+    "clear continuous movement, simple looping dance motion, smooth natural dog motion, static camera."
 )
 
-# 고양이: 동일 4단계 구조
+# 고양이: 동일 구조 (행동 트리거)
 PROMPT_CAT_DANCE = (
-    "a cute cat doing a simple dance challenge, "
-    "gently swaying body to the rhythm, small paw movement, small steps in place, "
-    "playful cute motion, smooth natural animation, "
-    "realistic cat movement, stable body posture, "
-    "no chaotic motion, no aggressive paw movement."
+    "a cute cat standing on the ground, full body visible. "
+    "the cat begins a simple dance, "
+    "moving its body left and right repeatedly, "
+    "taking small steps in place again and again, "
+    "its tail swaying while it dances. "
+    "clear continuous movement, simple looping dance motion, smooth natural cat motion, static camera."
 )
 
 PROMPT_PET_GENERIC = PROMPT_DOG_DANCE
