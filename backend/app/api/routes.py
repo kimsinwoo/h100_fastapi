@@ -605,11 +605,15 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Fixed camera, locked frame. Leaves and branches begin moving in the wind: they sway, then rustle, then bend slightly. "
         "The motion continues rhythmically; foliage keeps drifting and swaying. Person or subject in frame stays still. Camera does not move."
     ),
-    # 반려동물 춤: 리듬에 맞춘 작은 움직임 (small movement, rhythmic, playful, tail wagging, paw movement)
+    # 반려동물 춤: 4단계 구조 (캐릭터→동작범위→리듬 시퀀스→금지). 동작 시퀀스로 모션 안정화.
     "dancing_pet": (
-        "a cute pet dancing happily to music, wagging tail and moving front paws rhythmically, "
-        "playful and joyful mood, smooth animation, natural motion, small rhythmic movements, "
-        "swaying body, paw movement to the beat, lively atmosphere."
+        "a cute dog, full body visible, standing on the ground, "
+        "doing a simple viral dance challenge, "
+        "slow rhythmic body sway left and right, small steps in place, "
+        "slightly lifting front paws to the rhythm, wagging tail happily, "
+        "playful and cute movement, smooth natural animation, "
+        "realistic dog motion, stable body posture, "
+        "no wild paw waving, no chaotic movement, no exaggerated motion."
     ),
     # 트렌디 스타일 4종
     "golden_hour": (
@@ -683,7 +687,9 @@ async def generate_video(
             num_f = DANCE_SHORT_NUM_FRAMES
         else:
             num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
-    num_f = _clamp_num_frames_to_8n_plus_1(min(241, max(33, num_f)))  # LTX-2: 8n+1 (33~241)
+    num_f = _clamp_num_frames_to_8n_plus_1(
+        min(241, max(25 if use_dance_short else 33, num_f))
+    )  # LTX-2: 8n+1. 춤은 25(24~28), 일반은 33~
     steps = _parse_optional_int(num_inference_steps)
     if steps is None or steps < 1:
         steps = DANCE_SHORT_NUM_STEPS if use_dance_short else (QUALITY_NUM_STEPS if quality_mode else 25)

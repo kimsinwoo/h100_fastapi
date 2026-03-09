@@ -23,30 +23,41 @@ MOTION_VIDEOS: dict[str, str] = {
     "rat_dance": "rat_dance.mp4",
 }
 
-# 반려동물 춤: 리듬에 맞춘 작은 움직임 위주 (과한 춤은 관절 구조상 비자연스러움)
-# 키워드: small movement, rhythmic movement, playful, cute, swaying, tail wagging, paw movement
+# 4단계 구조: 캐릭터 → 동작범위 제한 → 리듬 동작 정의 → 금지 동작 (LTX-2 안정용)
+# 모션 키워드: dance challenge, rhythmic, swaying, step in place, bounce, grooving to the beat
 DANCE_PROMPTS: dict[str, str] = {
     "rat_dance": (
-        "a cute dog dancing happily to music, wagging tail and moving front paws rhythmically, "
-        "playful and joyful mood, smooth animation, natural motion, small rhythmic movements, "
-        "swaying body, paw movement to the beat, lively atmosphere."
+        "a cute dog, full body visible, standing on the ground, "
+        "doing a simple viral dance challenge, "
+        "slow rhythmic body sway left and right, small steps in place, "
+        "slightly lifting front paws to the rhythm, wagging tail happily, "
+        "playful and cute movement, smooth natural animation, "
+        "realistic dog motion, stable body posture, "
+        "no wild paw waving, no chaotic movement, no exaggerated motion."
     ),
 }
 
-# 기본/강아지/고양이용 자연스러운 프롬프트 (실전용)
-PROMPT_PET_GENERIC = (
-    "a cute pet dancing happily, small rhythmic movements, swaying body, "
-    "moving front paws to the beat, playful expression, smooth motion, natural movement, lively atmosphere."
-)
+# 강아지: 캐릭터 → 포즈 → 리듬 시퀀스 → 관절 안정화 → 금지
 PROMPT_DOG_DANCE = (
-    "a cute dog dancing playfully, wagging tail, moving front paws up and down like dancing, "
-    "small jumps, joyful energy, rhythmic movement, smooth animation, natural motion."
-)
-PROMPT_CAT_DANCE = (
-    "a cute cat dancing slowly, moving paws rhythmically, slight body sway, "
-    "playful cute movement, soft and natural animation, smooth motion."
+    "a cute dog, full body visible, standing on the ground, "
+    "doing a simple viral dance challenge, "
+    "slow rhythmic body sway left and right, small steps in place, "
+    "slightly lifting front paws to the rhythm, wagging tail happily, "
+    "playful and cute movement, smooth natural animation, "
+    "realistic dog motion, stable body posture, small controlled paw movement, "
+    "no wild paw waving, no chaotic movement, no exaggerated motion."
 )
 
+# 고양이: 동일 4단계 구조
+PROMPT_CAT_DANCE = (
+    "a cute cat doing a simple dance challenge, "
+    "gently swaying body to the rhythm, small paw movement, small steps in place, "
+    "playful cute motion, smooth natural animation, "
+    "realistic cat movement, stable body posture, "
+    "no chaotic motion, no aggressive paw movement."
+)
+
+PROMPT_PET_GENERIC = PROMPT_DOG_DANCE
 DEFAULT_DANCE_PROMPT = PROMPT_DOG_DANCE
 
 

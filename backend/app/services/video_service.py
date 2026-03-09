@@ -53,33 +53,34 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
-# ---------- 반려동물 짧은 춤 영상 (3~4초, 속도·자연스러움 밸런스) ----------
-# resolution 640x384, frames 25~33, steps 8~10, guidance 3.5, fps 8~10
+# ---------- 반려동물 짧은 춤 영상 (동작 시퀀스·관절 제한 구조) ----------
+# frames 24~28 → 8n+1이면 25. 많으면 motion exaggeration. steps 8, guidance 3, fps 8
 DANCE_SHORT_WIDTH = 640
 DANCE_SHORT_HEIGHT = 384
-DANCE_SHORT_NUM_FRAMES = 33  # 8n+1. 8fps 기준 약 4초
+DANCE_SHORT_NUM_FRAMES = 25  # 8n+1. 24~28 구간에서 motion 안정
 DANCE_SHORT_NUM_STEPS = 8
-DANCE_SHORT_GUIDANCE_SCALE = 3.5
+DANCE_SHORT_GUIDANCE_SCALE = 3.0
 DANCE_SHORT_FRAME_RATE = 8.0
-# 반려동물 관절에 맞지 않아 프레임 깨짐 유발 → 네거티브에 추가
+# 반드시 넣어야 하는 negative motion (없으면 과한 앞발·흔들림)
 NEGATIVE_PET_DANCE = (
+    "no aggressive paw movement, no fast shaking, no chaotic movement, no exaggerated motion, "
+    "no wild paw waving, no wild movement, no chaotic paw waving, no uncontrolled motion, "
     "breakdance, acrobat, spin fast, jump high, backflip, somersault, "
     "extreme motion, unnatural pose, human dance, standing on two legs like human."
 )
 
 
-def _clamp_num_frames_to_8n_plus_1(n: int) -> int:
-    """LTX-2는 num_frames가 8n+1 형태여야 함. 가장 가까운 유효값으로 보정."""
+def _clamp_num_frames_to_8n_plus_1(n: int, min_frames: int = 25) -> int:
+    """LTX-2는 num_frames가 8n+1 형태여야 함. 가장 가까운 유효값으로 보정. min_frames(기본 25) 이상."""
     if n <= 0:
-        return 33
-    # 8n+1: 33, 41, 49, 57, 65, 73, 81, ..., 121, 241
+        return max(25, min_frames) if min_frames <= 25 else 33
+    # 8n+1: 25, 33, 41, 49, ... (24~28 구간은 25 사용)
     remainder = (n - 1) % 8
     if remainder == 0:
-        return max(33, min(241, n))
-    # n보다 작은 최대 8k+1 또는 n보다 큰 최소 8k+1 중 가까운 쪽
+        return max(min_frames, min(241, n))
     low = ((n - 1) // 8) * 8 + 1
     high = low + 8
-    low = max(33, low)
+    low = max(min_frames, low)
     high = min(241, high)
     return low if (n - low) <= (high - n) else high
 
