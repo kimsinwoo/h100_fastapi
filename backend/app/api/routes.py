@@ -577,7 +577,7 @@ async def list_species() -> dict[str, str]:
 
 
 # ---------- LTX-2 Image-to-Video ----------
-# 테스트 프리셋: 카메라 고정 + 자연스러운 동작(눈 깜빡임 등) 유도
+# 테스트 프리셋 + 트렌디 스타일 (6W·시네마틱 구조)
 VIDEO_PROMPT_PRESETS: dict[str, str] = {
     "smile_turn": (
         "Static shot, locked camera, zero camera movement. "
@@ -596,12 +596,33 @@ VIDEO_PROMPT_PRESETS: dict[str, str] = {
         "Natural details: ear movement, tail wag or sway, blinking, breathing. "
         "Pet is dancing in place; background and camera do not move."
     ),
+    # 트렌디 스타일 4종
+    "golden_hour": (
+        "Cinematic medium shot in warm golden hour sunlight. Soft, directional light creates long shadows and a glowing rim. "
+        "The subject stands or sits still; only subtle natural motion: gentle breathing, slight hair or fabric movement from a breeze. "
+        "Static shot, locked camera. Film grain and warm color palette. No camera movement, no pan or zoom."
+    ),
+    "cozy_moment": (
+        "Cozy indoor scene with soft diffused lighting, warm tones, and a calm atmosphere. "
+        "Subject is relaxed; minimal motion: slow blink, gentle shift in posture or a small gesture. "
+        "Static shot, locked camera. Shallow depth of field, soft bokeh in background. No camera movement."
+    ),
+    "neon_night": (
+        "Night scene with neon reflections on wet pavement and soft fog in the air. "
+        "Subject remains in frame; only subtle motion: breathing, slight turn of head or eyes catching the neon glow. "
+        "Static shot, locked camera. Cinematic color grading, cyan and magenta highlights. No camera movement."
+    ),
+    "dreamy_bokeh": (
+        "Dreamy soft-focus shot with shallow depth of field and creamy bokeh in the background. "
+        "Subject moves gently: soft blink, slight smile, or slow turn toward camera. Soft morning or backlit light. "
+        "Static shot, locked camera. Ethereal atmosphere, fine film grain. No camera movement, no pan or zoom."
+    ),
 }
 
 
 @router.get("/video/presets")
 async def list_video_presets() -> dict[str, str]:
-    """동영상 생성용 프롬프트 프리셋 (테스트 스타일 2종)."""
+    """동영상 생성용 프롬프트 프리셋 (테스트 + 트렌디 스타일)."""
     return dict(VIDEO_PROMPT_PRESETS)
 
 
@@ -611,7 +632,7 @@ async def generate_video(
     file: Annotated[UploadFile | None, File(description="Image file")] = None,
     image: Annotated[UploadFile | None, File(description="Image file (alias)")] = None,
     prompt: Annotated[str, Form(description="동영상 동작/장면 설명 (필수)")] = "",
-    preset: Annotated[str | None, Form(description="프리셋 키: smile_turn, wind_leaves")] = None,
+    preset: Annotated[str | None, Form(description="프리셋 키: smile_turn, wind_leaves, dancing_pet, golden_hour, cozy_moment, neon_night, dreamy_bokeh")] = None,
     negative_prompt: Annotated[str | None, Form()] = None,
     num_frames: Annotated[str | None, Form()] = None,
     num_inference_steps: Annotated[str | None, Form()] = None,

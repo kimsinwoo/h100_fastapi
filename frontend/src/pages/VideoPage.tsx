@@ -32,7 +32,7 @@ export default function VideoPage() {
       .catch(() => setGpuAvailable(null));
     getVideoPresets()
       .then(setPresets)
-      .catch(() => setPresets({ smile_turn: "", wind_leaves: "", dancing_pet: "" }));
+      .catch(() => setPresets({ smile_turn: "", wind_leaves: "", dancing_pet: "", golden_hour: "", cozy_moment: "", neon_night: "", dreamy_bokeh: "" }));
   }, []);
 
   const handlePreset = useCallback(
@@ -144,12 +144,20 @@ export default function VideoPage() {
                     className="rounded-lg border-2 border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-400 disabled:opacity-60"
                   >
                     {key === "smile_turn"
-                      ? "테스트 스타일 1: 고개 돌리기"
+                      ? "고개 돌리기"
                       : key === "wind_leaves"
-                        ? "테스트 스타일 2: 바람/나뭇잎"
+                        ? "바람/나뭇잎"
                         : key === "dancing_pet"
-                          ? "테스트 스타일 3: 춤추는 강아지/고양이"
-                          : key}
+                          ? "춤추는 강아지/고양이"
+                          : key === "golden_hour"
+                            ? "황금시간대"
+                            : key === "cozy_moment"
+                              ? "코지 모먼트"
+                              : key === "neon_night"
+                                ? "네온 야경"
+                                : key === "dreamy_bokeh"
+                                  ? "드리밍 보케"
+                                  : key}
                   </button>
                 ))}
               </div>
