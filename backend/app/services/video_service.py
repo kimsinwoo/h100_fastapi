@@ -19,13 +19,13 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
 
-# 기본 해상도/프레임 (1분 이내 생성 목표. 품질 우선 시 768×512, 81프레임, 25스텝으로 증설)
-DEFAULT_WIDTH = 704
-DEFAULT_HEIGHT = 448
-DEFAULT_NUM_FRAMES = 49  # 8n+1 (121→49 대비 약 2.5배 단축)
+# 기본 해상도/프레임 (빠른 생성: 640×384, 33프레임, 12스텝, guidance 3.5)
+DEFAULT_WIDTH = 640
+DEFAULT_HEIGHT = 384
+DEFAULT_NUM_FRAMES = 33  # 8n+1
 DEFAULT_FRAME_RATE = 24.0
-DEFAULT_NUM_STEPS = 18  # 25→18 (약 1.4배 단축)
-DEFAULT_GUIDANCE_SCALE = 4.0
+DEFAULT_NUM_STEPS = 12
+DEFAULT_GUIDANCE_SCALE = 3.5
 DEFAULT_NEGATIVE = (
     "worst quality, inconsistent motion, blurry, jittery, distorted, "
     "shaky, glitchy, deformed, motion smear, motion artifacts, bad anatomy, static."
@@ -66,6 +66,7 @@ def _get_image_to_video_pipeline_class() -> tuple:
 
 
 def _load_pipeline_sync() -> Any:
+    import os
     import torch
 
     pipeline_type = _get_image_to_video_pipeline_class()
@@ -74,9 +75,28 @@ def _load_pipeline_sync() -> Any:
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    # CUDA 속도 최적화 (1분 미만 목표)
+    if device == "cuda":
+        if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+            torch.backends.cuda.matmul.allow_tf32 = True
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.benchmark = True
+        logger.info("LTX-2: CUDA tf32/cudnn.benchmark enabled")
+
+    # Flash Attention 2 (로드 시 적용 시 속도·메모리 최적화). pip install flash-attn
+    load_kw: dict = {"torch_dtype": dtype}
+    if device == "cuda" and getattr(get_settings(), "enable_flash_attention_2", True):
+        try:
+            import importlib
+            importlib.import_module("flash_attn")
+            load_kw["attn_implementation"] = "flash_attention_2"
+            logger.info("LTX-2: loading with attn_implementation=flash_attention_2")
+        except Exception as e:
+            logger.debug("LTX-2: Flash Attention 2 not available (%s), using default", e)
+
     if pipeline_type[0] == "image2video":
         PipeClass = pipeline_type[1]
-        _pipeline = PipeClass.from_pretrained(model_id, torch_dtype=dtype)
+        _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
         if device == "cuda":
             _pipeline.enable_sequential_cpu_offload(device=device)
         else:
@@ -85,7 +105,7 @@ def _load_pipeline_sync() -> Any:
     else:
         PipeClass = pipeline_type[1]
         LTX2VideoCondition = pipeline_type[2]
-        _pipeline = PipeClass.from_pretrained(model_id, torch_dtype=dtype)
+        _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
         if device == "cuda":
             _pipeline.enable_sequential_cpu_offload(device=device)
         else:
@@ -94,6 +114,63 @@ def _load_pipeline_sync() -> Any:
             _pipeline.vae.enable_tiling()
         _pipeline._ltx_video_condition_class = LTX2VideoCondition
         logger.info("LTX-2 Condition pipeline loaded for image-to-video (model=%s)", model_id)
+
+    # VAE slicing: 디코드 시 메모리·처리 경량화 (비디오 프레임 많아서 유리)
+    if hasattr(_pipeline, "enable_vae_slicing"):
+        _pipeline.enable_vae_slicing()
+        logger.info("LTX-2: VAE slicing enabled")
+    # Flash Attention 2 미사용 시에만 xformers 폴백 (FA2는 로드 시 이미 적용됨)
+    if "attn_implementation" not in load_kw or load_kw.get("attn_implementation") != "flash_attention_2":
+        if hasattr(_pipeline, "enable_xformers_memory_efficient_attention"):
+            try:
+                _pipeline.enable_xformers_memory_efficient_attention()
+                logger.info("LTX-2: xformers memory-efficient attention enabled")
+            except Exception as e:
+                logger.debug("LTX-2: xformers not available (%s), using default SDPA", e)
+
+    # torch.compile: diffusion step당 계산 가속 (목표 ~40% 단축)
+    if device == "cuda":
+        target = getattr(_pipeline, "transformer", None)
+        if target is not None:
+            prev_disable = os.environ.get("TORCH_COMPILE_DISABLE")
+            try:
+                os.environ["TORCH_COMPILE_DISABLE"] = "0"
+                try:
+                    compiled = torch.compile(target, mode="max-autotune", fullgraph=True)
+                    _pipeline.transformer = compiled
+                    logger.info("LTX-2: torch.compile(transformer, max-autotune, fullgraph=True) enabled")
+                except Exception:
+                    try:
+                        compiled = torch.compile(target, mode="max-autotune", fullgraph=False)
+                        _pipeline.transformer = compiled
+                        logger.info("LTX-2: torch.compile(transformer, max-autotune, fullgraph=False) enabled")
+                    except Exception as e2:
+                        compiled = torch.compile(target, mode="reduce-overhead", fullgraph=False)
+                        _pipeline.transformer = compiled
+                        logger.info("LTX-2: torch.compile(transformer, reduce-overhead) enabled")
+            except Exception as e:
+                logger.warning("LTX-2: torch.compile skipped (%s)", e)
+            finally:
+                if prev_disable is not None:
+                    os.environ["TORCH_COMPILE_DISABLE"] = prev_disable
+                elif "TORCH_COMPILE_DISABLE" in os.environ:
+                    del os.environ["TORCH_COMPILE_DISABLE"]
+
+    # 1회 워밍업: torch.compile 첫 실행 시 컴파일되어, 이후 요청부터 가속 적용
+    if device == "cuda" and getattr(get_settings(), "ltx2_warmup", True):
+        try:
+            from PIL import Image as PILImage
+            warmup_img = PILImage.new("RGB", (320, 192), (128, 128, 128))
+            with torch.inference_mode():
+                if getattr(_pipeline, "_ltx_video_condition_class", None) is not None:
+                    _cond = _pipeline._ltx_video_condition_class(frames=warmup_img, index=0, strength=1.0)
+                    _pipeline(conditions=[_cond], prompt="warmup", negative_prompt="", width=320, height=192, num_frames=17, frame_rate=24.0, num_inference_steps=2, guidance_scale=3.5, output_type="latent", return_dict=False)
+                else:
+                    _pipeline(image=warmup_img, prompt="warmup", negative_prompt="", width=320, height=192, num_frames=17, frame_rate=24.0, num_inference_steps=2, guidance_scale=3.5, output_type="latent", return_dict=False)
+            logger.info("LTX-2: warmup done (compile cache ready)")
+        except Exception as w:
+            logger.debug("LTX-2: warmup skipped (%s)", w)
+
     return _pipeline
 
 
@@ -151,38 +228,39 @@ def _run_image_to_video_sync(
     )
 
     use_condition = getattr(_pipeline, "_ltx_video_condition_class", None) is not None
-    if use_condition:
-        LTX2VideoCondition = _pipeline._ltx_video_condition_class
-        condition = LTX2VideoCondition(frames=img, index=0, strength=1.0)
-        out = _pipeline(
-            conditions=[condition],
-            prompt=prompt,
-            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
-            width=width,
-            height=height,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            output_type="np",
-            return_dict=False,
-            generator=generator,
-        )
-    else:
-        out = _pipeline(
-            image=img,
-            prompt=prompt,
-            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
-            width=width,
-            height=height,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            output_type="np",
-            return_dict=False,
-            generator=generator,
-        )
+    with torch.inference_mode():
+        if use_condition:
+            LTX2VideoCondition = _pipeline._ltx_video_condition_class
+            condition = LTX2VideoCondition(frames=img, index=0, strength=1.0)
+            out = _pipeline(
+                conditions=[condition],
+                prompt=prompt,
+                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                width=width,
+                height=height,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                output_type="np",
+                return_dict=False,
+                generator=generator,
+            )
+        else:
+            out = _pipeline(
+                image=img,
+                prompt=prompt,
+                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                width=width,
+                height=height,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                output_type="np",
+                return_dict=False,
+                generator=generator,
+            )
 
     # out = (video, audio); video는 배치 리스트이므로 video[0]이 [T,H,W,C] numpy
     video_out = out[0]
