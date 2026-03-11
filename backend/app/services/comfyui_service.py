@@ -254,9 +254,9 @@ async def run_ltx23_image_to_video(
     workflow_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
     workflow_path = settings.pipelines_dir / f"{workflow_name}.json"
     if not workflow_path.exists():
-        raise FileNotFoundError(
+        raise RuntimeError(
             f"LTX-2.3 ComfyUI workflow not found: {workflow_path}. "
-            "Export your LTXVideo workflow from ComfyUI and save as pipelines/ltx23_i2v.json"
+            "Export your LTXVideo workflow from ComfyUI and save as pipelines/ltx23_i2v.json (see pipelines/README_LTX23.md)."
         )
 
     import json

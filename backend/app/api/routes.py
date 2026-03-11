@@ -726,6 +726,9 @@ async def generate_video(
         out_bytes, processing_time = await run_image_to_video(**run_kw)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except TimeoutError as e:
+        logger.warning("LTX-2 ComfyUI workflow timeout: %s", e)
+        raise HTTPException(status_code=504, detail=str(e))
     except RuntimeError as e:
         logger.exception("LTX-2 video generation failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
