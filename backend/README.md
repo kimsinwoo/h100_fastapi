@@ -11,6 +11,21 @@ cd backend
 ./run.sh
 ```
 
+**pip 설치가 오래 걸리거나 멈춘 것처럼 보일 때**  
+첫 설치 시 torch/diffusers 등으로 10~20분 걸릴 수 있습니다. 진행 로그를 보려면:
+
+```bash
+cd backend
+source venv/bin/activate   # 또는 가상환경 활성화
+PIP_VERBOSE=1 ./run.sh
+```
+
+또는 설치만 먼저 (타임아웃 15분):
+
+```bash
+pip install -r requirements.txt --timeout 900 --prefer-binary -v
+```
+
 또는:
 
 ```bash
