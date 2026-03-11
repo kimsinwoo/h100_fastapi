@@ -1,8 +1,8 @@
 """
-LTX-2 Image-to-Video (Lightricks LTX-2).
-사진 + 프롬프트 → 동영상 생성. Hugging Face diffusers LTX2ImageToVideoPipeline 사용.
-기본: 768×512, 121 frames(약 5초), 25 steps, guidance 4.0 (ltx-2-TURBO 품질).
-품질 모드: 241 frames(약 10초). Ref: https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2
+LTX-2.3-22b Image-to-Video (Lightricks LTX-2.3).
+사진 + 프롬프트 → 동영상 생성. diffusers 또는 ComfyUI(LTXVideo 노드) 사용.
+- 해상도: 32 배수 필수. 프레임: 8n+1 (HF 카드).
+- LTX-2.3 distilled: 8 steps, CFG=1.0 권장. ComfyUI 사용 시 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.
 """
 
 from __future__ import annotations
@@ -20,13 +20,16 @@ logger = logging.getLogger(__name__)
 _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
 
-# ---------- ltx-2-TURBO 기준 (packages/ltx-pipelines/utils/constants.py) ----------
-# 품질 모드: 768×512, 10초(241 frames), 25 steps, guidance 4.0
+# ---------- LTX-2.3-22b 기준 (HF 카드: 해상도 32배수, 프레임 8n+1, distilled 8 steps CFG=1) ----------
+# 품질 모드: 768×432(32배수), 10초(241 frames), 25 steps (full) / 8 steps (distilled)
 QUALITY_WIDTH = 768
-QUALITY_HEIGHT = 512
-QUALITY_NUM_FRAMES = 241  # 8n+1. 10초 @ 24fps = 241 (TURBO는 121=5초)
-QUALITY_NUM_STEPS = 25
-QUALITY_GUIDANCE_SCALE = 4.0
+QUALITY_HEIGHT = 512   # 32*16
+QUALITY_NUM_FRAMES = 241  # 8n+1. 10초 @ 24fps
+QUALITY_NUM_STEPS = 25   # full; distilled는 8
+QUALITY_GUIDANCE_SCALE = 4.0  # full; distilled는 1.0
+# LTX-2.3 distilled 기본값 (성능·품질 균형)
+LTX23_DEFAULT_STEPS = 8
+LTX23_DEFAULT_GUIDANCE = 1.0
 # TURBO DEFAULT_NEGATIVE_PROMPT (시네마틱 품질용) + 구도 고정 유도
 NEGATIVE_PROMPT_TURBO = (
     "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, "
@@ -43,10 +46,10 @@ NEGATIVE_PROMPT_TURBO = (
     "camera movement, camera pan, panning shot, camera tilt, zoom in, zoom out, dolly, tracking shot, moving camera, crane shot."
 )
 
-# 기본: 최소 5초 영상 + TURBO 수준 품질 (768×512, 25 steps, guidance 4.0)
-DEFAULT_WIDTH = 768
-DEFAULT_HEIGHT = 512
-DEFAULT_NUM_FRAMES = 121  # 8n+1. 5초 @ 24fps (33이면 1초대라 너무 짧음)
+# 기본: 32배수 해상도, 8n+1 프레임. LTX-2.3일 때 steps/guidance는 config ltx23_* 사용
+DEFAULT_WIDTH = 768   # 32*24
+DEFAULT_HEIGHT = 512  # 32*16
+DEFAULT_NUM_FRAMES = 121  # 8n+1. 5초 @ 24fps
 DEFAULT_FRAME_RATE = 24.0
 DEFAULT_NUM_STEPS = 25
 DEFAULT_GUIDANCE_SCALE = 4.0
@@ -73,8 +76,22 @@ NEGATIVE_PET_DANCE = (
 )
 
 
+def _clamp_resolution_to_32(value: int, min_val: int = 32, max_val: int = 1280) -> int:
+    """LTX-2.3: width/height는 32 배수여야 함 (HF 카드)."""
+    if value <= 0:
+        return min_val
+    base = max(min_val, min(max_val, (value // 32) * 32))
+    return base if base >= 32 else 32
+
+
+def _is_ltx23() -> bool:
+    """설정의 모델 ID가 LTX-2.3 계열인지."""
+    model_id = getattr(get_settings(), "ltx2_model_id", "") or ""
+    return "2.3" in model_id or "ltx-2.3" in model_id.lower()
+
+
 def _clamp_num_frames_to_8n_plus_1(n: int, min_frames: int = 25) -> int:
-    """LTX-2는 num_frames가 8n+1 형태여야 함. 가장 가까운 유효값으로 보정.
+    """LTX-2/2.3: num_frames는 8n+1 형태 필수. 가장 가까운 유효값으로 보정.
     min_frames: 춤 영상은 25(24~28), 일반 영상은 33 이상 권장."""
     if n <= 0:
         return max(25, min_frames) if min_frames <= 25 else 33
@@ -165,7 +182,15 @@ def _load_pipeline_sync() -> Any:
 
     if pipeline_type[0] == "image2video":
         PipeClass = pipeline_type[1]
-        _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
+        try:
+            _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
+        except Exception as e:
+            if "2.3" in model_id or "ltx-2.3" in model_id.lower():
+                raise RuntimeError(
+                    f"LTX-2.3 ({model_id}) is not yet available in this diffusers version. "
+                    "Use ComfyUI: set LTX2_USE_COMFYUI=true and add pipelines/ltx23_i2v.json (export from ComfyUI LTXVideo nodes)."
+                ) from e
+            raise
         if device == "cuda":
             if use_full_cuda:
                 _pipeline = _pipeline.to(device)
@@ -178,7 +203,15 @@ def _load_pipeline_sync() -> Any:
     else:
         PipeClass = pipeline_type[1]
         LTX2VideoCondition = pipeline_type[2]
-        _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
+        try:
+            _pipeline = PipeClass.from_pretrained(model_id, **load_kw)
+        except Exception as e:
+            if "2.3" in model_id or "ltx-2.3" in model_id.lower():
+                raise RuntimeError(
+                    f"LTX-2.3 ({model_id}) is not yet available in this diffusers version. "
+                    "Use ComfyUI: set LTX2_USE_COMFYUI=true and add pipelines/ltx23_i2v.json (export from ComfyUI LTXVideo nodes)."
+                ) from e
+            raise
         if device == "cuda":
             if use_full_cuda:
                 _pipeline = _pipeline.to(device)
@@ -342,10 +375,12 @@ def _run_image_to_video_sync(
     if _pipeline is None:
         raise RuntimeError("Video pipeline not loaded")
 
-    # 추론 파라미터 보정: num_frames는 8n+1 필수
+    # LTX-2.3: 해상도 32배수, 프레임 8n+1 필수
+    width = _clamp_resolution_to_32(width)
+    height = _clamp_resolution_to_32(height)
     num_frames = _clamp_num_frames_to_8n_plus_1(num_frames)
     num_inference_steps = max(4, min(50, num_inference_steps))
-    guidance_scale = max(1.0, min(10.0, guidance_scale))
+    guidance_scale = max(0.0, min(10.0, guidance_scale))
     if not (prompt or "").strip():
         raise ValueError("prompt is required for image-to-video")
 
@@ -496,6 +531,31 @@ async def run_image_to_video(
     seed: int | None = None,
     condition_strength: float | None = None,
 ) -> tuple[bytes, float]:
+    settings = get_settings()
+    # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
+    if _is_ltx23():
+        if num_inference_steps == DEFAULT_NUM_STEPS:
+            num_inference_steps = getattr(settings, "ltx23_num_steps", LTX23_DEFAULT_STEPS)
+        if guidance_scale == DEFAULT_GUIDANCE_SCALE:
+            guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
+
+    if getattr(settings, "ltx2_use_comfyui", False):
+        from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
+        start = time.perf_counter()
+        out_bytes = await _run_comfyui(
+            image_bytes=image_bytes,
+            prompt=prompt,
+            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
+        )
+        return out_bytes, time.perf_counter() - start
+
     strength = condition_strength if condition_strength is not None else 1.0
     await get_video_pipeline()
     loop = asyncio.get_event_loop()

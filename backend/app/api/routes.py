@@ -68,6 +68,12 @@ from app.services.training_store import (
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
 from app.schemas.dance_schema import DanceGenerateResponse
+from app.schemas.comfyui_schema import ComfyUIRunRequest, ComfyUIRunResponse
+from app.services.comfyui_service import (
+    run_workflow_and_get_image,
+    run_workflow_save_to_generated,
+    health_check as comfyui_health_check,
+)
 from app.services.dance_service import (
     get_motion_video_path,
     run_dance_generate,
@@ -1089,3 +1095,58 @@ async def training_start(
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+# ---------- ComfyUI (로컬 ComfyUI 서버 연동) ----------
+
+
+@router.get("/comfyui/health")
+async def comfyui_health():
+    """ComfyUI 서버 연결 여부."""
+    settings = get_settings()
+    if not settings.comfyui_enabled:
+        return {"enabled": False, "connected": False}
+    connected = await comfyui_health_check()
+    return {"enabled": True, "connected": connected, "base_url": settings.comfyui_base_url}
+
+
+@router.get("/comfyui/pipelines")
+async def comfyui_list_pipelines():
+    """pipelines/ 디렉터리 내 .json 워크플로우 목록 (docs 경로 그대로)."""
+    settings = get_settings()
+    pipelines_dir = settings.pipelines_dir
+    if not pipelines_dir.exists():
+        return {"pipelines": []}
+    names = [p.stem for p in pipelines_dir.glob("*.json")]
+    return {"pipelines": sorted(names)}
+
+
+@router.post("/comfyui/run", response_model=ComfyUIRunResponse)
+async def comfyui_run(body: ComfyUIRunRequest):
+    """
+    ComfyUI 워크플로우 실행. pipeline_name 이 있으면 pipelines/{name}.json 로드 후 실행.
+    workflow 직접 전달도 가능. 완료 시 이미지 bytes 반환 또는 static/generated 에 저장 후 URL 반환.
+    """
+    settings = get_settings()
+    if not settings.comfyui_enabled:
+        return ComfyUIRunResponse(success=False, error="ComfyUI is disabled")
+    workflow = body.workflow
+    if body.pipeline_name:
+        path = settings.pipelines_dir / f"{body.pipeline_name.replace('.json', '')}.json"
+        if not path.exists():
+            return ComfyUIRunResponse(success=False, error=f"Pipeline not found: {path.name}")
+        workflow = _json.loads(path.read_text(encoding="utf-8"))
+    if not workflow:
+        return ComfyUIRunResponse(success=False, error="Empty workflow")
+    try:
+        out_path = await run_workflow_save_to_generated(workflow, output_name=None)
+        filename = out_path.name
+        url = get_generated_url(filename)
+        return ComfyUIRunResponse(success=True, image_url=url)
+    except TimeoutError as e:
+        return ComfyUIRunResponse(success=False, error=str(e))
+    except RuntimeError as e:
+        return ComfyUIRunResponse(success=False, error=str(e))
+    except Exception as e:
+        logger.exception("ComfyUI run failed")
+        return ComfyUIRunResponse(success=False, error=str(e))

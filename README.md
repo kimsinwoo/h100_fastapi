@@ -2,6 +2,8 @@
 
 Production-ready Image-to-Image AI web app: **FastAPI** backend with **Z-Image-Turbo**, **React + Vite + TypeScript** frontend.
 
+**이 레포만 다른 서버에 git clone 해서 단독으로 사용할 수 있습니다.** 상위 프로젝트(talktailForPet 등)에 의존하지 않습니다. → 자세한 절차는 [STANDALONE.md](STANDALONE.md) 참고.
+
 ## Features
 
 - Upload image, choose from 10 style presets or add a custom prompt
@@ -51,9 +53,9 @@ zimage_webapp/
 
 웹에서 **학습 데이터**(이미지 + 캡션)를 올린 뒤 **POST /api/training/start** 를 호출하면, 백엔드가 백그라운드에서 **Z-Image-Turbo LoRA** 학습을 돌립니다.
 
-- **데이터**: `/api/training/items` 로 이미지·캡션·카테고리 추가. `POST /api/training/start` 시 `data/training/` 의 데이터를 `prepared_for_training/` (png+txt) 로 준비한 뒤, **talktailForPet/zit_lora_training** 의 `train_lora_zit.py` 를 `--dataset_dir` / `--output_dir` 로 실행합니다.
+- **데이터**: `/api/training/items` 로 이미지·캡션·카테고리 추가. `POST /api/training/start` 시 `backend/data/training/` 의 데이터를 `prepared_for_training/` (png+txt) 로 준비한 뒤, **이 레포 내장** `backend/scripts/zit_lora/train_lora_zit.py` 를 `--dataset_dir` / `--output_dir` 로 실행합니다.
 - **저장 위치**: 학습이 끝나면 LoRA 가 **backend/data/lora** (또는 설정의 `lora_adapters_dir`) 에 safetensors 로 저장됩니다.
-- **필요 조건**: 프로젝트 루트에 **zit_lora_training** 폴더가 있어야 합니다 (같은 저장소의 `zit_lora_training`). 없으면 `LORA_TRAIN_CMD` 환경변수로 다른 학습 스크립트를 지정할 수 있습니다.
+- **단독 사용**: 이 레포만 clone 해도 LoRA 학습이 동작합니다. `LORA_TRAIN_CMD` 환경변수로 다른 학습 스크립트를 지정할 수 있습니다.
 
 ## Run instructions
 
@@ -66,7 +68,7 @@ zimage_webapp/
 **1) 프론트 빌드 후 백엔드로 복사 (한 번만 실행)**
 
 ```bash
-cd zimage_webapp
+# 레포 루트에서 (다른 서버에 clone 한 경우에도 동일)
 chmod +x scripts/build_and_serve.sh
 ./scripts/build_and_serve.sh
 ```
@@ -79,6 +81,17 @@ cd backend
 ```
 
 이후 브라우저에서 **http://서버:7000** 으로 접속하면 됩니다. (프론트는 Vite로 따로 띄우지 않아도 됩니다.)
+
+### 다른 서버에 git clone 후 사용
+
+```bash
+git clone <이 레포 URL> zimage_webapp
+cd zimage_webapp
+./scripts/build_and_serve.sh   # 프론트 빌드 + 백엔드 static 복사
+cd backend && cp .env.example .env && ./run.sh
+```
+
+`.env` 에서 `PORT`, GPU 관련 변수 등만 필요 시 수정하면 됩니다. 상위 프로젝트나 외부 `shared` 폴더 없이 이 레포만으로 동작합니다.
 
 **배포 후에도 "Expected JavaScript but got text/html" 오류가 나면:** 서버에 **빌드 결과물**(`frontend/dist` 안의 내용)만 올렸는지 확인하세요. 자세한 내용은 [DEPLOY.md](DEPLOY.md) 참고.
 

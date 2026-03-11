@@ -77,12 +77,30 @@ class Settings(BaseSettings):
     omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. HF와 동일하게 1024 기본")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
 
-    # LTX-2 Image-to-Video (ltx-2-TURBO 기준 품질 옵션)
-    ltx2_model_id: str = Field(default="Lightricks/LTX-2", description="LTX-2 Hugging Face model ID")
+    # LTX-2.3-22b Image-to-Video (ComfyUI/models 참조, 파이프라인·성능 옵션)
+    ltx2_model_id: str = Field(
+        default="Lightricks/LTX-2.3",
+        description="LTX 모델 ID. LTX-2.3-22b: Lightricks/LTX-2.3 (distilled 8 steps, CFG=1). ComfyUI 사용 시 모델은 ComfyUI/models 에 두면 됨.",
+    )
+    ltx2_use_comfyui: bool = Field(
+        default=False,
+        description="True면 LTX 비디오 생성을 ComfyUI(LTXVideo 노드)로 수행. 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.",
+    )
+    comfyui_ltx23_workflow: str = Field(
+        default="ltx23_i2v",
+        description="ComfyUI에서 LTX-2.3 이미지→비디오에 쓸 워크플로 파일명(확장자 제외). pipelines/<name>.json",
+    )
+    comfyui_output_dir: str | None = Field(
+        default=None,
+        description="ComfyUI 출력 디렉터리 절대경로. 비디오 생성 시 여기서 파일 읽음. 비우면 /view 등으로 조회 시도.",
+    )
     ltx2_use_full_cuda: bool = Field(default=True, description="True면 CPU offload 없이 전체 GPU 로드 (H100 권장). VRAM 부족 시 False")
-    ltx2_use_dpm_scheduler: bool = Field(default=False, description="True면 DPMSolverMultistepScheduler 시도 (LTX-2는 Flow 기반이라 비권장)")
+    ltx2_use_dpm_scheduler: bool = Field(default=False, description="True면 DPMSolverMultistepScheduler 시도 (LTX는 Flow 기반이라 비권장)")
     ltx2_warmup: bool = Field(default=True, description="서버 시작 시 warmup inference로 torch.compile 캐시 생성")
-    ltx2_quality_mode: bool = Field(default=False, description="True면 ltx-2-TURBO 품질: 768×512, 49 frames, 25 steps, guidance 4.0 (API에서 미지정 시)")
+    ltx2_quality_mode: bool = Field(default=False, description="True면 고품질: 해상도·프레임·스텝 상향 (API 미지정 시)")
+    # LTX-2.3-22b distilled 권장값 (HF 카드: 8 steps, CFG=1)
+    ltx23_num_steps: int = Field(default=8, ge=1, le=50, description="LTX-2.3 distilled 기본 스텝 수")
+    ltx23_guidance_scale: float = Field(default=1.0, ge=0.0, le=10.0, description="LTX-2.3 distilled 기본 CFG (1.0 권장)")
 
     gpu_semaphore_limit: int = Field(default=2, ge=1, le=16, description="Max concurrent GPU inferences")
 
@@ -202,6 +220,27 @@ class Settings(BaseSettings):
     @property
     def upload_max_bytes(self) -> int:
         return self.upload_max_size_mb * 1024 * 1024
+
+    # ComfyUI 연동 (로컬 ComfyUI 서버 호출)
+    comfyui_enabled: bool = Field(
+        default=True,
+        description="True면 /api/comfyui/* 에서 ComfyUI 서버 사용",
+    )
+    comfyui_base_url: str = Field(
+        default="http://127.0.0.1:8188",
+        description="ComfyUI 서버 주소 (로컬: 8188)",
+    )
+    comfyui_timeout_seconds: float = Field(default=300.0, ge=30.0, le=600.0)
+    pipelines_dir_name: str = Field(
+        default="pipelines",
+        description="ComfyUI 워크플로우 JSON 보관 (backend_dir 기준)",
+    )
+
+    @property
+    def pipelines_dir(self) -> Path:
+        p = self.backend_dir / self.pipelines_dir_name
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
 
 @lru_cache

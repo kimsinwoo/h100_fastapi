@@ -5,7 +5,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: "/",
   resolve: {
-    alias: { shared: path.resolve(__dirname, "../../shared") },
+    // shared: 이 레포(zimage_webapp) 루트의 shared/ (다른 서버 git clone 시에도 동작)
+    alias: { shared: path.resolve(__dirname, "../shared") },
   },
   plugins: [react()],
   server: {

@@ -3,6 +3,8 @@
 - **메인 서버**: 포트 **7000** (이미지 생성, 채팅 API, 프론트 서빙)
 - **LLM 서버**: 포트 **7001** (다중 사용자 채팅/프롬프트 추천 시 vLLM)
 
+> **다른 서버에 이 레포만 clone 한 경우**: 아래 경로는 **이 레포 루트 기준**입니다. 예: `cd backend` (레포 루트에서).
+
 ---
 
 ## 1) 메인 서버만 실행 (단일 사용자)
@@ -10,7 +12,7 @@
 이미지 생성 + 채팅(로컬 LLM)을 **한 대에서** 쓸 때.
 
 ```bash
-cd zimage_webapp/backend
+cd backend
 pip install -r requirements.txt
 source venv/bin/activate   # 가상환경 사용 시
 
@@ -38,7 +40,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 vLLM 공식: `pip install vllm` 후 `vllm serve "Qwen/Qwen3.5-35B-A3B"` (기본 포트 8000). 여기서는 메인(7000)과 구분해 **7001** 사용.
 
 ```bash
-cd zimage_webapp/backend
+cd backend
 source venv/bin/activate
 pip install vllm
 export VLLM_PORT=7001
@@ -48,7 +50,7 @@ bash scripts/run_vllm_minimal.sh
 - **기본 모델: openai/gpt-oss-20b** (vLLM 0.16에서 그대로 동작). 환경변수 없이 `bash scripts/run_vllm_minimal.sh` 만 실행하면 됩니다.
 - **Qwen3.5-35B-A3B** 쓰려면 `qwen3_5_moe` 지원이 필요해, vLLM 0.16에서는 오류가 납니다. **한 번만** 업그레이드 스크립트 실행 후 모델 지정:
   ```bash
-  cd zimage_webapp/backend && source venv/bin/activate
+  cd backend && source venv/bin/activate
   bash scripts/upgrade_vllm_for_qwen35.sh
   export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
   export VLLM_PORT=7001
@@ -56,7 +58,7 @@ bash scripts/run_vllm_minimal.sh
   ```
   - **"RMSNormGated has no attribute 'activation'"** 오류: vLLM 0.16.x nightly 버그. **한 번만** 패치 실행 후 재기동:
     ```bash
-    cd zimage_webapp/backend && source venv/bin/activate
+    cd backend && source venv/bin/activate
     python scripts/patch_vllm_rmsnorm_gated.py
     export VLLM_MODEL=Qwen/Qwen3.5-35B-A3B
     export VLLM_PORT=7001
@@ -79,7 +81,7 @@ H100이면 짧은 답변은 보통 몇 초 안에 나와야 합니다. 느리다
 **터미널 2: 메인 서버 (7000)**
 
 ```bash
-cd zimage_webapp/backend
+cd backend
 source venv/bin/activate
 pip install -r requirements.txt
 
@@ -114,7 +116,7 @@ curl -X POST "http://localhost:7001/v1/chat/completions" \
 **터미널 1: 메인**
 
 ```bash
-cd zimage_webapp/backend
+cd backend
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 7000
 ```
@@ -122,7 +124,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 7000
 **터미널 2: 프론트**
 
 ```bash
-cd zimage_webapp/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -137,7 +139,7 @@ npm run dev
 브라우저에서 **한 주소(7000)** 로만 접속하게 할 때.
 
 ```bash
-cd zimage_webapp
+# 레포 루트로 이동 (필요 시)
 ./scripts/build_and_serve.sh   # frontend/dist → backend/static_frontend 복사
 cd backend
 source venv/bin/activate

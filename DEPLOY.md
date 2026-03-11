@@ -7,7 +7,7 @@
 
 1. **vLLM 서버**를 띄웁니다 (예: 포트 7001).
    ```bash
-   cd zimage_webapp/backend && source venv/bin/activate
+   cd backend && source venv/bin/activate
    vllm serve Qwen/Qwen3.5-35B-A3B --port 7001 --host 0.0.0.0
    ```
    (H100 등은 `backend/scripts/start_vllm_h100.sh`, 문서는 `backend/docs/RUN_VLLM.md` 참고.)
@@ -38,7 +38,7 @@
 ### 1) 이 프로젝트 백엔드(FastAPI)로 서빙할 때
 
 ```bash
-# 프로젝트 루트 (zimage_webapp)
+# 레포 루트에서 (이 레포만 clone 한 경우에도 동일)
 ./scripts/build_and_serve.sh
 cd backend && ./run.sh
 ```

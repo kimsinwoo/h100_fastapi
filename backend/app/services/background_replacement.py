@@ -7,7 +7,7 @@ Background Override System for cloud-themed pet generation.
 2. 배경만 구름 생성 (solid → img2img). Subject 미포함.
 3. 합성: original subject + generated cloud. Subject 픽셀 수정 없음. 전체 프레임 img2img 없음.
 
-상세 설계·Turbo 한계·inpaint/QA 권장: docs/IDENTITY_PRESERVING_PIPELINE.md
+(설계·Turbo 한계·inpaint/QA는 코드 주석 및 API 문서 참고)
 """
 
 from __future__ import annotations

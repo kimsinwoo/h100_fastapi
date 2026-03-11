@@ -91,12 +91,15 @@ def _run_training(prepared_dir: str, data_dir: str) -> bool:
         print("LoRA training command finished successfully.")
         return True
 
-    # zit_lora_training (Z-Image-Turbo LoRA) 경로: talktailForPet/zit_lora_training
-    # run_lora_training.py 위치: zimage_webapp/scripts/ -> parent.parent = zimage_webapp, parent.parent.parent = talktailForPet
-    script_dir = Path(__file__).resolve().parent
-    repo_root = script_dir.parent.parent  # talktailForPet
-    zit_lora_dir = repo_root / "zit_lora_training"
+    # Z-Image-Turbo LoRA: 이 레포(zimage_webapp) 안에서 찾기. 다른 서버에 git clone 해도 동작.
+    script_dir = Path(__file__).resolve().parent  # zimage_webapp/scripts
+    repo_root = script_dir.parent                # zimage_webapp (레포 루트)
+    # 1) backend/scripts/zit_lora (이 레포 내장), 2) 상위 레포의 zit_lora_training (호환)
+    zit_lora_dir = repo_root / "backend" / "scripts" / "zit_lora"
     train_script = zit_lora_dir / "train_lora_zit.py"
+    if not train_script.exists():
+        zit_lora_dir = repo_root.parent / "zit_lora_training"
+        train_script = zit_lora_dir / "train_lora_zit.py"
     lora_output_raw = os.environ.get("LORA_OUTPUT_DIR", "").strip() or str(Path(data_dir).parent / "lora")
     lora_output = str(Path(lora_output_raw).resolve())
     dataset_dir_abs = str(Path(prepared_dir).resolve())
