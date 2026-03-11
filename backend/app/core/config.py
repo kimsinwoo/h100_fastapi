@@ -143,7 +143,10 @@ class Settings(BaseSettings):
         description="한국어 LoRA 어댑터 디렉터리(backend_dir 기준 상대 경로)",
     )
 
-    cors_origins: str = Field(default="*")
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        description="CORS 허용 origin (쉼표 구분). 기본: 로컬 프론트 개발. 전체 허용 시 *",
+    )
     cors_allow_credentials: bool = Field(default=True)
     rate_limit_requests: int = Field(default=100, ge=1, le=500)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)

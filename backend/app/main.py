@@ -77,16 +77,23 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS: localhost:3000 항상 허용(로컬 프론트 개발). *이면 credentials=False.
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     if "*" in origins:
         origins = ["*"]
+        allow_creds = False
+    else:
+        for origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+            if origin not in origins:
+                origins.append(origin)
+        allow_creds = settings.cors_allow_credentials
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=settings.cors_allow_credentials,
+        allow_credentials=allow_creds,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
 
     # Logging middleware
@@ -215,13 +222,20 @@ def _get_app() -> FastAPI:
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     if "*" in origins:
         origins = ["*"]
+        allow_creds_root = False
+    else:
+        for origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+            if origin not in origins:
+                origins.append(origin)
+        allow_creds_root = settings.cors_allow_credentials
     root = FastAPI(title="Z-Image AI (root)", lifespan=lifespan)
     root.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=settings.cors_allow_credentials,
+        allow_credentials=allow_creds_root,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
     root.include_router(api_router)
 
