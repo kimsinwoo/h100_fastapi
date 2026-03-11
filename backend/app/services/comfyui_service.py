@@ -259,33 +259,40 @@ async def run_ltx23_image_to_video(
             "Export your LTXVideo workflow from ComfyUI and save as pipelines/ltx23_i2v.json (see pipelines/README_LTX23.md)."
         )
 
-    import json
-    raw = json.loads(workflow_path.read_text(encoding="utf-8"))
-    graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
+    base_url = settings.comfyui_base_url
+    try:
+        import json
+        raw = json.loads(workflow_path.read_text(encoding="utf-8"))
+        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
 
-    uploaded = await upload_image(image_bytes)
-    image_name = uploaded.get("name", "image.png")
-    prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt)
+        uploaded = await upload_image(image_bytes)
+        image_name = uploaded.get("name", "image.png")
+        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt)
 
-    out = await _post_prompt(prompt_graph)
-    if "error" in out:
-        raise RuntimeError(f"ComfyUI LTX-2.3 prompt error: {out['error']}")
-    prompt_id = out.get("prompt_id") or str(out.get("number", ""))
-    if not prompt_id:
-        raise RuntimeError("ComfyUI did not return prompt_id")
+        out = await _post_prompt(prompt_graph)
+        if "error" in out:
+            raise RuntimeError(f"ComfyUI LTX-2.3 prompt error: {out['error']}")
+        prompt_id = out.get("prompt_id") or str(out.get("number", ""))
+        if not prompt_id:
+            raise RuntimeError("ComfyUI did not return prompt_id")
 
-    max_wait = settings.comfyui_timeout_seconds
-    poll_interval = 0.5
-    start = asyncio.get_event_loop().time()
-    while (asyncio.get_event_loop().time() - start) < max_wait:
-        history = await _get_history(prompt_id)
-        if prompt_id in history:
-            info = history[prompt_id]
-            if isinstance(info, dict):
-                first_video = _extract_first_video_from_history(info)
-                if first_video:
-                    filename, subfolder, type_ = first_video
-                    return await _get_video_bytes(filename, subfolder, type_)
-        await asyncio.sleep(poll_interval)
+        max_wait = settings.comfyui_timeout_seconds
+        poll_interval = 0.5
+        start = asyncio.get_event_loop().time()
+        while (asyncio.get_event_loop().time() - start) < max_wait:
+            history = await _get_history(prompt_id)
+            if prompt_id in history:
+                info = history[prompt_id]
+                if isinstance(info, dict):
+                    first_video = _extract_first_video_from_history(info)
+                    if first_video:
+                        filename, subfolder, type_ = first_video
+                        return await _get_video_bytes(filename, subfolder, type_)
+            await asyncio.sleep(poll_interval)
 
-    raise TimeoutError(f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s")
+        raise TimeoutError(f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s")
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        raise RuntimeError(
+            f"ComfyUI server unreachable at {base_url}. "
+            "Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod/container)."
+        ) from e

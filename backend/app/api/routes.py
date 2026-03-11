@@ -10,6 +10,7 @@ from typing import Annotated
 
 import json as _json
 
+import httpx
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -729,6 +730,12 @@ async def generate_video(
     except TimeoutError as e:
         logger.warning("LTX-2 ComfyUI workflow timeout: %s", e)
         raise HTTPException(status_code=504, detail=str(e))
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        logger.warning("ComfyUI connection failed: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="ComfyUI server unreachable. Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod).",
+        )
     except RuntimeError as e:
         logger.exception("LTX-2 video generation failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
