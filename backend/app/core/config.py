@@ -83,8 +83,8 @@ class Settings(BaseSettings):
         description="LTX 모델 ID. LTX-2.3-22b: Lightricks/LTX-2.3 (distilled 8 steps, CFG=1). ComfyUI 사용 시 모델은 ComfyUI/models 에 두면 됨.",
     )
     ltx2_use_comfyui: bool = Field(
-        default=False,
-        description="True면 LTX 비디오 생성을 ComfyUI(LTXVideo 노드)로 수행. 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.",
+        default=True,
+        description="True면 LTX 비디오 생성을 ComfyUI(LTXVideo 노드)로 수행. LTX-2.3은 diffusers 미지원이므로 기본 True. 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.",
     )
     comfyui_ltx23_workflow: str = Field(
         default="ltx23_i2v",
