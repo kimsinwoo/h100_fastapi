@@ -57,9 +57,11 @@ async def lifespan(app: FastAPI):
     static_abs = settings.static_dir if settings.static_dir.is_absolute() else settings.backend_dir / settings.static_dir
     logger.info("Static directory ready: %s (resolved: %s)", settings.generated_dir, static_abs.resolve())
     logger.info("Z-Image-Turbo API: http://0.0.0.0:%s (API: /api/generate, /api/styles, 상태: /health)", settings.port)
-    # 파이프라인 기동 시 로드 (첫 요청에서 로드하지 않음)
-    logger.info("Preloading image pipeline...")
-    await preload_pipeline()
+    if not getattr(settings, "skip_pipeline_preload", False):
+        logger.info("Preloading image pipeline...")
+        await preload_pipeline()
+    else:
+        logger.info("Skipping pipeline preload (SKIP_PIPELINE_PRELOAD=true). Pipeline will load on first request.")
     if not settings.llm_use_local and settings.llm_api_base:
         logger.info(
             "LLM (vLLM): 요청 주소=%s — 7001 vLLM에 로그가 안 뜨면 메인과 vLLM이 같은 호스트인지 확인하고, 다른 호스트면 LLM_API_BASE를 vLLM이 도는 주소로 설정하세요.",

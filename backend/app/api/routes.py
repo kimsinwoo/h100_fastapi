@@ -776,6 +776,31 @@ async def get_video_job_status(job_id: str) -> VideoJobStatusResponse:
     )
 
 
+@router.get("/video/comfyui/workflow")
+async def get_comfyui_video_workflow():
+    """
+    ComfyUI LTX 이미지→비디오 워크플로 JSON 반환.
+    프론트에서 ComfyUI API 직접 호출 시 사용 (업로드·prompt 주입·폴링·view는 프론트에서 처리).
+    """
+    settings = get_settings()
+    if not getattr(settings, "comfyui_enabled", False):
+        raise HTTPException(status_code=503, detail="ComfyUI is disabled")
+    workflow_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
+    workflow_path = settings.pipelines_dir / f"{workflow_name}.json"
+    if not workflow_path.exists():
+        workflow_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
+    if not workflow_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow not found. Tried: {workflow_name}.json and comfyui_ltx23_workflow.json in {settings.pipelines_dir}. Export from ComfyUI as API format and save to pipelines/.",
+        )
+    try:
+        data = _json.loads(workflow_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid workflow JSON: {e}")
+    return data
+
+
 # ---------- Dance / Motion Transfer (Pose → Video) ----------
 
 

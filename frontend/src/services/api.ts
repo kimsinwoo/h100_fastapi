@@ -144,8 +144,145 @@ export async function getVideoPresets(): Promise<VideoPresetsResponse> {
   return data;
 }
 
+/** ComfyUI 직접 호출 시 사용. 설정 시 프론트가 ComfyUI API(업로드→prompt→폴링→view) 직접 호출. ComfyUI는 --enable-cors-header 로 실행 필요. */
+function getComfyUIBaseURL(): string | null {
+  const url = (import.meta as { env?: { VITE_COMFYUI_BASE_URL?: string } }).env?.VITE_COMFYUI_BASE_URL ?? "";
+  return (url || "").trim() || null;
+}
+
+/** 백엔드에서 ComfyUI LTX 워크플로 JSON 가져오기 (프론트 ComfyUI 직접 호출 시 사용). */
+export async function getComfyUIWorkflow(): Promise<Record<string, unknown>> {
+  const { data } = await api.get<Record<string, unknown>>("/api/video/comfyui/workflow");
+  return data;
+}
+
+/** 워크플로에 이미지 파일명·프롬프트 주입 (ComfyUI 노드: LoadImage, CLIPTextEncode 등). */
+function injectWorkflowInputs(
+  workflow: Record<string, { class_type?: string; inputs?: Record<string, unknown> }>,
+  imageName: string,
+  promptText: string
+): Record<string, { class_type?: string; inputs?: Record<string, unknown> }> {
+  const out: Record<string, { class_type?: string; inputs?: Record<string, unknown> }> = {};
+  for (const [nid, node] of Object.entries(workflow)) {
+    if (!node || typeof node !== "object") {
+      out[nid] = node;
+      continue;
+    }
+    const ct = ((node.class_type as string) ?? "").toLowerCase();
+    const inputs = { ...(node.inputs ?? {}) };
+    if (ct.includes("loadimage") || ct.includes("load image")) {
+      inputs.image = imageName;
+    }
+    if (ct.includes("clip") && ct.includes("text")) {
+      inputs.text = promptText;
+    }
+    out[nid] = { ...node, inputs };
+  }
+  return out;
+}
+
 const VIDEO_POLL_INTERVAL_MS = 5000;
 const VIDEO_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
+const COMFYUI_POLL_INTERVAL_MS = 2000;
+const COMFYUI_POLL_MAX_MS = 30 * 60 * 1000;
+
+/** ComfyUI API 직접 호출로 동영상 생성 (VITE_COMFYUI_BASE_URL 설정 시 사용). */
+async function generateVideoViaComfyUI(
+  file: File,
+  prompt: string,
+  _preset?: string | null,
+  _negativePrompt?: string | null
+): Promise<GenerateVideoResponse> {
+  const base = getComfyUIBaseURL();
+  if (!base) throw new Error("VITE_COMFYUI_BASE_URL is not set");
+  const comfyBase = base.replace(/\/$/, "");
+
+  const workflowRaw = await getComfyUIWorkflow();
+  const promptMap =
+    workflowRaw?.prompt && typeof workflowRaw.prompt === "object" && !Array.isArray(workflowRaw.prompt)
+      ? (workflowRaw.prompt as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>)
+      : (workflowRaw as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>);
+  if (!promptMap || Object.keys(promptMap).length === 0) {
+    throw new Error("Invalid ComfyUI workflow: no prompt map");
+  }
+
+  const form = new FormData();
+  form.append("image", file);
+  form.append("type", "input");
+  form.append("overwrite", "true");
+  const uploadRes = await fetch(`${comfyBase}/upload/image`, {
+    method: "POST",
+    body: form,
+    credentials: "omit",
+  });
+  if (!uploadRes.ok) {
+    const t = await uploadRes.text();
+    throw new Error(`ComfyUI upload failed: ${uploadRes.status} ${t.slice(0, 200)}`);
+  }
+  const uploadJson = (await uploadRes.json()) as { name?: string; subfolder?: string };
+  const imageName = uploadJson.name ?? "image.png";
+
+  const injected = injectWorkflowInputs(promptMap, imageName, (prompt ?? "").trim() || "gentle motion");
+  const promptId = crypto.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, () => ((Math.random() * 16) | 0).toString(16));
+  const promptRes = await fetch(`${comfyBase}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: injected, prompt_id: promptId }),
+    credentials: "omit",
+  });
+  if (!promptRes.ok) {
+    const t = await promptRes.text();
+    throw new Error(`ComfyUI prompt failed: ${promptRes.status} ${t.slice(0, 300)}`);
+  }
+  const promptJson = (await promptRes.json()) as { error?: string; prompt_id?: string };
+  if (promptJson.error) throw new Error(`ComfyUI: ${promptJson.error}`);
+  const pid = promptJson.prompt_id ?? promptId;
+
+  const start = Date.now();
+  let videoFilename: string | null = null;
+  let subfolder = "";
+  let typeOut = "output";
+  while (Date.now() - start < COMFYUI_POLL_MAX_MS) {
+    const hisRes = await fetch(`${comfyBase}/history/${pid}`, { credentials: "omit" });
+    if (!hisRes.ok) {
+      await new Promise((r) => setTimeout(r, COMFYUI_POLL_INTERVAL_MS));
+      continue;
+    }
+    const his = (await hisRes.json()) as Record<string, unknown>;
+    const node = (typeof his[pid] === "object" && his[pid] !== null ? his[pid] : his) as Record<string, unknown>;
+    const outputs = (node?.outputs ?? {}) as Record<string, { videos?: Array<{ filename?: string; subfolder?: string; type?: string }>; gifs?: unknown[]; animations?: unknown[] }>;
+    for (const _nid of Object.keys(outputs)) {
+      const out = outputs[_nid];
+      const videos = out?.videos ?? out?.gifs ?? out?.animations;
+      if (Array.isArray(videos) && videos.length > 0) {
+        const v = videos[0] as { filename?: string; subfolder?: string; type?: string };
+        if (v?.filename) {
+          videoFilename = v.filename;
+          subfolder = v.subfolder ?? "";
+          typeOut = v.type ?? "output";
+          break;
+        }
+      }
+    }
+    if (videoFilename) break;
+    await new Promise((r) => setTimeout(r, COMFYUI_POLL_INTERVAL_MS));
+  }
+  if (!videoFilename) throw new Error("ComfyUI video generation timed out or no video output");
+
+  const viewParams = new URLSearchParams({ filename: videoFilename, type: typeOut });
+  if (subfolder) viewParams.set("subfolder", subfolder);
+  const viewRes = await fetch(`${comfyBase}/view?${viewParams.toString()}`, { credentials: "omit" });
+  if (!viewRes.ok) throw new Error(`ComfyUI view failed: ${viewRes.status}`);
+  const videoBlob = await viewRes.blob();
+  const processingTime = (Date.now() - start) / 1000;
+  const buf = await videoBlob.arrayBuffer();
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  return {
+    video_url: "",
+    processing_time: processingTime,
+    video_base64: `data:video/mp4;base64,${b64}`,
+  };
+}
 
 export async function generateVideo(
   file: File,
@@ -153,6 +290,10 @@ export async function generateVideo(
   preset?: string | null,
   negativePrompt?: string | null
 ): Promise<GenerateVideoResponse> {
+  if (getComfyUIBaseURL()) {
+    return generateVideoViaComfyUI(file, prompt, preset, negativePrompt);
+  }
+
   const form = new FormData();
   form.append("image", file);
   form.append("prompt", (prompt ?? "").trim());

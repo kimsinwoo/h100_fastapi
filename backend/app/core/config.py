@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     enable_flash_attention_2: bool = Field(default=True, description="OmniGen 로드 시 attn_implementation=flash_attention_2 시도 (flash-attn 필요)")
     omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. HF와 동일하게 1024 기본")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
+    skip_pipeline_preload: bool = Field(
+        default=False,
+        description="True면 기동 시 이미지 파이프라인 preload 생략 (GPU 메모리 부족·다른 프로세스 사용 시). 첫 요청 시 로드.",
+    )
 
     # LTX-2 Image-to-Video (diffusers 전용. ComfyUI 사용 시 LTX2_USE_COMFYUI=true)
     ltx2_model_id: str = Field(
