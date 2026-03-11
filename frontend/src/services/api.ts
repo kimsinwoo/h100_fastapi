@@ -11,15 +11,18 @@ import type {
   UniversalAnalysisResponse,
 } from "../types/api";
 
-/** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용) */
+/** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용). 동영상/댄스는 타임아웃 없음(무제한). */
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
-/** 동영상 생성: LTX-2는 수 분 소요 가능 */
-const VIDEO_TIMEOUT_MS = 5 * 60 * 1000; // 300_000
 
-// 로컬 개발: .env에 VITE_API_BASE_URL=http://localhost:7000 설정 (프론트 3000, 백엔드 7000)
-// 프로덕션: 같은 origin이면 비워두고, 프록시 쓰면 해당 URL 설정
+/** 백엔드 주소. 프론트 로컬 + 백엔드 다른 서버면 .env에 VITE_API_BASE_URL=백엔드URL 설정. 없으면 아래 기본값 사용 */
+const DEFAULT_API_BASE = "http://210.91.154.131:20443/95ce287337c3ad9f";
+const getBaseURL = (): string => {
+  const url = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "";
+  return (url || "").trim() || DEFAULT_API_BASE;
+};
+
 const api = axios.create({
-  baseURL: (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "http://210.91.154.131:20443/95ce287337c3ad9f",
+  baseURL: getBaseURL(),
   timeout: FRONTEND_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
@@ -154,7 +157,7 @@ export async function generateVideo(
   if (negativePrompt) form.append("negative_prompt", negativePrompt);
   const uploadVideoApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    timeout: VIDEO_TIMEOUT_MS,
+    // 타임아웃 없음 (동영상 생성은 수 분~수십 분 걸릴 수 있음)
   });
   uploadVideoApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
@@ -201,17 +204,17 @@ export async function generateDance(
   form.append("image", file);
   form.append("motion_id", motionId);
   form.append("character", character);
-  const uploadApi = axios.create({
+  const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    timeout: VIDEO_TIMEOUT_MS,
+    // 타임아웃 없음 (댄스 영상 생성은 오래 걸릴 수 있음)
   });
-  uploadApi.interceptors.request.use((config) => {
+  uploadDanceApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
       delete (config.headers as Record<string, unknown>)["Content-Type"];
     }
     return config;
   });
-  const { data } = await uploadApi.post<DanceGenerateResponse>("/api/dance/generate", form);
+  const { data } = await uploadDanceApi.post<DanceGenerateResponse>("/api/dance/generate", form);
   return data;
 }
 
