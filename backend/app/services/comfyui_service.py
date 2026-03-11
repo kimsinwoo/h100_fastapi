@@ -296,3 +296,14 @@ async def run_ltx23_image_to_video(
             f"ComfyUI server unreachable at {base_url}. "
             "Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod/container)."
         ) from e
+    except httpx.HTTPStatusError as e:
+        body = ""
+        if e.response is not None:
+            try:
+                body = e.response.text[:500] if e.response.text else ""
+            except Exception:
+                pass
+        msg = f"ComfyUI returned {e.response.status_code if e.response else 'error'} for /prompt."
+        if body:
+            msg += f" Response: {body}"
+        raise RuntimeError(msg) from e

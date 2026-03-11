@@ -736,6 +736,12 @@ async def generate_video(
             status_code=503,
             detail="ComfyUI server unreachable. Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod).",
         )
+    except httpx.HTTPStatusError as e:
+        detail = str(e)
+        if e.response is not None and e.response.text:
+            detail = f"ComfyUI error {e.response.status_code}: {e.response.text[:400]}"
+        logger.warning("ComfyUI HTTP error: %s", detail)
+        raise HTTPException(status_code=503, detail=detail)
     except RuntimeError as e:
         logger.exception("LTX-2 video generation failed: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
