@@ -157,7 +157,7 @@ export async function generateVideo(
   if (negativePrompt) form.append("negative_prompt", negativePrompt);
   const uploadVideoApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    // 타임아웃 없음 (동영상 생성은 수 분~수십 분 걸릴 수 있음)
+    timeout: 0, // 무제한 (동영상 생성 수 분~수십 분). 0 = no timeout
   });
   uploadVideoApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
@@ -206,7 +206,7 @@ export async function generateDance(
   form.append("character", character);
   const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    // 타임아웃 없음 (댄스 영상 생성은 오래 걸릴 수 있음)
+    timeout: 0, // 무제한. 0 = no timeout
   });
   uploadDanceApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {

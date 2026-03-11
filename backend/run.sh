@@ -18,5 +18,6 @@ else
 fi
 
 PORT="${PORT:-7000}"
+# 동영상 생성 등 장시간 요청: keep-alive 30분(1800초). 1분에 끊기면 uvicorn 앞단(리버스프록시/로드밸런서) read timeout을 600초 이상으로 올리세요.
 echo "Starting Z-Image AI server on http://0.0.0.0:${PORT}"
-exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --timeout-keep-alive 1800
