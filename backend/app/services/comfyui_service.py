@@ -263,7 +263,22 @@ async def run_ltx23_image_to_video(
     try:
         import json
         raw = json.loads(workflow_path.read_text(encoding="utf-8"))
+        # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
+        # Full workflow JSON has "prompt", "last_node_id", "version", "nodes", "links" etc.; send only "prompt".
         graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
+        if not isinstance(graph, dict):
+            raise RuntimeError(
+                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec. "
+                "In ComfyUI use Save (API Format) or export the prompt-only JSON."
+            )
+        # When we used full raw (no "prompt" key), ensure it is prompt-only (every value is a node dict)
+        if graph is raw:
+            for k, v in graph.items():
+                if not isinstance(v, dict) or "class_type" not in v or "inputs" not in v:
+                    raise RuntimeError(
+                        "Workflow file must be in ComfyUI API format (prompt-only). "
+                        "Save your workflow in ComfyUI as 'Save (API Format)' and use that JSON."
+                    )
 
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")

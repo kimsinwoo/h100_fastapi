@@ -56,14 +56,11 @@ bash scripts/run_vllm_minimal.sh
 
 로컬 ComfyUI 서버(기본 8188) 연동: `GET /api/comfyui/health`, `POST /api/comfyui/run`. 워크플로우 JSON은 `pipelines/` 에 두고 `pipeline_name` 으로 실행 가능.
 
-## LTX-2.3-22b 이미지→비디오
+## LTX-2 이미지→비디오
 
-- 기본 모델 ID: `Lightricks/LTX-2.3` (distilled: 8 steps, CFG=1.0).
-- **LTX-2.3은 diffusers에서 미지원**이므로 기본값으로 ComfyUI 경로 사용(`LTX2_USE_COMFYUI=true` 기본). 다음이 필요합니다:
-  1. ComfyUI 서버 실행 (기본 8188), LTXVideo 노드 설치
-  2. ComfyUI에서 이미지→비디오 워크플로를 JSON으로 내보낸 뒤 `pipelines/ltx23_i2v.json` 으로 저장
-  3. LTX-2.3 모델은 ComfyUI의 `models/` 에 배치 (예: diffusion_models)
-- 자세한 내용은 `pipelines/README_LTX23.md` 참고.
+- **기본**: `Lightricks/LTX-2` (diffusers 파이프라인). ComfyUI 없이 zimage_webapp만으로 동작.
+- 환경변수: `LTX2_MODEL_ID=Lightricks/LTX-2`, `LTX2_USE_COMFYUI=false` (기본값).
+- LTX-2.3 사용 시에는 diffusers 미지원이므로 `LTX2_USE_COMFYUI=true` 로 두고 ComfyUI + `pipelines/ltx23_i2v.json` 필요. 자세한 내용은 `pipelines/README_LTX23.md` 참고.
 
 ## 환경변수
 

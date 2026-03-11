@@ -77,14 +77,14 @@ class Settings(BaseSettings):
     omnigen_max_input_size: int = Field(default=1024, ge=512, le=1024, description="OmniGen 입력 최대 변. HF와 동일하게 1024 기본")
     enable_torch_compile: bool = Field(default=False, description="Set True when safe for your GPU")
 
-    # LTX-2.3-22b Image-to-Video (ComfyUI/models 참조, 파이프라인·성능 옵션)
+    # LTX-2 Image-to-Video (diffusers 전용. ComfyUI 사용 시 LTX2_USE_COMFYUI=true)
     ltx2_model_id: str = Field(
-        default="Lightricks/LTX-2.3",
-        description="LTX 모델 ID. LTX-2.3-22b: Lightricks/LTX-2.3 (distilled 8 steps, CFG=1). ComfyUI 사용 시 모델은 ComfyUI/models 에 두면 됨.",
+        default="Lightricks/LTX-2",
+        description="LTX 모델 ID. 기본 Lightricks/LTX-2 (diffusers 지원). LTX-2.3 사용 시 ComfyUI 필요.",
     )
     ltx2_use_comfyui: bool = Field(
-        default=True,
-        description="True면 LTX 비디오 생성을 ComfyUI(LTXVideo 노드)로 수행. LTX-2.3은 diffusers 미지원이므로 기본 True. 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.",
+        default=False,
+        description="True면 LTX 비디오 생성을 ComfyUI로 수행. 기본 False로 diffusers 파이프라인만 사용(zimage_webapp 단독).",
     )
     comfyui_ltx23_workflow: str = Field(
         default="ltx23_i2v",
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     ltx2_use_full_cuda: bool = Field(default=True, description="True면 CPU offload 없이 전체 GPU 로드 (H100 권장). VRAM 부족 시 False")
     ltx2_use_dpm_scheduler: bool = Field(default=False, description="True면 DPMSolverMultistepScheduler 시도 (LTX는 Flow 기반이라 비권장)")
     ltx2_warmup: bool = Field(default=True, description="서버 시작 시 warmup inference로 torch.compile 캐시 생성")
-    ltx2_quality_mode: bool = Field(default=False, description="True면 고품질: 해상도·프레임·스텝 상향 (API 미지정 시)")
+    ltx2_quality_mode: bool = Field(default=True, description="True면 2.3 스타일 고품질: 해상도·프레임·스텝 상향 (API 미지정 시). LTX-2 기본 품질 파이프라인.")
     # LTX-2.3-22b distilled 권장값 (HF 카드: 8 steps, CFG=1)
     ltx23_num_steps: int = Field(default=8, ge=1, le=50, description="LTX-2.3 distilled 기본 스텝 수")
     ltx23_guidance_scale: float = Field(default=1.0, ge=0.0, le=10.0, description="LTX-2.3 distilled 기본 CFG (1.0 권장)")

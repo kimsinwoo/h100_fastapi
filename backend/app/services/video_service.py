@@ -1,7 +1,8 @@
 """
-LTX-2.3-22b Image-to-Video (Lightricks LTX-2.3).
-사진 + 프롬프트 → 동영상 생성. diffusers 또는 ComfyUI(LTXVideo 노드) 사용.
+LTX-2 / LTX-2.3 Image-to-Video (Lightricks).
+사진 + 프롬프트 → 동영상 생성. 기본은 LTX-2 + diffusers; LTX-2.3은 ComfyUI 사용.
 - 해상도: 32 배수 필수. 프레임: 8n+1 (HF 카드).
+- LTX-2: 2.3 스타일 품질 파이프라인 적용(품질 프리픽스, 텍스트 네거티브, ltx2_quality_mode 기본 True).
 - LTX-2.3 distilled: 8 steps, CFG=1.0 권장. ComfyUI 사용 시 모델·파이프라인은 ComfyUI/models 및 pipelines 참조.
 """
 
@@ -55,6 +56,17 @@ DEFAULT_NUM_STEPS = 25
 DEFAULT_GUIDANCE_SCALE = 4.0
 # 기본 negative: TURBO와 동일 문구로 품질 유지 (짧은 버전은 품질 모드에서만 확장 가능하도록 생략)
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
+
+# ---------- LTX-2 품질 파이프라인 (2.3 스타일 텍스트·시네마틱 품질) ----------
+# 프롬프트 앞에 붙여 시네마틱/디테일 유도 (LTX-2 diffusers 경로)
+VIDEO_PROMPT_QUALITY_PREFIX = (
+    "High quality, cinematic, detailed motion, natural lighting, sharp focus. "
+)
+# 텍스트/자막 관련 네거티브 확장 (품질 파이프라인에서 기본 네거티브에 추가)
+NEGATIVE_VIDEO_TEXT = (
+    "floating text, wrong text, distorted letters, watermark, subtitle artifacts, "
+    "burned-in text, logo, caption errors, blurry text, text overlay, floating captions."
+)
 
 # ---------- 반려동물 영상 (모션 안정성: 스피드맨/일그러짐 방지) ----------
 # motion strength 0.35~0.50: 0.60+면 움직임 과장·관절 폭발·스피드맨. guidance 2.0~2.8: 4+면 과장 동작.
@@ -570,6 +582,12 @@ async def run_image_to_video(
         )
         return out_bytes, time.perf_counter() - start
 
+    # LTX-2 diffusers: 2.3 스타일 품질 파이프라인 적용 (텍스트·시네마틱)
+    prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
+    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
+    if neg == DEFAULT_NEGATIVE or not neg:
+        neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
+
     strength = condition_strength if condition_strength is not None else 1.0
     await get_video_pipeline()
     loop = asyncio.get_event_loop()
@@ -578,8 +596,8 @@ async def run_image_to_video(
         None,
         lambda: _run_image_to_video_sync(
             image_bytes,
-            prompt,
-            negative_prompt or DEFAULT_NEGATIVE,
+            prompt_quality,
+            neg,
             width,
             height,
             num_frames,
