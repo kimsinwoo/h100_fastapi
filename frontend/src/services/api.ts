@@ -144,6 +144,9 @@ export async function getVideoPresets(): Promise<VideoPresetsResponse> {
   return data;
 }
 
+const VIDEO_POLL_INTERVAL_MS = 5000;
+const VIDEO_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
+
 export async function generateVideo(
   file: File,
   prompt: string,
@@ -157,7 +160,7 @@ export async function generateVideo(
   if (negativePrompt) form.append("negative_prompt", negativePrompt);
   const uploadVideoApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    timeout: 0, // 무제한 (동영상 생성 수 분~수십 분). 0 = no timeout
+    timeout: 60 * 1000, // 업로드+job_id 수신만 하므로 1분이면 충분
   });
   uploadVideoApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
@@ -165,8 +168,32 @@ export async function generateVideo(
     }
     return config;
   });
-  const { data } = await uploadVideoApi.post<GenerateVideoResponse>("/api/video/generate", form);
-  return data;
+  const { data: jobResp } = await uploadVideoApi.post<{ job_id: string }>("/api/video/generate", form);
+  const jobId = jobResp.job_id;
+  if (!jobId) throw new Error("No job_id from server");
+
+  const started = Date.now();
+  while (Date.now() - started < VIDEO_POLL_MAX_WAIT_MS) {
+    const { data: status } = await api.get<{
+      status: string;
+      video_url?: string | null;
+      processing_time?: number | null;
+      video_base64?: string | null;
+      error?: string | null;
+    }>(`/api/video/status/${jobId}`);
+    if (status.status === "completed") {
+      return {
+        video_url: status.video_url ?? "",
+        processing_time: status.processing_time ?? 0,
+        video_base64: status.video_base64 ?? null,
+      };
+    }
+    if (status.status === "failed") {
+      throw new Error(status.error ?? "Video generation failed");
+    }
+    await new Promise((r) => setTimeout(r, VIDEO_POLL_INTERVAL_MS));
+  }
+  throw new Error("동영상 생성 시간이 초과되었습니다. 다시 시도해 주세요.");
 }
 
 /** Z-Image( main ) 백엔드는 /health, SDXL은 /api/health. 이 앱은 Z-Image 기준이므로 /health 사용 */

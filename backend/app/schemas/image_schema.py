@@ -22,6 +22,20 @@ class GenerateVideoResponse(BaseModel):
     video_base64: str | None = Field(default=None, description="mp4 base64 (선택, 멀티 Pod 대응)")
 
 
+class VideoJobResponse(BaseModel):
+    """동영상 생성 비동기: POST 즉시 반환."""
+    job_id: str = Field(..., description="폴링용 job_id. GET /api/video/status/{job_id} 로 결과 조회")
+
+
+class VideoJobStatusResponse(BaseModel):
+    """GET /api/video/status/{job_id} 응답."""
+    status: str = Field(..., description="processing | completed | failed")
+    video_url: str | None = None
+    processing_time: float | None = None
+    video_base64: str | None = None
+    error: str | None = None
+
+
 class ErrorDetail(BaseModel):
     detail: str
     code: str | None = None

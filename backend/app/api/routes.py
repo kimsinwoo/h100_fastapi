@@ -4,8 +4,11 @@ Image generation API routes.
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import logging
 import sys
+import uuid
 from typing import Annotated
 
 import json as _json
@@ -22,6 +25,8 @@ from app.schemas.image_schema import (
     ACReconstructRequest,
     GenerateResponse,
     GenerateVideoResponse,
+    VideoJobResponse,
+    VideoJobStatusResponse,
     ImageAnalysisResponse,
     AnimalInfo,
     ClothingDetection,
@@ -79,9 +84,11 @@ from app.services.dance_service import (
     get_motion_video_path,
     run_dance_generate,
 )
-import base64
 
 logger = logging.getLogger(__name__)
+
+# 동영상 생성 비동기 잡 (1분 타임아웃 회피: POST는 즉시 반환, 클라이언트는 폴링)
+_video_jobs: dict[str, dict] = {}
 
 # Dance Style: motion_id -> label and reference path (for UI)
 DANCE_MOTIONS: list[dict[str, str]] = [
@@ -652,7 +659,32 @@ async def list_video_presets() -> dict[str, str]:
     return dict(VIDEO_PROMPT_PRESETS)
 
 
-@router.post("/video/generate", response_model=GenerateVideoResponse)
+async def _run_video_job(job_id: str, run_kw: dict) -> None:
+    """백그라운드에서 동영상 생성 후 잡 상태 갱신. 1분 타임아웃 회피용."""
+    try:
+        out_bytes, processing_time = await run_image_to_video(**run_kw)
+        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+        video_url = get_generated_url(video_filename)
+        generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
+        _video_jobs[job_id] = {
+            "status": "completed",
+            "video_url": video_url,
+            "processing_time": round(processing_time, 2),
+            "video_base64": generated_b64,
+            "error": None,
+        }
+    except Exception as e:
+        logger.exception("Video job %s failed: %s", job_id, e)
+        _video_jobs[job_id] = {
+            "status": "failed",
+            "video_url": None,
+            "processing_time": None,
+            "video_base64": None,
+            "error": str(e),
+        }
+
+
+@router.post("/video/generate", response_model=VideoJobResponse)
 async def generate_video(
     request: Request,
     file: Annotated[UploadFile | None, File(description="Image file")] = None,
@@ -663,10 +695,9 @@ async def generate_video(
     num_frames: Annotated[str | None, Form()] = None,
     num_inference_steps: Annotated[str | None, Form()] = None,
     seed: Annotated[str | None, Form()] = None,
-) -> GenerateVideoResponse:
+) -> VideoJobResponse:
     """
-    LTX-2 이미지→동영상. 사진 + 프롬프트로 동영상 생성.
-    preset이 있으면 해당 프리셋 문구로 prompt를 덮어씀.
+    LTX-2 이미지→동영상. 즉시 job_id 반환. GET /api/video/status/{job_id} 로 폴링하여 결과 조회 (1분 끊김 회피).
     """
     _check_rate_limit(request)
     upload = file if (file and file.filename) else image
@@ -687,7 +718,7 @@ async def generate_video(
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
     quality_mode = getattr(settings, "ltx2_quality_mode", False)
-    use_dance_short = preset and preset.strip() == "dancing_pet"  # 반려동물 짧은 춤: 640x384, 25f, 8 steps, guidance 3
+    use_dance_short = preset and preset.strip() == "dancing_pet"
     num_f = _parse_optional_int(num_frames)
     if num_f is None or num_f < 1:
         if use_dance_short:
@@ -696,7 +727,7 @@ async def generate_video(
             num_f = QUALITY_NUM_FRAMES if quality_mode else DEFAULT_NUM_FRAMES
     num_f = _clamp_num_frames_to_8n_plus_1(
         min(241, max(25 if use_dance_short else 33, num_f))
-    )  # LTX-2: 8n+1. 춤은 25(24~28), 일반은 33~
+    )
     steps = _parse_optional_int(num_inference_steps)
     if steps is None or steps < 1:
         steps = DANCE_SHORT_NUM_STEPS if use_dance_short else (QUALITY_NUM_STEPS if quality_mode else 25)
@@ -723,39 +754,25 @@ async def generate_video(
         run_kw["guidance_scale"] = DANCE_SHORT_GUIDANCE_SCALE
         run_kw["frame_rate"] = DANCE_SHORT_FRAME_RATE
         run_kw["condition_strength"] = DANCE_CONDITION_STRENGTH
-    try:
-        out_bytes, processing_time = await run_image_to_video(**run_kw)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except TimeoutError as e:
-        logger.warning("LTX-2 ComfyUI workflow timeout: %s", e)
-        raise HTTPException(status_code=504, detail=str(e))
-    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-        logger.warning("ComfyUI connection failed: %s", e)
-        raise HTTPException(
-            status_code=503,
-            detail="ComfyUI server unreachable. Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod).",
-        )
-    except httpx.HTTPStatusError as e:
-        detail = str(e)
-        if e.response is not None and e.response.text:
-            detail = f"ComfyUI error {e.response.status_code}: {e.response.text[:400]}"
-        logger.warning("ComfyUI HTTP error: %s", detail)
-        raise HTTPException(status_code=503, detail=detail)
-    except RuntimeError as e:
-        logger.exception("LTX-2 video generation failed: %s", e)
-        raise HTTPException(status_code=503, detail=str(e))
-    try:
-        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
-    except Exception as e:
-        logger.exception("Failed to save generated video: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to save generated video")
-    video_url = get_generated_url(video_filename)
-    generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
-    return GenerateVideoResponse(
-        video_url=video_url,
-        processing_time=round(processing_time, 2),
-        video_base64=generated_b64,
+
+    job_id = str(uuid.uuid4())
+    _video_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None, "video_base64": None, "error": None}
+    asyncio.create_task(_run_video_job(job_id, run_kw))
+    return VideoJobResponse(job_id=job_id)
+
+
+@router.get("/video/status/{job_id}", response_model=VideoJobStatusResponse)
+async def get_video_job_status(job_id: str) -> VideoJobStatusResponse:
+    """동영상 생성 잡 상태. processing → 5초마다 폴링, completed 시 video_url 등 반환."""
+    if job_id not in _video_jobs:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    job = _video_jobs[job_id]
+    return VideoJobStatusResponse(
+        status=job["status"],
+        video_url=job.get("video_url"),
+        processing_time=job.get("processing_time"),
+        video_base64=job.get("video_base64"),
+        error=job.get("error"),
     )
 
 
