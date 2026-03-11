@@ -144,13 +144,7 @@ export async function getVideoPresets(): Promise<VideoPresetsResponse> {
   return data;
 }
 
-/** ComfyUI 직접 호출 시 사용. 설정 시 프론트가 ComfyUI API(업로드→prompt→폴링→view) 직접 호출. ComfyUI는 --enable-cors-header 로 실행 필요. */
-function getComfyUIBaseURL(): string | null {
-  const url = (import.meta as { env?: { VITE_COMFYUI_BASE_URL?: string } }).env?.VITE_COMFYUI_BASE_URL ?? "";
-  return (url || "").trim() || null;
-}
-
-/** 백엔드에서 ComfyUI LTX 워크플로 JSON 가져오기 (프론트 ComfyUI 직접 호출 시 사용). */
+/** 백엔드에서 ComfyUI LTX 워크플로 JSON 가져오기. 성공 시 동영상 생성은 백엔드 프록시(/api/video/comfyui/*) 경유. */
 export async function getComfyUIWorkflow(): Promise<Record<string, unknown>> {
   const { data } = await api.get<Record<string, unknown>>("/api/video/comfyui/workflow");
   return data;
@@ -186,34 +180,30 @@ const VIDEO_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
 const COMFYUI_POLL_INTERVAL_MS = 2000;
 const COMFYUI_POLL_MAX_MS = 30 * 60 * 1000;
 
-/** ComfyUI API 직접 호출로 동영상 생성 (VITE_COMFYUI_BASE_URL 설정 시 사용). */
+/** ComfyUI 동영상 생성 (업로드/prompt/history/view는 백엔드 프록시 경로로 요청). */
 async function generateVideoViaComfyUI(
   file: File,
   prompt: string,
   _preset?: string | null,
-  _negativePrompt?: string | null
+  _negativePrompt?: string | null,
+  workflowRaw?: Record<string, unknown>
 ): Promise<GenerateVideoResponse> {
-  const base = getComfyUIBaseURL();
-  if (!base) throw new Error("VITE_COMFYUI_BASE_URL is not set");
-  const comfyBase = base.replace(/\/$/, "");
-
-  const workflowRaw = await getComfyUIWorkflow();
+  const backendBase = (getBaseURL() ?? "").replace(/\/$/, "");
+  const raw = workflowRaw ?? (await getComfyUIWorkflow());
   const promptMap =
-    workflowRaw?.prompt && typeof workflowRaw.prompt === "object" && !Array.isArray(workflowRaw.prompt)
-      ? (workflowRaw.prompt as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>)
-      : (workflowRaw as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>);
+    raw?.prompt && typeof raw.prompt === "object" && !Array.isArray(raw.prompt)
+      ? (raw.prompt as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>)
+      : (raw as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>);
   if (!promptMap || Object.keys(promptMap).length === 0) {
     throw new Error("Invalid ComfyUI workflow: no prompt map");
   }
 
   const form = new FormData();
   form.append("image", file);
-  form.append("type", "input");
-  form.append("overwrite", "true");
-  const uploadRes = await fetch(`${comfyBase}/upload/image`, {
+  const uploadRes = await fetch(`${backendBase}/api/video/comfyui/upload/image`, {
     method: "POST",
     body: form,
-    credentials: "omit",
+    credentials: "include",
   });
   if (!uploadRes.ok) {
     const t = await uploadRes.text();
@@ -224,11 +214,11 @@ async function generateVideoViaComfyUI(
 
   const injected = injectWorkflowInputs(promptMap, imageName, (prompt ?? "").trim() || "gentle motion");
   const promptId = crypto.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, () => ((Math.random() * 16) | 0).toString(16));
-  const promptRes = await fetch(`${comfyBase}/prompt`, {
+  const promptRes = await fetch(`${backendBase}/api/video/comfyui/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt: injected, prompt_id: promptId }),
-    credentials: "omit",
+    credentials: "include",
   });
   if (!promptRes.ok) {
     const t = await promptRes.text();
@@ -243,7 +233,7 @@ async function generateVideoViaComfyUI(
   let subfolder = "";
   let typeOut = "output";
   while (Date.now() - start < COMFYUI_POLL_MAX_MS) {
-    const hisRes = await fetch(`${comfyBase}/history/${pid}`, { credentials: "omit" });
+    const hisRes = await fetch(`${backendBase}/api/video/comfyui/history/${pid}`, { credentials: "include" });
     if (!hisRes.ok) {
       await new Promise((r) => setTimeout(r, COMFYUI_POLL_INTERVAL_MS));
       continue;
@@ -271,7 +261,7 @@ async function generateVideoViaComfyUI(
 
   const viewParams = new URLSearchParams({ filename: videoFilename, type: typeOut });
   if (subfolder) viewParams.set("subfolder", subfolder);
-  const viewRes = await fetch(`${comfyBase}/view?${viewParams.toString()}`, { credentials: "omit" });
+  const viewRes = await fetch(`${backendBase}/api/video/comfyui/view?${viewParams.toString()}`, { credentials: "include" });
   if (!viewRes.ok) throw new Error(`ComfyUI view failed: ${viewRes.status}`);
   const videoBlob = await viewRes.blob();
   const processingTime = (Date.now() - start) / 1000;
@@ -290,8 +280,13 @@ export async function generateVideo(
   preset?: string | null,
   negativePrompt?: string | null
 ): Promise<GenerateVideoResponse> {
-  if (getComfyUIBaseURL()) {
-    return generateVideoViaComfyUI(file, prompt, preset, negativePrompt);
+  try {
+    const w = await getComfyUIWorkflow();
+    if (w && typeof w === "object" && Object.keys(w).length > 0) {
+      return await generateVideoViaComfyUI(file, prompt, preset, negativePrompt, w);
+    }
+  } catch {
+    // 워크플로 없음 또는 ComfyUI 비활성 → 백엔드 잡 방식 사용
   }
 
   const form = new FormData();

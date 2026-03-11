@@ -801,6 +801,82 @@ async def get_comfyui_video_workflow():
     return data
 
 
+def _comfyui_base() -> str:
+    return get_settings().comfyui_base_url.rstrip("/")
+
+
+@router.post("/video/comfyui/upload/image")
+async def comfyui_proxy_upload_image(
+    image: Annotated[UploadFile, File(description="Image file")],
+):
+    """ComfyUI /upload/image 프록시. 프론트가 백엔드로만 요청해도 되도록."""
+    settings = get_settings()
+    if not getattr(settings, "comfyui_enabled", False):
+        raise HTTPException(status_code=503, detail="ComfyUI is disabled")
+    content = await image.read()
+    name = image.filename or "input.png"
+    if not name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        name += ".png"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(
+            f"{_comfyui_base()}/upload/image",
+            files={"image": (name, content, image.content_type or "image/png")},
+            data={"type": "input", "overwrite": "true"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+@router.post("/video/comfyui/prompt")
+async def comfyui_proxy_prompt(request: Request):
+    """ComfyUI /prompt 프록시. body: { prompt, prompt_id }."""
+    settings = get_settings()
+    if not getattr(settings, "comfyui_enabled", False):
+        raise HTTPException(status_code=503, detail="ComfyUI is disabled")
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=settings.comfyui_timeout_seconds) as client:
+        r = await client.post(f"{_comfyui_base()}/prompt", json=body)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text[:500] if r.text else "ComfyUI error")
+        return r.json()
+
+
+@router.get("/video/comfyui/history/{prompt_id}")
+async def comfyui_proxy_history(prompt_id: str):
+    """ComfyUI /history/{prompt_id} 프록시."""
+    settings = get_settings()
+    if not getattr(settings, "comfyui_enabled", False):
+        raise HTTPException(status_code=503, detail="ComfyUI is disabled")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{_comfyui_base()}/history/{prompt_id}")
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text[:500] if r.text else "ComfyUI error")
+        return r.json()
+
+
+@router.get("/video/comfyui/view")
+async def comfyui_proxy_view(
+    filename: str,
+    type: str = "output",
+    subfolder: str = "",
+):
+    """ComfyUI /view 프록시. 비디오/이미지 바이너리 반환."""
+    settings = get_settings()
+    if not getattr(settings, "comfyui_enabled", False):
+        raise HTTPException(status_code=503, detail="ComfyUI is disabled")
+    params = {"filename": filename, "type": type}
+    if subfolder:
+        params["subfolder"] = subfolder
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.get(f"{_comfyui_base()}/view", params=params)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=r.status_code, detail=r.text[:500] if r.text else "ComfyUI error")
+        content = r.content
+        ct = r.headers.get("content-type") or ""
+    media = "video/mp4" if (filename.lower().endswith(".mp4") or "video" in ct) else (ct or "application/octet-stream")
+    return StreamingResponse(iter([content]), media_type=media)
+
+
 # ---------- Dance / Motion Transfer (Pose → Video) ----------
 
 
