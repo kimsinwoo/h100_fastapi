@@ -6,6 +6,7 @@ backend 루트 기준 app, static, scripts, motions, pipelines 사용.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -17,6 +18,24 @@ from app.core.config import get_settings
 from app.utils.file_handler import ensure_generated_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _load_workflow_json(path: Path) -> dict[str, Any]:
+    """워크플로 JSON 로드. 문법 오류 시 위치와 수정 방법을 담은 에러 반환."""
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        snippet = ""
+        if e.pos is not None and 0 <= e.pos < len(text):
+            start = max(0, e.pos - 40)
+            end = min(len(text), e.pos + 40)
+            snippet = text[start:end].replace("\n", " ")
+        raise RuntimeError(
+            f"Invalid workflow JSON in {path.name}: line {e.lineno} column {e.colno} (char {e.pos}). "
+            "Re-export from ComfyUI as 'Save (API Format)' and ensure no trailing commas or comments. "
+            + (f"Near error: ...{snippet}..." if snippet else "")
+        ) from e
 
 
 def _base() -> str:
@@ -263,8 +282,7 @@ async def run_ltx23_image_to_video(
 
     base_url = settings.comfyui_base_url
     try:
-        import json
-        raw = json.loads(workflow_path.read_text(encoding="utf-8"))
+        raw = _load_workflow_json(workflow_path)
         # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
         # Full workflow JSON has "prompt", "last_node_id", "version", "nodes", "links" etc.; send only "prompt".
         graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw

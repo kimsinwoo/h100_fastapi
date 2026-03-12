@@ -79,6 +79,7 @@ from app.services.comfyui_service import (
     run_workflow_and_get_image,
     run_workflow_save_to_generated,
     health_check as comfyui_health_check,
+    _load_workflow_json as load_comfyui_workflow_json,
 )
 from app.services.dance_service import (
     get_motion_video_path,
@@ -795,9 +796,9 @@ async def get_comfyui_video_workflow():
             detail=f"Workflow not found. Tried: {workflow_name}.json and comfyui_ltx23_workflow.json in {settings.pipelines_dir}. Export from ComfyUI as API format and save to pipelines/.",
         )
     try:
-        data = _json.loads(workflow_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Invalid workflow JSON: {e}")
+        data = load_comfyui_workflow_json(workflow_path)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return data
 
 
