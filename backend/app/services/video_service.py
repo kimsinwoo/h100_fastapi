@@ -551,17 +551,20 @@ async def run_image_to_video(
         if guidance_scale == DEFAULT_GUIDANCE_SCALE:
             guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
 
-    # LTX-2.3: diffusers 미지원 → ComfyUI 사용. 설정이 False여도 워크플로가 있으면 ComfyUI 자동 사용.
+    # ComfyUI 사용 조건: LTX2_USE_COMFYUI=true 이거나, ComfyUI 활성 + 워크플로 파일 존재 시 (품질용 ComfyUI JSON 있으면 우선 사용)
     use_comfyui = getattr(settings, "ltx2_use_comfyui", False)
-    if _is_ltx23() and not use_comfyui:
+    if not use_comfyui and getattr(settings, "comfyui_enabled", False):
         wf_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
         wf_path = settings.pipelines_dir / f"{wf_name}.json"
-        if wf_path.exists() and getattr(settings, "comfyui_enabled", True):
+        if not wf_path.exists():
+            wf_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
+        if wf_path.exists():
             use_comfyui = True
+            logger.info("Using ComfyUI for video (workflow found: %s)", wf_path.name)
     if _is_ltx23() and not use_comfyui:
         raise RuntimeError(
             "LTX-2.3 is not supported by this diffusers version. "
-            "Use ComfyUI: set LTX2_USE_COMFYUI=true and add pipelines/ltx23_i2v.json (export from ComfyUI LTXVideo nodes). "
+            "Use ComfyUI: set LTX2_USE_COMFYUI=true or COMFYUI_ENABLED=true and add pipelines/ltx23_i2v.json or comfyui_ltx23_workflow.json. "
             "See backend/pipelines/README_LTX23.md"
         )
 
