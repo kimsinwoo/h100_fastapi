@@ -136,6 +136,23 @@ async def _get_history(prompt_id: str) -> dict[str, Any]:
         return data.get(prompt_id, data)
 
 
+async def _get_queue() -> dict[str, Any]:
+    """GET /queue → { queue_running, queue_pending }. 항목은 [number, prompt_id, ...] 형태."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{_base()}/queue")
+        r.raise_for_status()
+        return r.json()
+
+
+def _is_prompt_in_queue(queue_data: dict[str, Any], prompt_id: str) -> bool:
+    """queue_running 또는 queue_pending에 해당 prompt_id가 있는지 확인."""
+    for key in ("queue_running", "queue_pending"):
+        for item in queue_data.get(key) or []:
+            if isinstance(item, (list, tuple)) and len(item) >= 2 and item[1] == prompt_id:
+                return True
+    return False
+
+
 async def _get_image(filename: str, subfolder: str = "", type_: str = "output") -> bytes:
     """GET /view?filename=...&subfolder=...&type=output → image bytes."""
     params = {"filename": filename, "type": type_}
@@ -163,6 +180,10 @@ async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[
         return {"name": out.get("name", name), "subfolder": out.get("subfolder", "")}
 
 
+# SaveVideo 등이 비디오를 images 배열로 내려줄 때 사용하는 확장자
+_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".avi", ".mkv", ".gif")
+
+
 def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str, str] | None:
     """history에서 첫 비디오 출력 (SaveVideo 등). (filename, subfolder, type)."""
     if "outputs" in history:
@@ -177,13 +198,37 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
     for _node_id, node_out in outputs.items():
         if not isinstance(node_out, dict):
             continue
-        videos = node_out.get("videos") or node_out.get("gifs") or node_out.get("animations")
-        if not videos:
-            continue
-        v = videos[0] if isinstance(videos[0], dict) else {}
-        fn = v.get("filename")
-        if fn:
-            return (fn, v.get("subfolder", ""), v.get("type", "output"))
+        # 1) videos, gifs, animations, video(단일)
+        videos = (
+            node_out.get("videos")
+            or node_out.get("gifs")
+            or node_out.get("animations")
+            or ([node_out["video"]] if isinstance(node_out.get("video"), dict) else None)
+        )
+        if videos:
+            v = videos[0] if isinstance(videos[0], dict) else {}
+            fn = v.get("filename")
+            if fn:
+                return (fn, v.get("subfolder", ""), v.get("type", "output"))
+        # 2) SaveVideo 등이 비디오를 images 배열로 내려주는 경우 (예: LTX_2.3_i2v_00031_.mp4)
+        images = node_out.get("images")
+        if isinstance(images, list) and len(images) > 0:
+            first = images[0]
+            if isinstance(first, dict):
+                fn = first.get("filename")
+                if fn and fn.lower().endswith(_VIDEO_EXTENSIONS):
+                    return (
+                        fn,
+                        first.get("subfolder", ""),
+                        first.get("type", "output"),
+                    )
+                # animated: [true] 이면 비디오로 간주
+                if fn and node_out.get("animated") and node_out["animated"][0:1]:
+                    return (
+                        fn,
+                        first.get("subfolder", ""),
+                        first.get("type", "output"),
+                    )
     return None
 
 
@@ -399,22 +444,39 @@ async def run_ltx23_image_to_video(
         while (loop.time() - start) < max_wait:
             now = loop.time()
             elapsed = now - start
-            if (now - last_log) >= log_interval:
-                logger.info(
-                    "ComfyUI workflow %s still running (%.0fs / %.0fs). LTX-2.3 video can take 10+ minutes.",
-                    prompt_id[:8],
-                    elapsed,
-                    max_wait,
-                )
-                last_log = now
             history = await _get_history(prompt_id)
             if prompt_id in history:
                 info = history[prompt_id]
                 if isinstance(info, dict):
+                    # ComfyUI 실행 실패 시 status.status_str == "error" 또는 completed == False
+                    status = info.get("status") or {}
+                    if status.get("status_str") == "error" or status.get("completed") is False:
+                        messages = status.get("messages") or []
+                        msg = "; ".join(str(m) for m in messages) if messages else "ComfyUI workflow failed (no message)."
+                        raise RuntimeError(f"ComfyUI workflow error: {msg}")
                     first_video = _extract_first_video_from_history(info)
                     if first_video:
                         filename, subfolder, type_ = first_video
                         return await _get_video_bytes(filename, subfolder, type_)
+                    # 완료됐는데 비디오 없음 → 출력 노드 형식이 다르거나 워크플로 문제
+                    raise RuntimeError(
+                        "ComfyUI workflow finished but no video output found. "
+                        "Ensure the workflow has a SaveVideo (or similar) node and its output is in history outputs."
+                    )
+            if (now - last_log) >= log_interval:
+                try:
+                    queue_data = await _get_queue()
+                    in_queue = _is_prompt_in_queue(queue_data, prompt_id)
+                    logger.info(
+                        "ComfyUI workflow %s (%.0fs / %.0fs) — %s",
+                        prompt_id[:8],
+                        elapsed,
+                        max_wait,
+                        "in queue (running/pending)" if in_queue else "not in queue (waiting for history or may have failed)",
+                    )
+                except Exception as e:
+                    logger.warning("ComfyUI queue check failed: %s", e)
+                last_log = now
             await asyncio.sleep(poll_interval)
 
         raise TimeoutError(
