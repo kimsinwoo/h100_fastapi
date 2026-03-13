@@ -42,6 +42,79 @@ def _base() -> str:
     return get_settings().comfyui_base_url.rstrip("/")
 
 
+async def _get_object_info() -> dict[str, Any]:
+    """GET /object_info → node class type별 input/output 스키마."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{_base()}/object_info")
+        r.raise_for_status()
+        return r.json()
+
+
+def _ui_workflow_to_prompt(raw: dict[str, Any], object_info: dict[str, Any]) -> dict[str, Any]:
+    """ComfyUI UI 저장 형식(nodes + links)을 /prompt API용 prompt 맵으로 변환."""
+    nodes_list = raw.get("nodes")
+    links_list = raw.get("links") or []
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return {}
+
+    # link_id -> (source_node_id, source_slot)
+    link_to_src: dict[int, tuple[int, int]] = {}
+    for link in links_list:
+        if not isinstance(link, (list, tuple)) or len(link) < 5:
+            continue
+        link_id = link[0]
+        src_id, src_slot = int(link[1]), int(link[2])
+        link_to_src[link_id] = (src_id, src_slot)
+
+    prompt: dict[str, dict[str, Any]] = {}
+    for node in nodes_list:
+        if not isinstance(node, dict):
+            continue
+        nid = node.get("id")
+        ntype = node.get("type")
+        if nid is None or not ntype:
+            continue
+        nid_str = str(int(nid))
+        inputs: dict[str, Any] = {}
+        # UI에서 inputs: [ [link_id, node_id, slot, type], ... ] (슬롯 순서)
+        node_inputs = node.get("inputs") or []
+        widgets_values = node.get("widgets_values") or []
+        if not isinstance(node_inputs, list):
+            node_inputs = []
+
+        # object_info: input_order = { "required": ["name1", ...], "optional": ["opt1", ...] }
+        info = object_info.get(ntype, {}) or {}
+        io = info.get("input_order") if isinstance(info.get("input_order"), dict) else {}
+        input_order: list[str] = list(io.get("required") or []) + list(io.get("optional") or [])
+
+        # UI inputs: 리스트일 수 있음. [ [link_id, node_id, slot, type], ... ] 또는 [ { "name", "link", ... }, ... ]
+        widget_idx = 0
+        for slot_i, conn in enumerate(node_inputs):
+            input_name = input_order[slot_i] if slot_i < len(input_order) else str(slot_i)
+            link_id = None
+            if isinstance(conn, (list, tuple)) and len(conn) >= 1:
+                link_id = conn[0]
+            elif isinstance(conn, dict) and "link" in conn and conn["link"] is not None:
+                link_id = conn["link"]
+                if "name" in conn:
+                    input_name = conn["name"]
+            if link_id is not None and link_id in link_to_src:
+                src_id, src_slot = link_to_src[link_id]
+                inputs[input_name] = [str(src_id), src_slot]
+            else:
+                if widget_idx < len(widgets_values):
+                    inputs[input_name] = widgets_values[widget_idx]
+                    widget_idx += 1
+        # 남은 widget 값을 남은 input 슬롯에 매핑
+        for name in input_order:
+            if name not in inputs and widget_idx < len(widgets_values):
+                inputs[name] = widgets_values[widget_idx]
+                widget_idx += 1
+
+        prompt[nid_str] = {"class_type": ntype, "inputs": inputs}
+    return prompt
+
+
 async def _post_prompt(prompt: dict[str, Any], client_id: str | None = None) -> dict[str, Any]:
     """POST /prompt → { prompt_id, number } or error."""
     payload: dict[str, Any] = {"prompt": prompt, "prompt_id": str(uuid.uuid4())}
@@ -284,20 +357,26 @@ async def run_ltx23_image_to_video(
     try:
         raw = _load_workflow_json(workflow_path)
         # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
-        # File may be: (1) API format with top-level "prompt" dict, or (2) full workflow with "prompt" key, or (3) mixed (node ids + last_node_id, nodes, links).
+        # File may be: (1) API format with top-level "prompt" dict, or (2) top-level node objects (class_type + inputs), or (3) UI format (nodes + links).
         graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else None
         if graph is None or len(graph) == 0:
-            # Build prompt map from top-level keys that look like node specs (class_type + inputs)
             graph = {
                 k: v
                 for k, v in raw.items()
                 if isinstance(v, dict) and "class_type" in v and "inputs" in v
             }
+        if (not isinstance(graph, dict) or len(graph) == 0) and isinstance(raw.get("nodes"), list) and len(raw.get("nodes", [])) > 0:
+            # UI 저장 형식(nodes + links): ComfyUI /object_info로 스키마를 가져와 API 형식으로 변환
+            try:
+                object_info = await _get_object_info()
+                graph = _ui_workflow_to_prompt(raw, object_info)
+            except Exception as e:
+                logger.warning("UI workflow conversion failed: %s", e)
         if not isinstance(graph, dict) or len(graph) == 0:
             raise RuntimeError(
                 "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec, "
-                "or top-level node objects with 'class_type' and 'inputs'. "
-                "In ComfyUI use Save (API Format) and use that JSON."
+                "or top-level node objects with 'class_type' and 'inputs', or a UI export with 'nodes' and 'links'. "
+                "In ComfyUI use Save (API Format) for prompt-only JSON, or use the normal Save and ensure the file has a 'nodes' array."
             )
 
         uploaded = await upload_image(image_bytes)
@@ -313,8 +392,21 @@ async def run_ltx23_image_to_video(
 
         max_wait = settings.comfyui_timeout_seconds
         poll_interval = 0.5
-        start = asyncio.get_event_loop().time()
-        while (asyncio.get_event_loop().time() - start) < max_wait:
+        log_interval = 60.0
+        loop = asyncio.get_event_loop()
+        start = loop.time()
+        last_log = start
+        while (loop.time() - start) < max_wait:
+            now = loop.time()
+            elapsed = now - start
+            if (now - last_log) >= log_interval:
+                logger.info(
+                    "ComfyUI workflow %s still running (%.0fs / %.0fs). LTX-2.3 video can take 10+ minutes.",
+                    prompt_id[:8],
+                    elapsed,
+                    max_wait,
+                )
+                last_log = now
             history = await _get_history(prompt_id)
             if prompt_id in history:
                 info = history[prompt_id]
@@ -325,7 +417,10 @@ async def run_ltx23_image_to_video(
                         return await _get_video_bytes(filename, subfolder, type_)
             await asyncio.sleep(poll_interval)
 
-        raise TimeoutError(f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s")
+        raise TimeoutError(
+            f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s. "
+            f"Increase COMFYUI_TIMEOUT_SECONDS (current: {max_wait}) if your workflow needs more time."
+        )
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
         raise RuntimeError(
             f"ComfyUI server unreachable at {base_url}. "

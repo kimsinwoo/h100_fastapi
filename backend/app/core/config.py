@@ -237,7 +237,12 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:8188",
         description="ComfyUI 서버 주소 (로컬: 8188)",
     )
-    comfyui_timeout_seconds: float = Field(default=300.0, ge=30.0, le=600.0)
+    comfyui_timeout_seconds: float = Field(
+        default=900.0,
+        ge=60.0,
+        le=7200.0,
+        description="ComfyUI 워크플로 대기 시간(초). LTX-2.3 비디오는 10~20분 걸릴 수 있음. 필요 시 COMFYUI_TIMEOUT_SECONDS=1800 등으로 증가.",
+    )
     pipelines_dir_name: str = Field(
         default="pipelines",
         description="ComfyUI 워크플로우 JSON 보관 (backend_dir 기준)",
