@@ -284,21 +284,21 @@ async def run_ltx23_image_to_video(
     try:
         raw = _load_workflow_json(workflow_path)
         # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
-        # Full workflow JSON has "prompt", "last_node_id", "version", "nodes", "links" etc.; send only "prompt".
-        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
-        if not isinstance(graph, dict):
+        # File may be: (1) API format with top-level "prompt" dict, or (2) full workflow with "prompt" key, or (3) mixed (node ids + last_node_id, nodes, links).
+        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else None
+        if graph is None or len(graph) == 0:
+            # Build prompt map from top-level keys that look like node specs (class_type + inputs)
+            graph = {
+                k: v
+                for k, v in raw.items()
+                if isinstance(v, dict) and "class_type" in v and "inputs" in v
+            }
+        if not isinstance(graph, dict) or len(graph) == 0:
             raise RuntimeError(
-                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec. "
-                "In ComfyUI use Save (API Format) or export the prompt-only JSON."
+                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec, "
+                "or top-level node objects with 'class_type' and 'inputs'. "
+                "In ComfyUI use Save (API Format) and use that JSON."
             )
-        # When we used full raw (no "prompt" key), ensure it is prompt-only (every value is a node dict)
-        if graph is raw:
-            for k, v in graph.items():
-                if not isinstance(v, dict) or "class_type" not in v or "inputs" not in v:
-                    raise RuntimeError(
-                        "Workflow file must be in ComfyUI API format (prompt-only). "
-                        "Save your workflow in ComfyUI as 'Save (API Format)' and use that JSON."
-                    )
 
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")
