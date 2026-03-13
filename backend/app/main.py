@@ -6,8 +6,38 @@ Z-Image-Turbo(img2img) 전용. /api/generate, /api/styles 등.
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import sys
 import time
 import warnings
+
+# Ctrl+C 두 번째 누르면 강제 종료 (uvicorn/이벤트루프 대기로 터미널이 멈춘 것처럼 보일 때)
+_force_exit_count = 0
+
+
+def _handle_sigint(signum, frame):
+    global _force_exit_count
+    _force_exit_count += 1
+    if _force_exit_count >= 2:
+        sys.stdout.write("\nForce exit.\n")
+        sys.stdout.flush()
+        os._exit(1)
+    sys.stdout.write("\nShutting down... (Ctrl+C again to force exit)\n")
+    sys.stdout.flush()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    raise KeyboardInterrupt()
+
+
+def _install_sigint_handler():
+    if sys.platform != "win32":
+        try:
+            signal.signal(signal.SIGINT, _handle_sigint)
+        except (ValueError, OSError):
+            pass
+
+
+_install_sigint_handler()
 
 # Mac 등 CUDA 미지원 환경에서 torch.amp가 'cuda' 사용 시 나는 경고 억제
 warnings.filterwarnings(

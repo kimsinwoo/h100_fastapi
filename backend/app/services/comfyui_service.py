@@ -128,12 +128,11 @@ async def _post_prompt(prompt: dict[str, Any], client_id: str | None = None) -> 
 
 
 async def _get_history(prompt_id: str) -> dict[str, Any]:
-    """GET /history/{prompt_id} → execution result with outputs."""
+    """GET /history/{prompt_id} → 완료 시 { prompt_id: { prompt, outputs, status, meta } }, 미완료 시 {}."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(f"{_base()}/history/{prompt_id}")
         r.raise_for_status()
-        data = r.json()
-        return data.get(prompt_id, data)
+        return r.json()
 
 
 async def _get_queue() -> dict[str, Any]:
@@ -445,24 +444,30 @@ async def run_ltx23_image_to_video(
             now = loop.time()
             elapsed = now - start
             history = await _get_history(prompt_id)
-            if prompt_id in history:
+            # ComfyUI 응답: 완료 시 { prompt_id: { prompt, outputs, status, meta } }, 미완료 시 {}
+            if isinstance(history, dict) and prompt_id in history:
                 info = history[prompt_id]
-                if isinstance(info, dict):
-                    # ComfyUI 실행 실패 시 status.status_str == "error" 또는 completed == False
-                    status = info.get("status") or {}
-                    if status.get("status_str") == "error" or status.get("completed") is False:
-                        messages = status.get("messages") or []
-                        msg = "; ".join(str(m) for m in messages) if messages else "ComfyUI workflow failed (no message)."
-                        raise RuntimeError(f"ComfyUI workflow error: {msg}")
-                    first_video = _extract_first_video_from_history(info)
-                    if first_video:
-                        filename, subfolder, type_ = first_video
-                        return await _get_video_bytes(filename, subfolder, type_)
-                    # 완료됐는데 비디오 없음 → 출력 노드 형식이 다르거나 워크플로 문제
-                    raise RuntimeError(
-                        "ComfyUI workflow finished but no video output found. "
-                        "Ensure the workflow has a SaveVideo (or similar) node and its output is in history outputs."
-                    )
+                if not isinstance(info, dict):
+                    info = None
+            else:
+                info = None
+            if info is not None:
+                logger.info("ComfyUI history received for %s (outputs keys: %s)", prompt_id[:8], list((info.get("outputs") or {}).keys()))
+                # ComfyUI 실행 실패 시 status.status_str == "error" 또는 completed == False
+                status = info.get("status") or {}
+                if status.get("status_str") == "error" or status.get("completed") is False:
+                    messages = status.get("messages") or []
+                    msg = "; ".join(str(m) for m in messages) if messages else "ComfyUI workflow failed (no message)."
+                    raise RuntimeError(f"ComfyUI workflow error: {msg}")
+                first_video = _extract_first_video_from_history(info)
+                if first_video:
+                    filename, subfolder, type_ = first_video
+                    return await _get_video_bytes(filename, subfolder, type_)
+                # 완료됐는데 비디오 없음 → 출력 노드 형식이 다르거나 워크플로 문제
+                raise RuntimeError(
+                    "ComfyUI workflow finished but no video output found. "
+                    "Ensure the workflow has a SaveVideo (or similar) node and its output is in history outputs."
+                )
             if (now - last_log) >= log_interval:
                 try:
                     queue_data = await _get_queue()
