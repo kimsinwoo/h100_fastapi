@@ -12,20 +12,7 @@ export interface ErrorDetail {
 }
 
 /** 백엔드 허용 스타일 (prompt-config와 동기화). API /api/styles 응답 키와 일치 */
-export type StyleKey =
-  | "dragonball"
-  | "slamdunk"
-  | "sailor_moon"
-  | "pokemon"
-  | "dooly"
-  | "mazinger"
-  | "shinchan"
-  | "pixel_art"
-  | "pixel art"
-  | "animal_crossing"
-  | "ac_style_transfer"
-  | "clay_art"
-  | "cloud_theme";
+export type StyleKey = "sailor_moon" | "pixel_art" | "animal_crossing" | "clay_art";
 
 export interface StylesResponse {
   [key: string]: string;

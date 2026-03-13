@@ -111,12 +111,12 @@ export async function generateImage(
   };
 }
 
-/** API에 없을 때 사용할 게임 캐릭터 스타일 기본 표시 (구버전 백엔드 대응) */
+/** API에 없을 때 사용할 스타일 기본 표시 (구버전 백엔드 대응) */
 const FALLBACK_STYLES: StylesResponse = {
+  sailor_moon: "Sailor Moon (magical girl, sparkle)",
+  pixel_art: "Pixel Art (sprite, 16 colors)",
   animal_crossing: "게임 캐릭터 (구조 재디자인)",
-  ac_style_transfer: "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
   clay_art: "클레이 아트 (손수 제작 점토 조각)",
-  cloud_theme: "클라우드 테마 (고키·부드러운 구름 분위기)",
 };
 
 export async function getStyles(): Promise<StylesResponse> {
@@ -124,7 +124,7 @@ export async function getStyles(): Promise<StylesResponse> {
   if (!data || typeof data !== "object") return FALLBACK_STYLES;
   if (Object.keys(data).length === 0) return FALLBACK_STYLES;
   const missing =
-    !data.animal_crossing || !data.ac_style_transfer || !data.clay_art || !data.cloud_theme;
+    !data.sailor_moon || !data.pixel_art || !data.animal_crossing || !data.clay_art;
   if (missing) return { ...data, ...FALLBACK_STYLES };
   return data;
 }

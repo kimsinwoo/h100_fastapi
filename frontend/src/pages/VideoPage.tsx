@@ -4,18 +4,20 @@ import { ImageUploader } from "../components/ImageUploader";
 import { LoadingOverlay } from "../components/LoadingSpinner";
 import {
   generateVideo,
-  getVideoPresets,
   getHealth,
   getErrorMessage,
   getApiResourceUrl,
   getDanceMotions,
   generateDance,
 } from "../services/api";
-import type {
-  GenerateVideoResponse,
-  VideoPresetsResponse,
-  DanceMotionItem,
-} from "../services/api";
+import type { GenerateVideoResponse, DanceMotionItem } from "../services/api";
+import {
+  VIDEO_PRESETS,
+  VIDEO_PRESETS_TOP_20,
+  VIDEO_PRESETS_VIRAL,
+  NATURAL_PROMPT_TIPS,
+  type VideoPresetItem,
+} from "../constants/videoPresets";
 
 type VideoState =
   | { phase: "idle" }
@@ -23,37 +25,52 @@ type VideoState =
   | { phase: "success"; data: GenerateVideoResponse }
   | { phase: "error"; message: string };
 
-const DEFAULT_PROMPT = "The character smiles and slowly turns their head toward the camera.";
+type PresetGroup = "basic" | "top20" | "viral";
+
+const PRESET_GROUPS: { key: PresetGroup; label: string; list: VideoPresetItem[] }[] = [
+  { key: "basic", label: "기본 8개 (안정적)", list: VIDEO_PRESETS },
+  { key: "top20", label: "TOP 20", list: VIDEO_PRESETS_TOP_20 },
+  { key: "viral", label: "바이럴 쇼츠", list: VIDEO_PRESETS_VIRAL },
+];
+
+const defaultPreset = VIDEO_PRESETS[0];
 
 export default function VideoPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState<string>(DEFAULT_PROMPT);
-  const [presets, setPresets] = useState<VideoPresetsResponse | null>(null);
+  const [prompt, setPrompt] = useState<string>(defaultPreset.prompt);
+  const [negativePrompt, setNegativePrompt] = useState<string>(defaultPreset.negative);
+  const [presetGroup, setPresetGroup] = useState<PresetGroup>("basic");
   const [state, setState] = useState<VideoState>({ phase: "idle" });
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
   const [danceMotions, setDanceMotions] = useState<DanceMotionItem[]>([]);
   const [selectedMotionId, setSelectedMotionId] = useState<string>("rat_dance");
   const [danceCharacter, setDanceCharacter] = useState<"dog" | "cat">("dog");
+  const [showTips, setShowTips] = useState(false);
+
+  const currentPresets = PRESET_GROUPS.find((g) => g.key === presetGroup)?.list ?? VIDEO_PRESETS;
 
   useEffect(() => {
     getHealth()
       .then((r) => setGpuAvailable(r.gpu_available))
       .catch(() => setGpuAvailable(null));
-    getVideoPresets()
-      .then(setPresets)
-      .catch(() => setPresets({ smile_turn: "", wind_leaves: "", dancing_pet: "", golden_hour: "", cozy_moment: "", neon_night: "", dreamy_bokeh: "" }));
     getDanceMotions()
       .then(setDanceMotions)
       .catch(() => setDanceMotions([]));
   }, []);
 
-  const handlePreset = useCallback(
-    (key: string) => {
-      const text = presets?.[key];
-      if (text) setPrompt(text);
-    },
-    [presets]
-  );
+  const handlePreset = useCallback((preset: VideoPresetItem) => {
+    setPrompt(preset.prompt);
+    setNegativePrompt(preset.negative);
+  }, []);
+
+  const handlePresetGroupChange = useCallback((key: PresetGroup) => {
+    setPresetGroup(key);
+    const group = PRESET_GROUPS.find((g) => g.key === key);
+    if (group?.list[0]) {
+      setPrompt(group.list[0].prompt);
+      setNegativePrompt(group.list[0].negative);
+    }
+  }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!file) return;
@@ -63,12 +80,12 @@ export default function VideoPage() {
     }
     setState({ phase: "loading" });
     try {
-      const data = await generateVideo(file, prompt.trim(), null, null);
+      const data = await generateVideo(file, prompt.trim(), null, negativePrompt.trim() || null);
       setState({ phase: "success", data });
     } catch (err) {
       setState({ phase: "error", message: getErrorMessage(err) });
     }
-  }, [file, prompt]);
+  }, [file, prompt, negativePrompt]);
 
   const handleDanceGenerate = useCallback(async () => {
     if (!file) {
@@ -142,8 +159,8 @@ export default function VideoPage() {
       <div className="mx-auto max-w-4xl px-4">
         <header className="mb-8 flex items-center justify-between">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">LTX-2 이미지 → 동영상</h1>
-            <p className="mt-2 text-gray-600">사진과 프롬프트로 동영상 생성 (Hugging Face LTX-2)</p>
+            <h1 className="text-3xl font-bold text-gray-900">이미지 → 동영상 (강아지)</h1>
+            <p className="mt-2 text-gray-600">주인 시점(POV) · 원본 강아지·배경 유지 (ComfyUI / LTX / Runway / Pika 등)</p>
             {gpuAvailable !== null && (
               <p className="mt-1 text-sm text-gray-500">Backend: {gpuAvailable ? "GPU" : "CPU"}</p>
             )}
@@ -163,45 +180,72 @@ export default function VideoPage() {
           </section>
 
           <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">2. 동영상 프롬프트</h2>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">2. 동영상 프롬프트 (주인 시점 POV)</h2>
             <p className="mb-2 text-xs text-gray-500">
-              원하는 동작·장면을 영어로 설명하세요. 아래 테스트 스타일을 선택해도 됩니다.
+              카메라=주인 · 강아지만 등장(손만 잠깐 허용) · 원본 강아지·배경 유지. 아래 카테고리에서 프리셋을 선택하거나 직접 수정하세요.
             </p>
-            {presets && Object.keys(presets).length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {Object.entries(presets).map(([key]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => handlePreset(key)}
-                    disabled={isProcessing}
-                    className="rounded-lg border-2 border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:border-indigo-400 disabled:opacity-60"
-                  >
-                    {key === "smile_turn"
-                      ? "고개 돌리기"
-                      : key === "wind_leaves"
-                        ? "바람/나뭇잎"
-                        : key === "dancing_pet"
-                          ? "춤추는 강아지/고양이"
-                          : key === "golden_hour"
-                            ? "황금시간대"
-                            : key === "cozy_moment"
-                              ? "코지 모먼트"
-                              : key === "neon_night"
-                                ? "네온 야경"
-                                : key === "dreamy_bokeh"
-                                  ? "드리밍 보케"
-                                  : key}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="mb-2 flex flex-wrap gap-2">
+              {PRESET_GROUPS.map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  onClick={() => handlePresetGroupChange(g.key)}
+                  disabled={isProcessing}
+                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${
+                    presetGroup === g.key
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-indigo-400"
+                  }`}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+            <div className="mb-3 flex max-h-32 flex-wrap gap-2 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+              {currentPresets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handlePreset(p)}
+                  disabled={isProcessing}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-indigo-400 hover:bg-indigo-50/50 disabled:opacity-60"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="mb-3">
+              <button
+                type="button"
+                onClick={() => setShowTips((v) => !v)}
+                className="text-xs text-indigo-600 hover:underline"
+              >
+                {showTips ? "자연스러운 프롬프트 팁 접기" : "자연스러운 프롬프트 구조 보기"}
+              </button>
+              {showTips && (
+                <ul className="mt-1 list-inside list-disc space-y-0.5 rounded bg-amber-50/80 p-2 text-xs text-gray-700">
+                  {NATURAL_PROMPT_TIPS.map((tip, i) => (
+                    <li key={i}>{tip}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Positive Prompt</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={isProcessing}
-              placeholder="e.g. The character smiles and slowly turns their head."
-              rows={3}
+              placeholder="first-person perspective from the dog's owner..."
+              rows={4}
+              className="mb-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
+            />
+            <label className="mb-1 block text-xs font-medium text-gray-600">Negative Prompt (선택)</label>
+            <textarea
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              disabled={isProcessing}
+              placeholder="person visible, human body, different dog, extra dogs..."
+              rows={2}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />
           </section>

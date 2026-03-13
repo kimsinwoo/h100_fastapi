@@ -44,6 +44,7 @@ from app.utils.prompt_builder import (
     NEGATIVE_BY_STYLE,
     SPECIES_SUBJECT,
 )
+from app.models.style_presets import STYLE_PRESETS
 from app.utils.pose_lock_engine import (
     build_pose_lock_prompt,
     build_pose_lock_negative,
@@ -730,12 +731,14 @@ async def run_image_to_image(
     settings = get_settings()
     style_lower = style_key.lower().strip()
 
-    # OmniGen: 저장된 프롬프트(스타일/프리셋/기본값) 절대 사용 안 함. 사용자 직접 입력만 사용.
+    # OmniGen: 사용자 입력이 없으면 선택한 스타일 이름으로 기본 편집 지시 사용 (생성 가능하도록).
     if _use_omnigen:
         user_text = (custom_prompt or "").strip()
         if not user_text:
-            raise ValueError("편집 지시를 입력해 주세요. (저장된 프롬프트는 사용하지 않습니다.)")
-        prompt = user_text[:500]
+            style_display = STYLE_PRESETS.get(style_lower) or STYLE_PRESETS.get(style_lower.replace(" ", "_")) or style_lower
+            prompt = f"Apply {style_display} style to this image."
+        else:
+            prompt = user_text[:500]
         logger.info("[OmniGen] user_prompt=%s", prompt)
         num_steps_omni = max(1, min(70, num_steps or OMNI_NUM_STEPS))
         loop = asyncio.get_event_loop()

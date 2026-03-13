@@ -8,17 +8,9 @@ from __future__ import annotations
 from app.utils.prompt_builder import STYLE_PROMPTS
 
 STYLE_PRESETS: dict[str, str] = {
-    "dragonball": "Dragon Ball (2-tone cel, thick outline)",
-    "slamdunk": "Slam Dunk (sports manga, angular)",
     "sailor_moon": "Sailor Moon (magical girl, sparkle)",
-    "pokemon": "Pokemon (cute creature, flat color)",
-    "dooly": "Dooly (simple comic strip)",
-    "mazinger": "Mazinger (super robot, mecha)",
-    "shinchan": "Shinchan (gag manga)",
     "pixel_art": "Pixel Art (sprite, 16 colors)",
-    "pixel art": "Pixel Art (sprite, 16 colors)",
     "animal_crossing": "게임 캐릭터 (구조 재디자인)",
-    "ac_style_transfer": "게임 캐릭터 스타일만 (해부·포즈·배경 유지)",
     "clay_art": "클레이 아트 (손수 제작 점토 조각)",
 }
 

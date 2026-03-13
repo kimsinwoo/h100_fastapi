@@ -47,7 +47,7 @@ export default function GeneratePage() {
   const [tab, setTab] = useState<"style" | "ac">("style");
   const [file, setFile] = useState<File | null>(null);
   const [styles, setStyles] = useState<StylesResponse | null>(null);
-  const [style, setStyle] = useState<string>("pokemon");
+  const [style, setStyle] = useState<string>("sailor_moon");
   const [customPrompt, setCustomPrompt] = useState<string>("");
   const [strength, setStrength] = useState<number>(0.5);
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);

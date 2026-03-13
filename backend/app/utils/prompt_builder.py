@@ -587,19 +587,11 @@ GENERATION_RULES: dict[str, dict[str, Any]] = {
 
 STYLE_TEMPLATES = STYLE_PROMPTS
 
-# 스타일 목록: 동물의숲은 animal_crossing 하나만 노출 (animal crossing / hybrid는 API 호환용으로만 유지)
+# 스타일 목록: API/UI에 노출할 4종만 (Sailor Moon, Pixel Art, 게임 캐릭터, 클레이 아트)
 ALLOWED_STYLE_KEYS = [
-    "dragonball",
-    "slamdunk",
     "sailor_moon",
-    "pokemon",
-    "dooly",
-    "mazinger",
-    "shinchan",
     "pixel_art",
-    "pixel art",
     "animal_crossing",
-    "ac_style_transfer",
     "clay_art",
 ]
 
