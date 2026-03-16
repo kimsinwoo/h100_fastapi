@@ -42,79 +42,6 @@ def _base() -> str:
     return get_settings().comfyui_base_url.rstrip("/")
 
 
-async def _get_object_info() -> dict[str, Any]:
-    """GET /object_info → node class type별 input/output 스키마."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.get(f"{_base()}/object_info")
-        r.raise_for_status()
-        return r.json()
-
-
-def _ui_workflow_to_prompt(raw: dict[str, Any], object_info: dict[str, Any]) -> dict[str, Any]:
-    """ComfyUI UI 저장 형식(nodes + links)을 /prompt API용 prompt 맵으로 변환."""
-    nodes_list = raw.get("nodes")
-    links_list = raw.get("links") or []
-    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
-        return {}
-
-    # link_id -> (source_node_id, source_slot)
-    link_to_src: dict[int, tuple[int, int]] = {}
-    for link in links_list:
-        if not isinstance(link, (list, tuple)) or len(link) < 5:
-            continue
-        link_id = link[0]
-        src_id, src_slot = int(link[1]), int(link[2])
-        link_to_src[link_id] = (src_id, src_slot)
-
-    prompt: dict[str, dict[str, Any]] = {}
-    for node in nodes_list:
-        if not isinstance(node, dict):
-            continue
-        nid = node.get("id")
-        ntype = node.get("type")
-        if nid is None or not ntype:
-            continue
-        nid_str = str(int(nid))
-        inputs: dict[str, Any] = {}
-        # UI에서 inputs: [ [link_id, node_id, slot, type], ... ] (슬롯 순서)
-        node_inputs = node.get("inputs") or []
-        widgets_values = node.get("widgets_values") or []
-        if not isinstance(node_inputs, list):
-            node_inputs = []
-
-        # object_info: input_order = { "required": ["name1", ...], "optional": ["opt1", ...] }
-        info = object_info.get(ntype, {}) or {}
-        io = info.get("input_order") if isinstance(info.get("input_order"), dict) else {}
-        input_order: list[str] = list(io.get("required") or []) + list(io.get("optional") or [])
-
-        # UI inputs: 리스트일 수 있음. [ [link_id, node_id, slot, type], ... ] 또는 [ { "name", "link", ... }, ... ]
-        widget_idx = 0
-        for slot_i, conn in enumerate(node_inputs):
-            input_name = input_order[slot_i] if slot_i < len(input_order) else str(slot_i)
-            link_id = None
-            if isinstance(conn, (list, tuple)) and len(conn) >= 1:
-                link_id = conn[0]
-            elif isinstance(conn, dict) and "link" in conn and conn["link"] is not None:
-                link_id = conn["link"]
-                if "name" in conn:
-                    input_name = conn["name"]
-            if link_id is not None and link_id in link_to_src:
-                src_id, src_slot = link_to_src[link_id]
-                inputs[input_name] = [str(src_id), src_slot]
-            else:
-                if widget_idx < len(widgets_values):
-                    inputs[input_name] = widgets_values[widget_idx]
-                    widget_idx += 1
-        # 남은 widget 값을 남은 input 슬롯에 매핑
-        for name in input_order:
-            if name not in inputs and widget_idx < len(widgets_values):
-                inputs[name] = widgets_values[widget_idx]
-                widget_idx += 1
-
-        prompt[nid_str] = {"class_type": ntype, "inputs": inputs}
-    return prompt
-
-
 async def _post_prompt(prompt: dict[str, Any], client_id: str | None = None) -> dict[str, Any]:
     """POST /prompt → { prompt_id, number } or error."""
     payload: dict[str, Any] = {"prompt": prompt, "prompt_id": str(uuid.uuid4())}
@@ -128,28 +55,12 @@ async def _post_prompt(prompt: dict[str, Any], client_id: str | None = None) -> 
 
 
 async def _get_history(prompt_id: str) -> dict[str, Any]:
-    """GET /history/{prompt_id} → 완료 시 { prompt_id: { prompt, outputs, status, meta } }, 미완료 시 {}."""
+    """GET /history/{prompt_id} → execution result with outputs."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(f"{_base()}/history/{prompt_id}")
         r.raise_for_status()
-        return r.json()
-
-
-async def _get_queue() -> dict[str, Any]:
-    """GET /queue → { queue_running, queue_pending }. 항목은 [number, prompt_id, ...] 형태."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(f"{_base()}/queue")
-        r.raise_for_status()
-        return r.json()
-
-
-def _is_prompt_in_queue(queue_data: dict[str, Any], prompt_id: str) -> bool:
-    """queue_running 또는 queue_pending에 해당 prompt_id가 있는지 확인."""
-    for key in ("queue_running", "queue_pending"):
-        for item in queue_data.get(key) or []:
-            if isinstance(item, (list, tuple)) and len(item) >= 2 and item[1] == prompt_id:
-                return True
-    return False
+        data = r.json()
+        return data.get(prompt_id, data)
 
 
 async def _get_image(filename: str, subfolder: str = "", type_: str = "output") -> bytes:
@@ -179,10 +90,6 @@ async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[
         return {"name": out.get("name", name), "subfolder": out.get("subfolder", "")}
 
 
-# SaveVideo 등이 비디오를 images 배열로 내려줄 때 사용하는 확장자
-_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".avi", ".mkv", ".gif")
-
-
 def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str, str] | None:
     """history에서 첫 비디오 출력 (SaveVideo 등). (filename, subfolder, type)."""
     if "outputs" in history:
@@ -197,37 +104,13 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
     for _node_id, node_out in outputs.items():
         if not isinstance(node_out, dict):
             continue
-        # 1) videos, gifs, animations, video(단일)
-        videos = (
-            node_out.get("videos")
-            or node_out.get("gifs")
-            or node_out.get("animations")
-            or ([node_out["video"]] if isinstance(node_out.get("video"), dict) else None)
-        )
-        if videos:
-            v = videos[0] if isinstance(videos[0], dict) else {}
-            fn = v.get("filename")
-            if fn:
-                return (fn, v.get("subfolder", ""), v.get("type", "output"))
-        # 2) SaveVideo 등이 비디오를 images 배열로 내려주는 경우 (예: LTX_2.3_i2v_00031_.mp4)
-        images = node_out.get("images")
-        if isinstance(images, list) and len(images) > 0:
-            first = images[0]
-            if isinstance(first, dict):
-                fn = first.get("filename")
-                if fn and fn.lower().endswith(_VIDEO_EXTENSIONS):
-                    return (
-                        fn,
-                        first.get("subfolder", ""),
-                        first.get("type", "output"),
-                    )
-                # animated: [true] 이면 비디오로 간주
-                if fn and node_out.get("animated") and node_out["animated"][0:1]:
-                    return (
-                        fn,
-                        first.get("subfolder", ""),
-                        first.get("type", "output"),
-                    )
+        videos = node_out.get("videos") or node_out.get("gifs") or node_out.get("animations")
+        if not videos:
+            continue
+        v = videos[0] if isinstance(videos[0], dict) else {}
+        fn = v.get("filename")
+        if fn:
+            return (fn, v.get("subfolder", ""), v.get("type", "output"))
     return None
 
 
@@ -351,131 +234,19 @@ async def health_check() -> bool:
         return False
 
 
-def _inject_ltx23_workflow_inputs(
-    workflow: dict[str, Any],
-    image_name: str,
-    prompt_text: str,
-    negative_prompt: str = "",
-    width: int = 768,
-    height: int = 512,
-    num_frames: int = 121,
-    frame_rate: float = 24.0,
-    num_inference_steps: int = 8,
-    guidance_scale: float = 1.0,
-    seed: int | None = None,
-) -> dict[str, Any]:
-    """워크플로에 모든 생성 파라미터를 주입.
-    - LoadImage → image 파일명
-    - CLIPTextEncode (positive) → prompt_text
-    - CLIPTextEncode (negative, _meta.title에 negative/neg 포함) → negative_prompt
-    - LTXVConditioning / LTXVideoCondition → width, height, length(num_frames), frame_rate
-    - LTXVScheduler / LTXVideoScheduler → steps
-    - KSampler / KSamplerAdvanced → steps, cfg, seed
-    - BasicGuider / CFGGuider → cfg
-    - RandomNoise / noise seed nodes → noise_seed / seed
-    """
+def _inject_ltx23_workflow_inputs(workflow: dict[str, Any], image_name: str, prompt_text: str) -> dict[str, Any]:
+    """워크플로에 업로드된 이미지 파일명과 프롬프트를 주입. ComfyUI 노드: LoadImage, CLIPTextEncode 등."""
     import copy
     wf = copy.deepcopy(workflow)
-
-    # Pass 1: collect CLIPTextEncode nodes; handle all other node types
-    clip_positive: list[tuple[str, dict[str, Any]]] = []
-    clip_negative: list[tuple[str, dict[str, Any]]] = []
-    clip_unclassified: list[tuple[str, dict[str, Any]]] = []
-
     for nid, node in wf.items():
         if not isinstance(node, dict):
             continue
         ct = (node.get("class_type") or "").lower()
         inputs = node.get("inputs") or {}
-        meta_title = ((node.get("_meta") or {}).get("title") or "").lower()
-
-        # --- LoadImage ---
         if "loadimage" in ct or "load image" in ct:
             node["inputs"] = {**inputs, "image": image_name}
-            continue
-
-        # --- CLIPTextEncode: collect for prompt injection ---
-        if "clip" in ct and "text" in ct and "encode" in ct:
-            if "negative" in meta_title or meta_title.startswith("neg"):
-                clip_negative.append((nid, node))
-            elif "positive" in meta_title or meta_title.startswith("pos"):
-                clip_positive.append((nid, node))
-            else:
-                clip_unclassified.append((nid, node))
-            continue
-
-        # --- LTXVConditioning / LTXVideoConditioning → resolution + frames ---
-        if ("ltxv" in ct or "ltx_video" in ct or "ltxvideo" in ct) and (
-            "condition" in ct or "conditioning" in ct
-        ):
-            upd: dict[str, Any] = {**inputs}
-            # length is the LTX ComfyUI parameter name for num_frames
-            for key in ("width", "height", "frame_rate"):
-                val = {"width": width, "height": height, "frame_rate": frame_rate}[key]
-                if key in inputs:
-                    upd[key] = val
-            for frames_key in ("length", "num_frames", "frames"):
-                if frames_key in inputs:
-                    upd[frames_key] = num_frames
-                    break
-            node["inputs"] = upd
-            continue
-
-        # --- LTXVScheduler / LTXVideoScheduler → steps ---
-        if ("ltxv" in ct or "ltx_video" in ct or "ltxvideo" in ct) and (
-            "scheduler" in ct or "sampler" in ct
-        ):
-            upd = {**inputs}
-            if "steps" in inputs:
-                upd["steps"] = num_inference_steps
-            node["inputs"] = upd
-            continue
-
-        # --- KSampler / KSamplerAdvanced → steps, cfg, seed ---
-        if ct in ("ksampler", "ksampleradvanced", "ksampler_advanced"):
-            upd = {**inputs, "steps": num_inference_steps}
-            if "cfg" in inputs:
-                upd["cfg"] = guidance_scale
-            if seed is not None and "seed" in inputs:
-                upd["seed"] = seed
-            node["inputs"] = upd
-            continue
-
-        # --- BasicGuider / CFGGuider → cfg ---
-        if "guider" in ct or ct in ("basicguider", "cfgguider"):
-            if "cfg" in inputs:
-                node["inputs"] = {**inputs, "cfg": guidance_scale}
-            continue
-
-        # --- RandomNoise / noise seed nodes ---
-        if "randomnoise" in ct or ("noise" in ct and "random" in ct):
-            if seed is not None:
-                upd = {**inputs}
-                for seed_key in ("noise_seed", "seed"):
-                    if seed_key in inputs:
-                        upd[seed_key] = seed
-                        break
-                node["inputs"] = upd
-            continue
-
-        # --- FlowMatchEulerDiscreteScheduler or generic scheduler with steps ---
-        if "scheduler" in ct and "steps" in inputs:
-            node["inputs"] = {**inputs, "steps": num_inference_steps}
-            continue
-
-    # Pass 2: assign prompts to CLIPTextEncode nodes
-    # Unclassified: first → positive, rest → negative (convention in most LTX workflows)
-    unclassified_pos = clip_unclassified[:1]
-    unclassified_neg = clip_unclassified[1:]
-
-    for _nid, node in (clip_positive + unclassified_pos):
-        inputs = node.get("inputs") or {}
-        node["inputs"] = {**inputs, "text": prompt_text}
-
-    for _nid, node in (clip_negative + unclassified_neg):
-        inputs = node.get("inputs") or {}
-        node["inputs"] = {**inputs, "text": negative_prompt}
-
+        if "clip" in ct and "text" in ct:
+            node["inputs"] = {**inputs, "text": prompt_text}
     return wf
 
 
@@ -513,43 +284,25 @@ async def run_ltx23_image_to_video(
     try:
         raw = _load_workflow_json(workflow_path)
         # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
-        # File may be: (1) API format with top-level "prompt" dict, or (2) top-level node objects (class_type + inputs), or (3) UI format (nodes + links).
-        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else None
-        if graph is None or len(graph) == 0:
-            graph = {
-                k: v
-                for k, v in raw.items()
-                if isinstance(v, dict) and "class_type" in v and "inputs" in v
-            }
-        if (not isinstance(graph, dict) or len(graph) == 0) and isinstance(raw.get("nodes"), list) and len(raw.get("nodes", [])) > 0:
-            # UI 저장 형식(nodes + links): ComfyUI /object_info로 스키마를 가져와 API 형식으로 변환
-            try:
-                object_info = await _get_object_info()
-                graph = _ui_workflow_to_prompt(raw, object_info)
-            except Exception as e:
-                logger.warning("UI workflow conversion failed: %s", e)
-        if not isinstance(graph, dict) or len(graph) == 0:
+        # Full workflow JSON has "prompt", "last_node_id", "version", "nodes", "links" etc.; send only "prompt".
+        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
+        if not isinstance(graph, dict):
             raise RuntimeError(
-                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec, "
-                "or top-level node objects with 'class_type' and 'inputs', or a UI export with 'nodes' and 'links'. "
-                "In ComfyUI use Save (API Format) for prompt-only JSON, or use the normal Save and ensure the file has a 'nodes' array."
+                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec. "
+                "In ComfyUI use Save (API Format) or export the prompt-only JSON."
             )
+        # When we used full raw (no "prompt" key), ensure it is prompt-only (every value is a node dict)
+        if graph is raw:
+            for k, v in graph.items():
+                if not isinstance(v, dict) or "class_type" not in v or "inputs" not in v:
+                    raise RuntimeError(
+                        "Workflow file must be in ComfyUI API format (prompt-only). "
+                        "Save your workflow in ComfyUI as 'Save (API Format)' and use that JSON."
+                    )
 
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")
-        prompt_graph = _inject_ltx23_workflow_inputs(
-            graph,
-            image_name,
-            prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            seed=seed,
-        )
+        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt)
 
         out = await _post_prompt(prompt_graph)
         if "error" in out:
@@ -560,58 +313,19 @@ async def run_ltx23_image_to_video(
 
         max_wait = settings.comfyui_timeout_seconds
         poll_interval = 0.5
-        log_interval = 60.0
-        loop = asyncio.get_event_loop()
-        start = loop.time()
-        last_log = start
-        while (loop.time() - start) < max_wait:
-            now = loop.time()
-            elapsed = now - start
+        start = asyncio.get_event_loop().time()
+        while (asyncio.get_event_loop().time() - start) < max_wait:
             history = await _get_history(prompt_id)
-            # ComfyUI 응답: 완료 시 { prompt_id: { prompt, outputs, status, meta } }, 미완료 시 {}
-            if isinstance(history, dict) and prompt_id in history:
+            if prompt_id in history:
                 info = history[prompt_id]
-                if not isinstance(info, dict):
-                    info = None
-            else:
-                info = None
-            if info is not None:
-                logger.info("ComfyUI history received for %s (outputs keys: %s)", prompt_id[:8], list((info.get("outputs") or {}).keys()))
-                # ComfyUI 실행 실패 시 status.status_str == "error" 또는 completed == False
-                status = info.get("status") or {}
-                if status.get("status_str") == "error" or status.get("completed") is False:
-                    messages = status.get("messages") or []
-                    msg = "; ".join(str(m) for m in messages) if messages else "ComfyUI workflow failed (no message)."
-                    raise RuntimeError(f"ComfyUI workflow error: {msg}")
-                first_video = _extract_first_video_from_history(info)
-                if first_video:
-                    filename, subfolder, type_ = first_video
-                    return await _get_video_bytes(filename, subfolder, type_)
-                # 완료됐는데 비디오 없음 → 출력 노드 형식이 다르거나 워크플로 문제
-                raise RuntimeError(
-                    "ComfyUI workflow finished but no video output found. "
-                    "Ensure the workflow has a SaveVideo (or similar) node and its output is in history outputs."
-                )
-            if (now - last_log) >= log_interval:
-                try:
-                    queue_data = await _get_queue()
-                    in_queue = _is_prompt_in_queue(queue_data, prompt_id)
-                    logger.info(
-                        "ComfyUI workflow %s (%.0fs / %.0fs) — %s",
-                        prompt_id[:8],
-                        elapsed,
-                        max_wait,
-                        "in queue (running/pending)" if in_queue else "not in queue (waiting for history or may have failed)",
-                    )
-                except Exception as e:
-                    logger.warning("ComfyUI queue check failed: %s", e)
-                last_log = now
+                if isinstance(info, dict):
+                    first_video = _extract_first_video_from_history(info)
+                    if first_video:
+                        filename, subfolder, type_ = first_video
+                        return await _get_video_bytes(filename, subfolder, type_)
             await asyncio.sleep(poll_interval)
 
-        raise TimeoutError(
-            f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s. "
-            f"Increase COMFYUI_TIMEOUT_SECONDS (current: {max_wait}) if your workflow needs more time."
-        )
+        raise TimeoutError(f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s")
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
         raise RuntimeError(
             f"ComfyUI server unreachable at {base_url}. "

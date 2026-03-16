@@ -58,23 +58,14 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
 # ---------- LTX-2 품질 파이프라인 (2.3 스타일 텍스트·시네마틱 품질) ----------
-# 프롬프트 앞에 붙여 시네마틱/디테일 유도 (LTX-2 diffusers 및 ComfyUI 경로 공통 적용)
-# POV 강아지 영상 개념: 피사체 동일성 보존 + 카메라 고정 + 자연스러운 반려동물 모션
+# 프롬프트 앞에 붙여 시네마틱/디테일 유도 (LTX-2 diffusers 경로)
 VIDEO_PROMPT_QUALITY_PREFIX = (
-    "High quality, cinematic, realistic motion, natural lighting, sharp focus, "
-    "subject identity preserved, consistent appearance throughout, stable background, "
-    "smooth natural movement. "
+    "High quality, cinematic, detailed motion, natural lighting, sharp focus. "
 )
 # 텍스트/자막 관련 네거티브 확장 (품질 파이프라인에서 기본 네거티브에 추가)
 NEGATIVE_VIDEO_TEXT = (
     "floating text, wrong text, distorted letters, watermark, subtitle artifacts, "
     "burned-in text, logo, caption errors, blurry text, text overlay, floating captions."
-)
-# POV 강아지 영상 전용 네거티브: 배경 변경, 다른 강아지, 신체 왜곡 방지
-NEGATIVE_POV_DOG = (
-    "changing background, different dog, breed change, morphing appearance, identity change, "
-    "extra dogs, multiple animals, human face visible, full human body, person appearing, "
-    "distorted anatomy, deformed limbs, extra limbs, melting body, unnatural anatomy."
 )
 
 # ---------- 반려동물 영상 (모션 안정성: 스피드맨/일그러짐 방지) ----------
@@ -553,6 +544,13 @@ async def run_image_to_video(
     condition_strength: float | None = None,
 ) -> tuple[bytes, float]:
     settings = get_settings()
+    # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
+    if _is_ltx23():
+        if num_inference_steps == DEFAULT_NUM_STEPS:
+            num_inference_steps = getattr(settings, "ltx23_num_steps", LTX23_DEFAULT_STEPS)
+        if guidance_scale == DEFAULT_GUIDANCE_SCALE:
+            guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
+
     # ComfyUI 사용 조건: LTX2_USE_COMFYUI=true 이거나, ComfyUI 활성 + 워크플로 파일 존재 시 (품질용 ComfyUI JSON 있으면 우선 사용)
     use_comfyui = getattr(settings, "ltx2_use_comfyui", False)
     if not use_comfyui and getattr(settings, "comfyui_enabled", False):
@@ -570,28 +568,13 @@ async def run_image_to_video(
             "See backend/pipelines/README_LTX23.md"
         )
 
-    # LTX-2.3 distilled 권장값: 8 steps, CFG=1.0 (ComfyUI / diffusers 공통)
-    if _is_ltx23():
-        if num_inference_steps == DEFAULT_NUM_STEPS:
-            num_inference_steps = getattr(settings, "ltx23_num_steps", LTX23_DEFAULT_STEPS)
-        if guidance_scale == DEFAULT_GUIDANCE_SCALE:
-            guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
-
-    # 품질 프리픽스 + POV 강아지 네거티브 (ComfyUI 및 diffusers 경로 공통 적용)
-    prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
-    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
-    if not neg or neg == DEFAULT_NEGATIVE:
-        neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT} {NEGATIVE_POV_DOG}".strip()
-    elif NEGATIVE_POV_DOG not in neg:
-        neg = f"{neg} {NEGATIVE_POV_DOG}".strip()
-
     if use_comfyui:
         from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
         start = time.perf_counter()
         out_bytes = await _run_comfyui(
             image_bytes=image_bytes,
-            prompt=prompt_quality,
-            negative_prompt=neg,
+            prompt=prompt,
+            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
             width=width,
             height=height,
             num_frames=num_frames,
@@ -602,7 +585,11 @@ async def run_image_to_video(
         )
         return out_bytes, time.perf_counter() - start
 
-    # LTX-2 diffusers 경로
+    # LTX-2 diffusers: 2.3 스타일 품질 파이프라인 적용 (텍스트·시네마틱)
+    prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
+    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
+    if neg == DEFAULT_NEGATIVE or not neg:
+        neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
 
     strength = condition_strength if condition_strength is not None else 1.0
     await get_video_pipeline()
