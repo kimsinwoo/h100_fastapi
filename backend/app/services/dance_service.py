@@ -129,6 +129,74 @@ def get_dance_prompt(motion_id: str, character: str) -> str:
     return PROMPT_PET_GENERIC
 
 
+async def run_dance_generate_custom(
+    image_bytes: bytes,
+    reference_video_bytes: bytes,
+    character: str = "dog",
+) -> tuple[bytes, float]:
+    """
+    Run dance video generation from a user-uploaded reference video.
+    Saves the reference video temporarily, extracts poses, then generates video.
+    Returns (video_bytes, processing_time_seconds).
+    """
+    import tempfile
+    import os
+    settings = get_settings()
+    motions_dir = settings.motions_dir
+    motions_dir.mkdir(parents=True, exist_ok=True)
+
+    # 임시 motion ID로 레퍼런스 영상 저장
+    import uuid
+    temp_motion_id = f"custom_{uuid.uuid4().hex[:8]}"
+    temp_video_path = motions_dir / f"{temp_motion_id}.mp4"
+
+    try:
+        temp_video_path.write_bytes(reference_video_bytes)
+        logger.info("Custom reference video saved: %s", temp_video_path)
+
+        # MOTION_VIDEOS에 임시 등록
+        MOTION_VIDEOS[temp_motion_id] = f"{temp_motion_id}.mp4"
+
+        # 포즈 추출 (캐시)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, get_or_extract_pose, temp_motion_id)
+    finally:
+        # MOTION_VIDEOS에서 임시 항목 제거 (생성 후 정리)
+        MOTION_VIDEOS.pop(temp_motion_id, None)
+        try:
+            if temp_video_path.exists():
+                temp_video_path.unlink()
+        except Exception:
+            pass
+
+    from app.services.video_service import (
+        DANCE_CONDITION_STRENGTH,
+        DANCE_SHORT_FRAME_RATE,
+        DANCE_SHORT_GUIDANCE_SCALE,
+        DANCE_SHORT_HEIGHT,
+        DANCE_SHORT_NUM_FRAMES,
+        DANCE_SHORT_NUM_STEPS,
+        DANCE_SHORT_WIDTH,
+        NEGATIVE_PET_DANCE,
+    )
+
+    prompt = get_dance_prompt("rat_dance", character)
+    out_bytes, elapsed = await run_image_to_video(
+        image_bytes=image_bytes,
+        prompt=prompt,
+        negative_prompt=NEGATIVE_PET_DANCE,
+        width=DANCE_SHORT_WIDTH,
+        height=DANCE_SHORT_HEIGHT,
+        num_frames=DANCE_SHORT_NUM_FRAMES,
+        frame_rate=DANCE_SHORT_FRAME_RATE,
+        num_inference_steps=DANCE_SHORT_NUM_STEPS,
+        guidance_scale=DANCE_SHORT_GUIDANCE_SCALE,
+        seed=None,
+        condition_strength=DANCE_CONDITION_STRENGTH,
+    )
+    return out_bytes, elapsed
+
+
 async def run_dance_generate(
     image_bytes: bytes,
     motion_id: str,

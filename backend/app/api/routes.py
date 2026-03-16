@@ -86,6 +86,7 @@ from app.services.comfyui_service import (
 from app.services.dance_service import (
     get_motion_video_path,
     run_dance_generate,
+    run_dance_generate_custom,
 )
 
 logger = logging.getLogger(__name__)
@@ -1112,6 +1113,67 @@ async def generate_dance(
         video_url=video_url,
         processing_time=round(processing_time, 2),
         motion_id=mid,
+        character=char,
+    )
+
+
+@router.post("/dance/generate-custom", response_model=DanceGenerateResponse)
+async def generate_dance_custom(
+    request: Request,
+    character: Annotated[str, Form(description="dog or cat")] = "dog",
+    image: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
+    reference_video: Annotated[UploadFile | None, File(description="Reference video to mimic movements")] = None,
+) -> DanceGenerateResponse:
+    """
+    Generate video of character mimicking movements from a user-uploaded reference video.
+    Requires: image (character), reference_video (motion reference), character.
+    """
+    _check_rate_limit(request)
+    if not image or not image.filename:
+        raise HTTPException(status_code=422, detail="Missing character image. Send as 'image'.")
+    if not reference_video or not reference_video.filename:
+        raise HTTPException(status_code=422, detail="Missing reference_video file.")
+    char = (character or "dog").strip().lower()
+    if char not in ("dog", "cat"):
+        char = "dog"
+    settings = get_settings()
+
+    image_content = await image.read()
+    if len(image_content) == 0:
+        raise HTTPException(status_code=400, detail="Empty image file")
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="image must be an image file (image/png, image/jpeg, ...)")
+    if len(image_content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"Image too large. Max {settings.upload_max_size_mb}MB")
+
+    video_content = await reference_video.read()
+    if len(video_content) == 0:
+        raise HTTPException(status_code=400, detail="Empty reference_video file")
+    VIDEO_MAX_BYTES = 200 * 1024 * 1024  # 200MB
+    if len(video_content) > VIDEO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="reference_video too large. Max 200MB")
+
+    try:
+        out_bytes, processing_time = await run_dance_generate_custom(
+            image_bytes=image_content,
+            reference_video_bytes=video_content,
+            character=char,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.exception("Custom dance video generation failed: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+    try:
+        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+    except Exception as e:
+        logger.exception("Failed to save generated custom dance video: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save generated video")
+    video_url = get_generated_url(video_filename)
+    return DanceGenerateResponse(
+        video_url=video_url,
+        processing_time=round(processing_time, 2),
+        motion_id="custom",
         character=char,
     )
 

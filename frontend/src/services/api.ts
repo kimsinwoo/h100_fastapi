@@ -423,6 +423,29 @@ export async function generateDance(
   return data;
 }
 
+export async function generateDanceCustom(
+  characterImage: File,
+  referenceVideo: File,
+  character: "dog" | "cat"
+): Promise<DanceGenerateResponse> {
+  const form = new FormData();
+  form.append("image", characterImage);
+  form.append("reference_video", referenceVideo);
+  form.append("character", character);
+  const uploadDanceApi = axios.create({
+    baseURL: api.defaults.baseURL ?? "/",
+    timeout: 0,
+  });
+  uploadDanceApi.interceptors.request.use((config) => {
+    if (config.data instanceof FormData && config.headers) {
+      delete (config.headers as Record<string, unknown>)["Content-Type"];
+    }
+    return config;
+  });
+  const { data } = await uploadDanceApi.post<DanceGenerateResponse>("/api/dance/generate-custom", form);
+  return data;
+}
+
 // ---------- AC Villager Reconstruction (Stage 1 + Stage 2) ----------
 
 /** Stage 1: biological analysis. Optional image + form overrides. Returns structured data only. */

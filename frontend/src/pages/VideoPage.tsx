@@ -9,6 +9,7 @@ import {
   getApiResourceUrl,
   getDanceMotions,
   generateDance,
+  generateDanceCustom,
 } from "../services/api";
 import type { GenerateVideoResponse, DanceMotionItem } from "../services/api";
 import {
@@ -46,6 +47,8 @@ export default function VideoPage() {
   const [selectedMotionId, setSelectedMotionId] = useState<string>("rat_dance");
   const [danceCharacter, setDanceCharacter] = useState<"dog" | "cat">("dog");
   const [showTips, setShowTips] = useState(false);
+  const [customRefVideo, setCustomRefVideo] = useState<File | null>(null);
+  const [customCharacter, setCustomCharacter] = useState<"dog" | "cat">("dog");
 
   const currentPresets = PRESET_GROUPS.find((g) => g.key === presetGroup)?.list ?? VIDEO_PRESETS;
 
@@ -146,9 +149,35 @@ export default function VideoPage() {
       .catch(() => setState({ phase: "error", message: "다운로드 실패" }));
   }, [state]);
 
+  const handleCustomDanceGenerate = useCallback(async () => {
+    if (!file) {
+      setState({ phase: "error", message: "캐릭터 이미지를 업로드해주세요." });
+      return;
+    }
+    if (!customRefVideo) {
+      setState({ phase: "error", message: "레퍼런스 동영상을 업로드해주세요." });
+      return;
+    }
+    setState({ phase: "loading" });
+    try {
+      const data = await generateDanceCustom(file, customRefVideo, customCharacter);
+      setState({
+        phase: "success",
+        data: {
+          video_url: data.video_url,
+          processing_time: data.processing_time,
+          video_base64: null,
+        },
+      });
+    } catch (err) {
+      setState({ phase: "error", message: getErrorMessage(err) });
+    }
+  }, [file, customRefVideo, customCharacter]);
+
   const isProcessing = state.phase === "loading";
   const canGenerate = file !== null && prompt.trim().length > 0 && !isProcessing;
   const canDanceGenerate = file !== null && selectedMotionId.length > 0 && !isProcessing;
+  const canCustomDanceGenerate = file !== null && customRefVideo !== null && !isProcessing;
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
@@ -258,6 +287,53 @@ export default function VideoPage() {
               className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               동영상 생성
+            </button>
+          </section>
+
+          <hr className="border-gray-200" />
+
+          <section>
+            <h2 className="mb-1 text-sm font-semibold text-gray-700">커스텀 레퍼런스 영상으로 동작 따라하기</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              원하는 동작이 담긴 영상을 업로드하면 캐릭터 이미지가 해당 동작을 따라합니다.
+            </p>
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-gray-600">레퍼런스 동영상 (mp4, mov 등)</label>
+              <input
+                type="file"
+                accept="video/*"
+                disabled={isProcessing}
+                onChange={(e) => setCustomRefVideo(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-indigo-50 file:px-3 file:py-1 file:text-xs file:font-medium file:text-indigo-700 disabled:opacity-60"
+              />
+              {customRefVideo && (
+                <p className="mt-1 text-xs text-gray-500">{customRefVideo.name} ({(customRefVideo.size / 1024 / 1024).toFixed(1)}MB)</p>
+              )}
+            </div>
+            <div className="mb-3 flex gap-2">
+              {(["dog", "cat"] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCustomCharacter(c)}
+                  disabled={isProcessing}
+                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${
+                    customCharacter === c
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-indigo-400"
+                  }`}
+                >
+                  {c === "dog" ? "강아지" : "고양이"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleCustomDanceGenerate}
+              disabled={!canCustomDanceGenerate}
+              className="w-full rounded-lg bg-violet-600 px-4 py-3 font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              레퍼런스 영상으로 동작 생성
             </button>
           </section>
 
