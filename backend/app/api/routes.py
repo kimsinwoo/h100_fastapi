@@ -183,9 +183,9 @@ async def generate(
         raise HTTPException(status_code=422, detail="Missing required file. Send as multipart field 'file' or 'image'.")
     strength_f: float | None = _parse_optional_float(strength)
     seed_i: int | None = _parse_optional_int(seed)
-    steps_i = _parse_optional_int(steps) if steps is not None else 70
+    steps_i = _parse_optional_int(steps) if steps is not None else 9
     if steps_i is None or steps_i < 1 or steps_i > 70:
-        steps_i = 70
+        steps_i = 9
     settings = get_settings()
     style_lower = style.strip().lower()
     allowed_list = get_allowed_style_keys()
@@ -389,9 +389,9 @@ async def generate_image_async(
             analysis_dict = _json.loads(analysis.strip())
         except _json.JSONDecodeError as e:
             raise HTTPException(status_code=400, detail=f"Invalid analysis JSON: {e}") from e
-    steps_i = _parse_optional_int(steps) if steps is not None else 70
+    steps_i = _parse_optional_int(steps) if steps is not None else 9
     if steps_i is None or steps_i < 1 or steps_i > 70:
-        steps_i = 70
+        steps_i = 9
     payload = {
         "content": content,
         "style_lower": style_lower,
