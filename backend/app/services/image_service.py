@@ -482,6 +482,12 @@ def _run_inference_sync(
     use_autocast = _device.type == "cuda" and getattr(torch, "bfloat16", None) and torch.cuda.is_bf16_supported()
     ctx_autocast = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
 
+    import torch as _torch
+    _cuda_ok = _torch.cuda.is_available()
+    _device_log = f"cuda:{_torch.cuda.current_device()} ({_torch.cuda.get_device_name()})" if _cuda_ok else "CPU (!!! GPU NOT DETECTED !!!)"
+    logger.info("_run_inference_sync: device=%s | dtype=%s", _device_log, getattr(_pipeline, "dtype", "unknown"))
+    if not _cuda_ok:
+        logger.warning("CUDA not available — running on CPU. Check torch installation: pip install torch --index-url https://download.pytorch.org/whl/cu121")
     logger.info("_run_inference_sync: calling pipeline (GPU inference, first run may compile kernels)")
     try:
         with torch.inference_mode(), _optimized_inference_context(), ctx_autocast:
@@ -828,7 +834,8 @@ async def run_image_to_image(
         rules = get_generation_rules(style_lower)
         max_side = size or rules["max_side"]
         num_steps = max(1, min(70, num_steps or rules["steps"]))
-        guidance_scale = rules["guidance_scale"]
+        # Z-Image-Turbo는 consistency distilled 모델 → guidance_scale=0.0 최적 (7.0+ 사용 시 품질 저하)
+        guidance_scale = DEFAULT_GUIDANCE_SCALE
         if side_profile_lock:
             guidance_scale = max(8.0, guidance_scale)
 
