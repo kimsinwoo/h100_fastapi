@@ -48,6 +48,7 @@ export default function GeneratePage() {
   const [file, setFile] = useState<File | null>(null);
   const [styles, setStyles] = useState<StylesResponse | null>(null);
   const [style, setStyle] = useState<string>("sailor_moon");
+  const [species, setSpecies] = useState<"dog" | "cat">("dog");
   const [customPrompt, setCustomPrompt] = useState<string>("");
   const [strength, setStrength] = useState<number>(0.5);
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
@@ -109,13 +110,15 @@ export default function GeneratePage() {
     if (!file) return;
     setState({ phase: "loading" });
     try {
-      const data = await generateImage(file, style, customPrompt || null, strength, null);
+      const data = await generateImage(file, style, customPrompt || null, strength, null, undefined, {
+        species,
+      });
       setState({ phase: "success", data });
     } catch (err) {
       const message = getErrorMessage(err);
       setState({ phase: "error", message });
     }
-  }, [file, style, customPrompt, strength]);
+  }, [file, style, species, customPrompt, strength]);
 
   const handleDownload = useCallback(() => {
     if (state.phase !== "success") return;
@@ -243,7 +246,7 @@ export default function GeneratePage() {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       {(isProcessing || acLoading) && (
-        <LoadingOverlay message={acLoading ? "게임 캐릭터 생성 중..." : "Generating image..."} />
+        <LoadingOverlay message={acLoading ? "게임 캐릭터 생성 중..." : "이미지 생성 중... (1~2분 소요될 수 있습니다)"} />
       )}
 
       <div className="mx-auto max-w-4xl px-4">
@@ -308,13 +311,43 @@ export default function GeneratePage() {
         {tab === "style" && (
         <div className="space-y-6 rounded-xl bg-white p-6 shadow">
           <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">Upload image</h2>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">1. 이미지 업로드</h2>
             <ImageUploader onFileSelect={setFile} selectedFile={file} disabled={isProcessing} />
+          </section>
+          <section>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">2. 반려동물 종류</h2>
+            <p className="mb-2 text-xs text-gray-500">선택한 종에 맞는 프롬프트가 적용됩니다.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSpecies("dog")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium disabled:opacity-60 ${
+                  species === "dog"
+                    ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
+                }`}
+              >
+                강아지
+              </button>
+              <button
+                type="button"
+                onClick={() => setSpecies("cat")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium disabled:opacity-60 ${
+                  species === "cat"
+                    ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
+                }`}
+              >
+                고양이
+              </button>
+            </div>
           </section>
           <section>
             <div className="mb-2 flex items-center justify-between">
               <label htmlFor="custom-prompt" className="text-sm font-semibold text-gray-700">
-                편집 지시 (직접 입력)
+                3. 편집 지시 (직접 입력)
               </label>
               {llmAvailable && (
                 <button
@@ -338,7 +371,7 @@ export default function GeneratePage() {
             />
           </section>
           <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">Style (2D 캐릭터 재해석)</h2>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">4. Style (2D 캐릭터 재해석)</h2>
             <StyleSelector styles={styles} selected={style} onSelect={setStyle} disabled={isProcessing} />
           </section>
           <section>

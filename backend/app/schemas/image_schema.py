@@ -27,6 +27,21 @@ class VideoJobResponse(BaseModel):
     job_id: str = Field(..., description="폴링용 job_id. GET /api/video/status/{job_id} 로 결과 조회")
 
 
+class ImageJobResponse(BaseModel):
+    """이미지 생성 비동기: POST 즉시 반환 (60초 이상 걸릴 때 타임아웃 회피)."""
+    job_id: str = Field(..., description="폴링용 job_id. GET /api/image/status/{job_id} 로 결과 조회")
+
+
+class ImageJobStatusResponse(BaseModel):
+    """GET /api/image/status/{job_id} 응답."""
+    status: str = Field(..., description="processing | completed | failed")
+    original_url: str | None = None
+    generated_url: str | None = None
+    processing_time: float | None = None
+    generated_image_base64: str | None = None
+    error: str | None = None
+
+
 class VideoJobStatusResponse(BaseModel):
     """GET /api/video/status/{job_id} 응답."""
     status: str = Field(..., description="processing | completed | failed")

@@ -25,6 +25,8 @@ from app.schemas.image_schema import (
     ACReconstructRequest,
     GenerateResponse,
     GenerateVideoResponse,
+    ImageJobResponse,
+    ImageJobStatusResponse,
     VideoJobResponse,
     VideoJobStatusResponse,
     ImageAnalysisResponse,
@@ -90,6 +92,9 @@ logger = logging.getLogger(__name__)
 
 # 동영상 생성 비동기 잡 (1분 타임아웃 회피: POST는 즉시 반환, 클라이언트는 폴링)
 _video_jobs: dict[str, dict] = {}
+
+# 이미지 생성 비동기 잡 (62초+ 걸릴 때 타임아웃 회피: POST 즉시 반환, 클라이언트 폴링)
+_image_jobs: dict[str, dict] = {}
 
 # Dance Style: motion_id -> label and reference path (for UI)
 DANCE_MOTIONS: list[dict[str, str]] = [
@@ -264,6 +269,174 @@ async def generate(
         generated_url=generated_url,
         processing_time=round(processing_time, 2),
         generated_image_base64=generated_b64,
+    )
+
+
+async def _run_image_job(job_id: str, payload: dict) -> None:
+    """백그라운드에서 이미지 생성 후 잡 상태 갱신. 60초+ 타임아웃 회피용."""
+    try:
+        content = payload["content"]
+        style_lower = payload["style_lower"]
+        original_url = payload["original_url"]
+        use_pose_lock_bool = payload.get("use_pose_lock_bool", False)
+        analysis_dict = payload.get("analysis_dict")
+        validate_and_retry_bool = payload.get("validate_and_retry_bool", False)
+        if use_pose_lock_bool and analysis_dict is not None:
+            out_bytes, processing_time = await run_universal_animal_generate(
+                image_bytes=content,
+                analysis=analysis_dict,
+                style_key=style_lower,
+                species_key=payload.get("species_key"),
+                seed=payload.get("seed_i"),
+                validate_and_retry=validate_and_retry_bool,
+                max_retries=1,
+            )
+        else:
+            out_bytes, processing_time = await run_image_to_image(
+                image_bytes=content,
+                style_key=style_lower,
+                species_key=payload.get("species_key"),
+                custom_prompt=payload.get("custom_prompt"),
+                raw_prompt=payload.get("raw_prompt_bool", False),
+                num_steps=payload.get("steps_i", 70),
+                strength=payload.get("strength_f"),
+                seed=payload.get("seed_i"),
+                ac_background=payload.get("ac_background"),
+                ac_preserve_original=payload.get("ac_preserve_original", False),
+                ac_eye_color=payload.get("ac_eye_color"),
+                ac_pose=payload.get("ac_pose"),
+                ac_sign_text=payload.get("ac_sign_text"),
+                side_profile_lock=payload.get("side_profile_lock", False),
+            )
+        generated_filename = await save_upload_async(out_bytes, suffix=".png")
+        generated_url = get_generated_url(generated_filename)
+        generated_b64 = base64.b64encode(out_bytes).decode("ascii") if out_bytes else None
+        _image_jobs[job_id] = {
+            "status": "completed",
+            "original_url": original_url,
+            "generated_url": generated_url,
+            "processing_time": round(processing_time, 2),
+            "generated_image_base64": generated_b64,
+            "error": None,
+        }
+    except Exception as e:
+        logger.exception("Image job %s failed: %s", job_id, e)
+        _image_jobs[job_id] = {
+            "status": "failed",
+            "original_url": payload.get("original_url"),
+            "generated_url": None,
+            "processing_time": None,
+            "generated_image_base64": None,
+            "error": str(e),
+        }
+
+
+@router.post("/image/generate", response_model=ImageJobResponse)
+async def generate_image_async(
+    request: Request,
+    file: Annotated[UploadFile | None, File(description="Image file")] = None,
+    image: Annotated[UploadFile | None, File(description="Image file (alias)")] = None,
+    style: Annotated[str, Form(description="Style preset key")] = "sailor_moon",
+    species: Annotated[str | None, Form(description="Pet species")] = None,
+    ac_background: Annotated[str | None, Form()] = None,
+    ac_preserve_original: Annotated[str | None, Form()] = None,
+    ac_eye_color: Annotated[str | None, Form()] = None,
+    ac_pose: Annotated[str | None, Form()] = None,
+    ac_sign_text: Annotated[str | None, Form()] = None,
+    custom_prompt: Annotated[str | None, Form()] = None,
+    raw_prompt: Annotated[str | None, Form()] = None,
+    side_profile_lock: Annotated[str | None, Form()] = None,
+    use_pose_lock: Annotated[str | None, Form()] = None,
+    analysis: Annotated[str | None, Form()] = None,
+    validate_and_retry: Annotated[str | None, Form()] = None,
+    steps: Annotated[str | None, Form()] = None,
+    strength: Annotated[str | None, Form()] = None,
+    seed: Annotated[str | None, Form()] = None,
+) -> ImageJobResponse:
+    """
+    이미지 생성 비동기. 즉시 job_id 반환. GET /api/image/status/{job_id} 로 폴링 (62초+ 걸릴 때 타임아웃 회피).
+    """
+    _check_rate_limit(request)
+    upload = file if (file and file.filename) else image
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing image file. Send as 'file' or 'image'.")
+    content = await upload.read()
+    settings = get_settings()
+    if len(content) > settings.upload_max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    style_lower = style.strip().lower()
+    allowed_list = get_allowed_style_keys()
+    allowed = set(allowed_list) | {k.replace(" ", "_") for k in allowed_list}
+    if style_lower not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid style. Allowed: {', '.join(sorted(allowed))}")
+    try:
+        original_filename = await save_upload_async(content, suffix=".png")
+    except Exception as e:
+        logger.exception("Failed to save upload: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save uploaded image")
+    original_url = get_generated_url(original_filename)
+    raw_prompt_bool = (raw_prompt or "").strip().lower() in ("true", "1", "yes")
+    use_pose_lock_bool = (use_pose_lock or "").strip().lower() in ("true", "1", "yes")
+    validate_and_retry_bool = (validate_and_retry or "").strip().lower() in ("true", "1", "yes")
+    analysis_dict = None
+    if use_pose_lock_bool and analysis and analysis.strip():
+        try:
+            analysis_dict = _json.loads(analysis.strip())
+        except _json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid analysis JSON: {e}") from e
+    steps_i = _parse_optional_int(steps) if steps is not None else 70
+    if steps_i is None or steps_i < 1 or steps_i > 70:
+        steps_i = 70
+    payload = {
+        "content": content,
+        "style_lower": style_lower,
+        "original_url": original_url,
+        "species_key": species.strip().lower() if species and species.strip() else None,
+        "custom_prompt": custom_prompt,
+        "raw_prompt_bool": raw_prompt_bool,
+        "steps_i": steps_i,
+        "strength_f": _parse_optional_float(strength),
+        "seed_i": _parse_optional_int(seed),
+        "ac_background": ac_background.strip() if ac_background and ac_background.strip() else None,
+        "ac_preserve_original": (ac_preserve_original or "").strip().lower() in ("true", "1", "yes"),
+        "ac_eye_color": ac_eye_color.strip() if ac_eye_color and ac_eye_color.strip() else None,
+        "ac_pose": ac_pose.strip() if ac_pose and ac_pose.strip() else None,
+        "ac_sign_text": ac_sign_text.strip() if ac_sign_text and ac_sign_text.strip() else None,
+        "side_profile_lock": (side_profile_lock or "").strip().lower() in ("true", "1", "yes"),
+        "use_pose_lock_bool": use_pose_lock_bool,
+        "analysis_dict": analysis_dict,
+        "validate_and_retry_bool": validate_and_retry_bool,
+    }
+    job_id = str(uuid.uuid4())
+    _image_jobs[job_id] = {
+        "status": "processing",
+        "original_url": None,
+        "generated_url": None,
+        "processing_time": None,
+        "generated_image_base64": None,
+        "error": None,
+    }
+    asyncio.create_task(_run_image_job(job_id, payload))
+    return ImageJobResponse(job_id=job_id)
+
+
+@router.get("/image/status/{job_id}", response_model=ImageJobStatusResponse)
+async def get_image_job_status(job_id: str) -> ImageJobStatusResponse:
+    """이미지 생성 잡 상태. processing → 2~3초마다 폴링, completed 시 URL·base64 반환."""
+    if job_id not in _image_jobs:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    job = _image_jobs[job_id]
+    return ImageJobStatusResponse(
+        status=job["status"],
+        original_url=job.get("original_url"),
+        generated_url=job.get("generated_url"),
+        processing_time=job.get("processing_time"),
+        generated_image_base64=job.get("generated_image_base64"),
+        error=job.get("error"),
     )
 
 

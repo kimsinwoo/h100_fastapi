@@ -351,19 +351,131 @@ async def health_check() -> bool:
         return False
 
 
-def _inject_ltx23_workflow_inputs(workflow: dict[str, Any], image_name: str, prompt_text: str) -> dict[str, Any]:
-    """워크플로에 업로드된 이미지 파일명과 프롬프트를 주입. ComfyUI 노드: LoadImage, CLIPTextEncode 등."""
+def _inject_ltx23_workflow_inputs(
+    workflow: dict[str, Any],
+    image_name: str,
+    prompt_text: str,
+    negative_prompt: str = "",
+    width: int = 768,
+    height: int = 512,
+    num_frames: int = 121,
+    frame_rate: float = 24.0,
+    num_inference_steps: int = 8,
+    guidance_scale: float = 1.0,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    """워크플로에 모든 생성 파라미터를 주입.
+    - LoadImage → image 파일명
+    - CLIPTextEncode (positive) → prompt_text
+    - CLIPTextEncode (negative, _meta.title에 negative/neg 포함) → negative_prompt
+    - LTXVConditioning / LTXVideoCondition → width, height, length(num_frames), frame_rate
+    - LTXVScheduler / LTXVideoScheduler → steps
+    - KSampler / KSamplerAdvanced → steps, cfg, seed
+    - BasicGuider / CFGGuider → cfg
+    - RandomNoise / noise seed nodes → noise_seed / seed
+    """
     import copy
     wf = copy.deepcopy(workflow)
+
+    # Pass 1: collect CLIPTextEncode nodes; handle all other node types
+    clip_positive: list[tuple[str, dict[str, Any]]] = []
+    clip_negative: list[tuple[str, dict[str, Any]]] = []
+    clip_unclassified: list[tuple[str, dict[str, Any]]] = []
+
     for nid, node in wf.items():
         if not isinstance(node, dict):
             continue
         ct = (node.get("class_type") or "").lower()
         inputs = node.get("inputs") or {}
+        meta_title = ((node.get("_meta") or {}).get("title") or "").lower()
+
+        # --- LoadImage ---
         if "loadimage" in ct or "load image" in ct:
             node["inputs"] = {**inputs, "image": image_name}
-        if "clip" in ct and "text" in ct:
-            node["inputs"] = {**inputs, "text": prompt_text}
+            continue
+
+        # --- CLIPTextEncode: collect for prompt injection ---
+        if "clip" in ct and "text" in ct and "encode" in ct:
+            if "negative" in meta_title or meta_title.startswith("neg"):
+                clip_negative.append((nid, node))
+            elif "positive" in meta_title or meta_title.startswith("pos"):
+                clip_positive.append((nid, node))
+            else:
+                clip_unclassified.append((nid, node))
+            continue
+
+        # --- LTXVConditioning / LTXVideoConditioning → resolution + frames ---
+        if ("ltxv" in ct or "ltx_video" in ct or "ltxvideo" in ct) and (
+            "condition" in ct or "conditioning" in ct
+        ):
+            upd: dict[str, Any] = {**inputs}
+            # length is the LTX ComfyUI parameter name for num_frames
+            for key in ("width", "height", "frame_rate"):
+                val = {"width": width, "height": height, "frame_rate": frame_rate}[key]
+                if key in inputs:
+                    upd[key] = val
+            for frames_key in ("length", "num_frames", "frames"):
+                if frames_key in inputs:
+                    upd[frames_key] = num_frames
+                    break
+            node["inputs"] = upd
+            continue
+
+        # --- LTXVScheduler / LTXVideoScheduler → steps ---
+        if ("ltxv" in ct or "ltx_video" in ct or "ltxvideo" in ct) and (
+            "scheduler" in ct or "sampler" in ct
+        ):
+            upd = {**inputs}
+            if "steps" in inputs:
+                upd["steps"] = num_inference_steps
+            node["inputs"] = upd
+            continue
+
+        # --- KSampler / KSamplerAdvanced → steps, cfg, seed ---
+        if ct in ("ksampler", "ksampleradvanced", "ksampler_advanced"):
+            upd = {**inputs, "steps": num_inference_steps}
+            if "cfg" in inputs:
+                upd["cfg"] = guidance_scale
+            if seed is not None and "seed" in inputs:
+                upd["seed"] = seed
+            node["inputs"] = upd
+            continue
+
+        # --- BasicGuider / CFGGuider → cfg ---
+        if "guider" in ct or ct in ("basicguider", "cfgguider"):
+            if "cfg" in inputs:
+                node["inputs"] = {**inputs, "cfg": guidance_scale}
+            continue
+
+        # --- RandomNoise / noise seed nodes ---
+        if "randomnoise" in ct or ("noise" in ct and "random" in ct):
+            if seed is not None:
+                upd = {**inputs}
+                for seed_key in ("noise_seed", "seed"):
+                    if seed_key in inputs:
+                        upd[seed_key] = seed
+                        break
+                node["inputs"] = upd
+            continue
+
+        # --- FlowMatchEulerDiscreteScheduler or generic scheduler with steps ---
+        if "scheduler" in ct and "steps" in inputs:
+            node["inputs"] = {**inputs, "steps": num_inference_steps}
+            continue
+
+    # Pass 2: assign prompts to CLIPTextEncode nodes
+    # Unclassified: first → positive, rest → negative (convention in most LTX workflows)
+    unclassified_pos = clip_unclassified[:1]
+    unclassified_neg = clip_unclassified[1:]
+
+    for _nid, node in (clip_positive + unclassified_pos):
+        inputs = node.get("inputs") or {}
+        node["inputs"] = {**inputs, "text": prompt_text}
+
+    for _nid, node in (clip_negative + unclassified_neg):
+        inputs = node.get("inputs") or {}
+        node["inputs"] = {**inputs, "text": negative_prompt}
+
     return wf
 
 
@@ -425,7 +537,19 @@ async def run_ltx23_image_to_video(
 
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")
-        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt)
+        prompt_graph = _inject_ltx23_workflow_inputs(
+            graph,
+            image_name,
+            prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
+        )
 
         out = await _post_prompt(prompt_graph)
         if "error" in out:

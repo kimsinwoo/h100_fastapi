@@ -66,7 +66,10 @@ uploadApi.interceptors.request.use((config) => {
   return config;
 });
 
-/** Z-Image / SDXL: style + image. Z-Image 응답은 original_url, generated_url, processing_time */
+const IMAGE_POLL_INTERVAL_MS = 3000;
+const IMAGE_POLL_MAX_WAIT_MS = 5 * 60 * 1000; // 5분
+
+/** Z-Image / SDXL: 비동기 잡 제출 후 폴링 (62초+ 걸릴 때 타임아웃 회피). species: 강아지/고양이에 맞는 프롬프트 적용. */
 export async function generateImage(
   file: File,
   style: string,
@@ -75,6 +78,7 @@ export async function generateImage(
   seed: number | null,
   sideProfileLock?: boolean,
   options?: {
+    species?: "dog" | "cat" | null;
     usePoseLock?: boolean;
     analysis?: UniversalAnalysisResponse | Record<string, unknown>;
     validateAndRetry?: boolean;
@@ -87,28 +91,66 @@ export async function generateImage(
   form.append("strength", String(strength ?? 0.5));
   if (seed !== null) form.append("seed", String(seed));
   if (sideProfileLock) form.append("side_profile_lock", "true");
+  if (options?.species) form.append("species", options.species);
   if (options?.usePoseLock && options?.analysis != null) {
     form.append("use_pose_lock", "true");
     form.append("analysis", JSON.stringify(options.analysis));
   }
   if (options?.validateAndRetry) form.append("validate_and_retry", "true");
-  // steps는 생략 시 백엔드 generation_rules에서 스타일별로 적용 (pixel_art 32, 그 외 28~30)
 
-  type ApiResponse = {
-    original_url?: string;
-    generated_url?: string;
-    image_url?: string;
-    processing_time?: number;
-    processing_time_seconds?: number;
-    generated_image_base64?: string | null;
-  };
-  const { data } = await uploadApi.post<ApiResponse>("/api/generate", form);
-  return {
-    original_url: data.original_url ?? "",
-    generated_url: data.generated_url ?? data.image_url ?? "",
-    processing_time: data.processing_time ?? data.processing_time_seconds ?? 0,
-    generated_image_base64: data.generated_image_base64 ?? null,
-  };
+  // 1) 비동기 잡 제출 (즉시 job_id 반환)
+  let jobId: string;
+  try {
+    const { data: jobResp } = await uploadApi.post<{ job_id: string }>("/api/image/generate", form);
+    jobId = jobResp.job_id;
+    if (!jobId) throw new Error("No job_id from server");
+  } catch (err: unknown) {
+    // 구백엔드: /api/image/generate 없으면 404 → 기존 동기 /api/generate 로 폴백
+    const ax = err as { response?: { status?: number } };
+    if (ax?.response?.status === 404) {
+      const { data } = await uploadApi.post<{
+        original_url?: string;
+        generated_url?: string;
+        image_url?: string;
+        processing_time?: number;
+        processing_time_seconds?: number;
+        generated_image_base64?: string | null;
+      }>("/api/generate", form);
+      return {
+        original_url: data.original_url ?? "",
+        generated_url: data.generated_url ?? data.image_url ?? "",
+        processing_time: data.processing_time ?? data.processing_time_seconds ?? 0,
+        generated_image_base64: data.generated_image_base64 ?? null,
+      };
+    }
+    throw err;
+  }
+
+  // 2) 완료될 때까지 폴링
+  const started = Date.now();
+  while (Date.now() - started < IMAGE_POLL_MAX_WAIT_MS) {
+    const { data: status } = await api.get<{
+      status: string;
+      original_url?: string | null;
+      generated_url?: string | null;
+      processing_time?: number | null;
+      generated_image_base64?: string | null;
+      error?: string | null;
+    }>(`/api/image/status/${jobId}`);
+    if (status.status === "completed") {
+      return {
+        original_url: status.original_url ?? "",
+        generated_url: status.generated_url ?? "",
+        processing_time: status.processing_time ?? 0,
+        generated_image_base64: status.generated_image_base64 ?? null,
+      };
+    }
+    if (status.status === "failed") {
+      throw new Error(status.error ?? "Image generation failed");
+    }
+    await new Promise((r) => setTimeout(r, IMAGE_POLL_INTERVAL_MS));
+  }
+  throw new Error("이미지 생성 시간이 초과되었습니다. 다시 시도해 주세요.");
 }
 
 /** API에 없을 때 사용할 스타일 기본 표시 (구버전 백엔드 대응) */
