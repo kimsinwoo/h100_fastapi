@@ -75,14 +75,19 @@ async def _get_image(filename: str, subfolder: str = "", type_: str = "output") 
 
 def _prepare_reference_video_for_comfyui(reference_video_path: Path) -> str | None:
     """
-    레퍼런스 영상을 ComfyUI가 읽을 수 있는 경로에 두고 파일명 반환.
-    COMFYUI_REFERENCE_VIDEO_DIR 설정 시: 이미 해당 디렉터리 안에 있으면 복사 없이 파일명만 반환,
-    아니면 해당 디렉터리로 복사 후 파일명 반환. 미설정 시 None.
+    레퍼런스 영상 파일명 반환. ComfyUI가 같은 경로를 읽을 수 있으면 해당 파일명으로 주입.
+    COMFYUI_REFERENCE_VIDEO_DIR 미설정 시 레퍼런스 저장 위치(motions_dir)를 사용해 파일명만 반환.
     """
+    if not reference_video_path.exists():
+        return None
     settings = get_settings()
     ref_dir = getattr(settings, "comfyui_reference_video_dir", None)
     if not ref_dir:
-        return None
+        ref_dir = str(reference_video_path.parent)
+        logger.info(
+            "COMFYUI_REFERENCE_VIDEO_DIR 미설정. 레퍼런스 경로 기준으로 파일명 전달: dir=%s, name=%s",
+            ref_dir, reference_video_path.name,
+        )
     dir_path = Path(ref_dir).resolve()
     if not reference_video_path.exists():
         return None
@@ -349,6 +354,7 @@ def _inject_ltx23_workflow_inputs(
             pos_id, len(prompt_text), neg_id or "-", len(negative_prompt_text),
         )
 
+    ref_injected = False
     for nid, node in wf.items():
         if not isinstance(node, dict):
             continue
@@ -366,6 +372,13 @@ def _inject_ltx23_workflow_inputs(
             else:
                 node["inputs"] = {**inputs, "video": reference_video_filename}
                 logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 video=%s", nid, ct, reference_video_filename)
+            ref_injected = True
+    if reference_video_filename and not ref_injected:
+        logger.warning(
+            "레퍼런스 파일명=%s 이지만 워크플로에 레퍼런스용 비디오 입력 노드(LoadVideo 등)가 없어 주입되지 않음. "
+            "ComfyUI에서 레퍼런스 영상을 받는 노드를 추가한 뒤 API 포맷으로 저장해야 동작이 반영됩니다.",
+            reference_video_filename,
+        )
     return wf
 
 
