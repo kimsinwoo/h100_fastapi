@@ -52,25 +52,69 @@ MEDIAPIPE_TO_JOINT: list[tuple[int, str]] = [
 
 def _get_mediapipe_pose_module():
     """Return the MediaPipe pose module (with .Pose class) for the current install. None if unavailable."""
-    # 1) mediapipe 0.10+: solutions under mediapipe.python.solutions
+    _last_import_error: Exception | None = None
+
+    # 1) mediapipe.python.solutions.pose (레거시, 패키지 내부 경로)
     try:
         from mediapipe.python.solutions import pose as mp_pose
         return mp_pose
-    except ImportError:
-        pass
-    # 2) mediapipe.python.solutions.pose (direct submodule)
+    except Exception as e1:
+        _last_import_error = e1
+
+    # 2) 부모 패키지 먼저 로드 후 pose 로드 (일부 환경에서 lazy load 이슈 방지)
     try:
-        from mediapipe.python.solutions import pose
-        return pose
+        import mediapipe.python.solutions  # noqa: F401
+        from mediapipe.python.solutions import pose as mp_pose
+        return mp_pose
+    except Exception:
+        pass
+
+    # 3) importlib.import_module로 로드 (sys.modules 등록으로 하위 import 해결)
+    try:
+        import importlib
+        mod = importlib.import_module("mediapipe.python.solutions.pose")
+        if mod is not None and hasattr(mod, "Pose"):
+            return mod
+    except Exception:
+        pass
+
+    # 4) mediapipe.solutions.pose (일부 배포판은 python 없이 solutions만 노출)
+    try:
+        from mediapipe.solutions import pose as mp_pose
+        return mp_pose
     except ImportError:
         pass
-    # 3) Legacy: mediapipe.solutions.pose (older versions)
+
+    # 5) import mediapipe 후 속성 체인으로 접근 (mp.python.solutions.pose)
     try:
         import mediapipe as mp
-        if hasattr(mp, "solutions") and hasattr(mp.solutions, "pose"):
-            return mp.solutions.pose
+        chain = getattr(mp, "python", None)
+        if chain is not None:
+            chain = getattr(chain, "solutions", None)
+        if chain is None:
+            chain = getattr(mp, "solutions", None)
+        if chain is not None:
+            pose_mod = getattr(chain, "pose", None)
+            if pose_mod is not None and hasattr(pose_mod, "Pose"):
+                return pose_mod
     except (ImportError, AttributeError):
         pass
+
+    # 6) 실패 시 진단: mediapipe가 있으면 경로·속성 로그
+    try:
+        import mediapipe as mp
+        logger.warning(
+            "mediapipe는 설치되어 있으나 Pose 모듈을 찾지 못함. mediapipe.__file__=%s, dir(mediapipe)=%s. "
+            "첫 import 오류: %s",
+            getattr(mp, "__file__", None),
+            [x for x in dir(mp) if not x.startswith("_")],
+            _last_import_error or "unknown",
+        )
+    except ImportError:
+        logger.warning(
+            "mediapipe 패키지 자체를 import할 수 없음. pip install mediapipe>=0.10.0 확인. 오류: %s",
+            _last_import_error or "unknown",
+        )
     return None
 
 
