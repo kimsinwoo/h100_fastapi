@@ -90,7 +90,7 @@ async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[
 
 
 def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str, str] | None:
-    """history에서 첫 비디오 출력 (SaveVideo 등). (filename, subfolder, type)."""
+    """history에서 첫 비디오 출력 (SaveVideo / VHS_VideoCombine 등). (filename, subfolder, type)."""
     if "outputs" in history:
         outputs = history["outputs"]
     else:
@@ -100,16 +100,27 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
                 break
         else:
             return None
+    if not isinstance(outputs, dict):
+        return None
     for _node_id, node_out in outputs.items():
         if not isinstance(node_out, dict):
             continue
-        videos = node_out.get("videos") or node_out.get("gifs") or node_out.get("animations")
-        if not videos:
+        # ComfyUI 노드별 키: videos, gifs, animations, video(단수) 등
+        videos = (
+            node_out.get("videos")
+            or node_out.get("gifs")
+            or node_out.get("animations")
+            or (node_out.get("video") if isinstance(node_out.get("video"), list) else None)
+        )
+        if not videos or not isinstance(videos, list):
             continue
-        v = videos[0] if isinstance(videos[0], dict) else {}
-        fn = v.get("filename")
-        if fn:
-            return (fn, v.get("subfolder", ""), v.get("type", "output"))
+        first = videos[0]
+        if isinstance(first, dict):
+            fn = first.get("filename")
+            if fn:
+                return (fn, first.get("subfolder", ""), first.get("type", "output"))
+        elif isinstance(first, str):
+            return (first, "", "output")
     return None
 
 
@@ -316,13 +327,26 @@ async def run_ltx23_image_to_video(
         last_log_at = 0.0
         while (asyncio.get_event_loop().time() - start) < max_wait:
             history = await _get_history(prompt_id)
-            if prompt_id in history:
+            # ComfyUI 응답 두 가지: 1) { prompt_id: { outputs:... } }  2) 단일 항목이면 { outputs:... } 만 옴
+            if prompt_id in history and isinstance(history[prompt_id], dict):
                 info = history[prompt_id]
-                if isinstance(info, dict):
-                    first_video = _extract_first_video_from_history(info)
-                    if first_video:
-                        filename, subfolder, type_ = first_video
-                        return await _get_video_bytes(filename, subfolder, type_)
+            elif "outputs" in history and isinstance(history.get("outputs"), dict):
+                info = history
+            else:
+                info = None
+            if info is not None:
+                first_video = _extract_first_video_from_history(info)
+                if first_video:
+                    filename, subfolder, type_ = first_video
+                    return await _get_video_bytes(filename, subfolder, type_)
+                # 완료됐는데 비디오 못 찾은 경우: 노드별 출력 키 로그 (노드 구조가 다르면 여기서 확인)
+                outputs = info.get("outputs") if isinstance(info.get("outputs"), dict) else {}
+                node_keys = list(outputs.keys())
+                logger.warning(
+                    "ComfyUI LTX-2.3 완료로 보이지만 비디오 출력을 찾지 못함. output 노드 수=%s, 노드별 키 예시=%s",
+                    len(node_keys),
+                    {nid: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for nid, v in list(outputs.items())[:3]},
+                )
             elapsed = asyncio.get_event_loop().time() - start
             if elapsed - last_log_at >= 30.0:
                 logger.info(
