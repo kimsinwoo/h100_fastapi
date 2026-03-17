@@ -395,6 +395,38 @@ export type DanceGenerateResponse = {
   character: string;
 };
 
+const DANCE_POLL_INTERVAL_MS = 2000;
+const DANCE_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
+
+// 댄스 job 폴링 공통 로직
+async function pollDanceJob(jobId: string): Promise<DanceGenerateResponse> {
+  const started = Date.now();
+  while (Date.now() - started < DANCE_POLL_MAX_WAIT_MS) {
+    const { data } = await api.get<{
+      status: string;
+      video_url?: string | null;
+      processing_time?: number | null;
+      motion_id?: string | null;
+      character?: string | null;
+      error?: string | null;
+    }>(`/api/dance/status/${jobId}`);
+
+    if (data.status === "completed" && data.video_url) {
+      return {
+        video_url: data.video_url,
+        processing_time: data.processing_time ?? 0,
+        motion_id: data.motion_id ?? "",
+        character: data.character ?? "",
+      };
+    }
+    if (data.status === "failed") {
+      throw new Error(data.error ?? "Dance generation failed");
+    }
+    await new Promise((r) => setTimeout(r, DANCE_POLL_INTERVAL_MS));
+  }
+  throw new Error("Dance generation timed out");
+}
+
 export async function getDanceMotions(): Promise<DanceMotionItem[]> {
   const { data } = await api.get<DanceMotionItem[]>("/api/dance/motions");
   return Array.isArray(data) ? data : [];
@@ -411,7 +443,7 @@ export async function generateDance(
   form.append("character", character);
   const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    timeout: 0, // 무제한. 0 = no timeout
+    timeout: 60 * 1000, // 파일 업로드 + job_id 수신만 — 1분이면 충분
   });
   uploadDanceApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
@@ -419,8 +451,9 @@ export async function generateDance(
     }
     return config;
   });
-  const { data } = await uploadDanceApi.post<DanceGenerateResponse>("/api/dance/generate", form);
-  return data;
+  const { data: jobResp } = await uploadDanceApi.post<{ job_id: string }>("/api/dance/generate", form);
+  if (!jobResp.job_id) throw new Error("No job_id from server");
+  return pollDanceJob(jobResp.job_id);
 }
 
 export async function generateDanceCustom(
@@ -434,7 +467,7 @@ export async function generateDanceCustom(
   form.append("character", character);
   const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
-    timeout: 0,
+    timeout: 60 * 1000, // 파일 업로드 + job_id 수신만
   });
   uploadDanceApi.interceptors.request.use((config) => {
     if (config.data instanceof FormData && config.headers) {
@@ -442,8 +475,9 @@ export async function generateDanceCustom(
     }
     return config;
   });
-  const { data } = await uploadDanceApi.post<DanceGenerateResponse>("/api/dance/generate-custom", form);
-  return data;
+  const { data: jobResp } = await uploadDanceApi.post<{ job_id: string }>("/api/dance/generate-custom", form);
+  if (!jobResp.job_id) throw new Error("No job_id from server");
+  return pollDanceJob(jobResp.job_id);
 }
 
 // ---------- AC Villager Reconstruction (Stage 1 + Stage 2) ----------

@@ -49,3 +49,22 @@ class DanceGenerateResponse(BaseModel):
     processing_time: float = Field(..., ge=0, description="Processing time in seconds")
     motion_id: str = Field(..., description="Echo of motion_id")
     character: str = Field(..., description="Echo of character")
+
+
+class DanceJobResponse(BaseModel):
+    """Immediate response for async dance job — returns job_id for polling."""
+
+    job_id: str
+    status: str = "processing"
+
+
+class DanceJobStatusResponse(BaseModel):
+    """GET /dance/status/{job_id} polling response."""
+
+    job_id: str
+    status: str                          # "processing" | "completed" | "failed"
+    video_url: str | None = None
+    processing_time: float | None = None
+    motion_id: str | None = None
+    character: str | None = None
+    error: str | None = None

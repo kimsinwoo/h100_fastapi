@@ -14,7 +14,7 @@ from typing import Annotated
 import json as _json
 
 import httpx
-from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core.config import get_settings
@@ -75,7 +75,7 @@ from app.services.training_store import (
     update_item as training_update_item,
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
-from app.schemas.dance_schema import DanceGenerateResponse
+from app.schemas.dance_schema import DanceGenerateResponse, DanceJobResponse, DanceJobStatusResponse
 from app.schemas.comfyui_schema import ComfyUIRunRequest, ComfyUIRunResponse
 from app.services.comfyui_service import (
     run_workflow_and_get_image,
@@ -93,6 +93,8 @@ logger = logging.getLogger(__name__)
 
 # 동영상 생성 비동기 잡 (1분 타임아웃 회피: POST는 즉시 반환, 클라이언트는 폴링)
 _video_jobs: dict[str, dict] = {}
+# 댄스 생성 비동기 잡
+_dance_jobs: dict[str, dict] = {}
 
 # 이미지 생성 비동기 잡 (62초+ 걸릴 때 타임아웃 회피: POST 즉시 반환, 클라이언트 폴링)
 _image_jobs: dict[str, dict] = {}
@@ -1061,17 +1063,18 @@ async def list_dance_motions() -> list[dict[str, str]]:
     return list(DANCE_MOTIONS)
 
 
-@router.post("/dance/generate", response_model=DanceGenerateResponse)
+@router.post("/dance/generate", response_model=DanceJobResponse)
 async def generate_dance(
+    background_tasks: BackgroundTasks,
     request: Request,
     motion_id: Annotated[str, Form(description="e.g. rat_dance")],
     character: Annotated[str, Form(description="dog or cat")] = "dog",
     file: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
     image: Annotated[UploadFile | None, File(description="Character image (alias)")] = None,
-) -> DanceGenerateResponse:
+) -> DanceJobResponse:
     """
-    Generate video of character performing the selected dance (pose extraction + LTX-2).
-    Requires: motion_id, character, and an image file of the character.
+    Generate video of character performing the selected dance (비동기 job).
+    즉시 job_id 반환 → GET /dance/status/{job_id} 로 폴링.
     """
     _check_rate_limit(request)
     upload = file if (file and file.filename) else image
@@ -1096,37 +1099,26 @@ async def generate_dance(
             status_code=404,
             detail=f"Motion '{mid}' not found. Add reference video to motions/ (e.g. rat_dance.mp4).",
         )
-    try:
-        out_bytes, processing_time = await run_dance_generate(image_bytes=content, motion_id=mid, character=char)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        logger.exception("Dance video generation failed: %s", e)
-        raise HTTPException(status_code=503, detail=str(e))
-    try:
-        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
-    except Exception as e:
-        logger.exception("Failed to save generated dance video: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to save generated video")
-    video_url = get_generated_url(video_filename)
-    return DanceGenerateResponse(
-        video_url=video_url,
-        processing_time=round(processing_time, 2),
-        motion_id=mid,
-        character=char,
-    )
+
+    import uuid as _uuid
+    job_id = _uuid.uuid4().hex
+    _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
+                           "motion_id": mid, "character": char, "error": None}
+    background_tasks.add_task(_run_dance_job, job_id, content, mid, char)
+    return DanceJobResponse(job_id=job_id)
 
 
-@router.post("/dance/generate-custom", response_model=DanceGenerateResponse)
+@router.post("/dance/generate-custom", response_model=DanceJobResponse)
 async def generate_dance_custom(
+    background_tasks: BackgroundTasks,
     request: Request,
     character: Annotated[str, Form(description="dog or cat")] = "dog",
     image: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
     reference_video: Annotated[UploadFile | None, File(description="Reference video to mimic movements")] = None,
-) -> DanceGenerateResponse:
+) -> DanceJobResponse:
     """
-    Generate video of character mimicking movements from a user-uploaded reference video.
-    Requires: image (character), reference_video (motion reference), character.
+    Generate video of character mimicking movements from a user-uploaded reference video (비동기 job).
+    즉시 job_id 반환 → GET /dance/status/{job_id} 로 폴링.
     """
     _check_rate_limit(request)
     if not image or not image.filename:
@@ -1149,33 +1141,52 @@ async def generate_dance_custom(
     video_content = await reference_video.read()
     if len(video_content) == 0:
         raise HTTPException(status_code=400, detail="Empty reference_video file")
-    VIDEO_MAX_BYTES = 200 * 1024 * 1024  # 200MB
-    if len(video_content) > VIDEO_MAX_BYTES:
+    if len(video_content) > 200 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="reference_video too large. Max 200MB")
 
+    import uuid as _uuid
+    job_id = _uuid.uuid4().hex
+    _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
+                           "motion_id": "custom", "character": char, "error": None}
+    background_tasks.add_task(_run_dance_custom_job, job_id, image_content, video_content, char)
+    return DanceJobResponse(job_id=job_id)
+
+
+@router.get("/dance/status/{job_id}", response_model=DanceJobStatusResponse)
+async def get_dance_job_status(job_id: str) -> DanceJobStatusResponse:
+    """댄스 생성 job 상태 조회. status: processing | completed | failed"""
+    job = _dance_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Dance job not found")
+    return DanceJobStatusResponse(job_id=job_id, **job)
+
+
+async def _run_dance_job(job_id: str, image_bytes: bytes, motion_id: str, character: str) -> None:
+    try:
+        out_bytes, processing_time = await run_dance_generate(
+            image_bytes=image_bytes, motion_id=motion_id, character=character
+        )
+        video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+        video_url = get_generated_url(video_filename)
+        _dance_jobs[job_id].update({"status": "completed", "video_url": video_url,
+                                    "processing_time": round(processing_time, 2)})
+    except Exception as e:
+        logger.exception("Dance job %s failed: %s", job_id, e)
+        _dance_jobs[job_id].update({"status": "failed", "error": str(e)})
+
+
+async def _run_dance_custom_job(job_id: str, image_bytes: bytes, video_bytes: bytes, character: str) -> None:
     try:
         out_bytes, processing_time = await run_dance_generate_custom(
-            image_bytes=image_content,
-            reference_video_bytes=video_content,
-            character=char,
+            image_bytes=image_bytes, reference_video_bytes=video_bytes, character=character
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        logger.exception("Custom dance video generation failed: %s", e)
-        raise HTTPException(status_code=503, detail=str(e))
-    try:
         video_filename = await save_upload_async(out_bytes, suffix=".mp4")
+        video_url = get_generated_url(video_filename)
+        _dance_jobs[job_id].update({"status": "completed", "video_url": video_url,
+                                    "processing_time": round(processing_time, 2)})
     except Exception as e:
-        logger.exception("Failed to save generated custom dance video: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to save generated video")
-    video_url = get_generated_url(video_filename)
-    return DanceGenerateResponse(
-        video_url=video_url,
-        processing_time=round(processing_time, 2),
-        motion_id="custom",
-        character=char,
-    )
+        logger.exception("Dance custom job %s failed: %s", job_id, e)
+        _dance_jobs[job_id].update({"status": "failed", "error": str(e)})
 
 
 # ---------- LLM (gpt-oss-20b) API ----------
