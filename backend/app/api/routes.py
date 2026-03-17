@@ -1193,8 +1193,11 @@ async def _run_dance_custom_job(job_id: str, image_bytes: bytes, video_bytes: by
     except Exception as e:
         logger.exception("Dance custom job %s failed: %s", job_id, e)
         err_msg = str(e)
-        # 타임아웃 시 사용자용 짧은 메시지 + 상세는 로그에
-        if "did not finish within" in err_msg or "TimeoutError" in type(e).__name__:
+        # 레퍼런스/포즈 추출 실패 메시지는 그대로 전달 (mediapipe 등)
+        if "레퍼런스" in err_msg or "mediapipe" in err_msg or "포즈 추출" in err_msg:
+            pass  # err_msg 유지
+        # 타임아웃 시 사용자용 짧은 메시지
+        elif "did not finish within" in err_msg or "TimeoutError" in type(e).__name__:
             err_msg = (
                 "영상 생성이 제한 시간(약 15분) 내에 완료되지 않았습니다. "
                 "ComfyUI 서버가 바쁘거나 워크플로가 지연 중일 수 있습니다. 잠시 후 다시 시도해 주세요."

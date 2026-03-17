@@ -50,6 +50,30 @@ MEDIAPIPE_TO_JOINT: list[tuple[int, str]] = [
 ]
 
 
+def _get_mediapipe_pose_module():
+    """Return the MediaPipe pose module (with .Pose class) for the current install. None if unavailable."""
+    # 1) mediapipe 0.10+: solutions under mediapipe.python.solutions
+    try:
+        from mediapipe.python.solutions import pose as mp_pose
+        return mp_pose
+    except ImportError:
+        pass
+    # 2) mediapipe.python.solutions.pose (direct submodule)
+    try:
+        from mediapipe.python.solutions import pose
+        return pose
+    except ImportError:
+        pass
+    # 3) Legacy: mediapipe.solutions.pose (older versions)
+    try:
+        import mediapipe as mp
+        if hasattr(mp, "solutions") and hasattr(mp.solutions, "pose"):
+            return mp.solutions.pose
+    except (ImportError, AttributeError):
+        pass
+    return None
+
+
 def _extract_poses_mediapipe(video_path: Path, fps_out: float | None = None) -> MotionSequence | None:
     """Extract body keypoints per frame using MediaPipe Pose. Returns None if dependency missing."""
     try:
@@ -58,16 +82,13 @@ def _extract_poses_mediapipe(video_path: Path, fps_out: float | None = None) -> 
         logger.warning("Pose extraction requires opencv-python: %s", e)
         return None
 
-    try:
-        # mediapipe 0.10+ moved solutions under mediapipe.python.solutions
-        from mediapipe.python.solutions import pose as mp_pose
-    except ImportError:
-        try:
-            import mediapipe as mp
-            mp_pose = mp.solutions.pose
-        except (ImportError, AttributeError) as e:
-            logger.warning("Pose extraction requires mediapipe: %s", e)
-            return None
+    mp_pose = _get_mediapipe_pose_module()
+    if mp_pose is None:
+        logger.warning(
+            "Pose extraction requires mediapipe (pip install mediapipe>=0.10.0). "
+            "Legacy 'solutions.pose' and 'python.solutions.pose' not found."
+        )
+        return None
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():

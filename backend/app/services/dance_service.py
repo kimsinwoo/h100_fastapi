@@ -157,9 +157,15 @@ async def run_dance_generate_custom(
         # MOTION_VIDEOS에 임시 등록
         MOTION_VIDEOS[temp_motion_id] = f"{temp_motion_id}.mp4"
 
-        # 포즈 추출 (캐시)
+        # 포즈 추출 (레퍼런스 동작 적용에 필요). 실패 시 레퍼런스가 적용되지 않으므로 에러로 처리.
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, get_or_extract_pose, temp_motion_id)
+        pose_result = await loop.run_in_executor(None, get_or_extract_pose, temp_motion_id)
+        if pose_result is None or not getattr(pose_result, "frames", None):
+            raise RuntimeError(
+                "레퍼런스 동작을 적용하려면 서버에서 포즈 추출이 필요합니다. "
+                "mediapipe가 설치·동작해야 합니다. 터미널에서 'pip install mediapipe>=0.10.0' 실행 후 서버를 재시작해 주세요. "
+                "포즈 추출에 실패했거나 레퍼런스 영상에서 동작을 읽어올 수 없습니다."
+            )
     finally:
         # MOTION_VIDEOS에서 임시 항목 제거 (생성 후 정리)
         MOTION_VIDEOS.pop(temp_motion_id, None)
@@ -180,6 +186,8 @@ async def run_dance_generate_custom(
         NEGATIVE_PET_DANCE,
     )
 
+    # 현재 파이프라인은 텍스트 프롬프트만 사용. 추출된 포즈를 비디오 생성에 반영하려면
+    # ComfyUI 워크플로에 레퍼런스/포즈 입력 노드 연동이 필요함. 여기서는 rat_dance 프롬프트 사용.
     prompt = get_dance_prompt("rat_dance", character)
     out_bytes, elapsed = await run_image_to_video(
         image_bytes=image_bytes,
