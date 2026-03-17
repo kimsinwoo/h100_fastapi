@@ -118,49 +118,39 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
         top_fn = node_out.get("filename") or node_out.get("file_name")
         if isinstance(top_fn, str) and top_fn.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
             return (top_fn.strip(), node_out.get("subfolder", ""), node_out.get("type", "output"))
-        # ComfyUI 노드별 키: videos, gifs, animations, animated(LTX 등), images(단일 비디오인 경우도 있음)
-        raw = (
-            node_out.get("videos")
-            or node_out.get("gifs")
-            or node_out.get("animations")
-            or node_out.get("animated")
-            or (node_out.get("video") if isinstance(node_out.get("video"), list) else None)
-            or node_out.get("images")
-        )
-        # 리스트가 아니면 단일 항목(딕셔너리/문자열)으로 취급
-        if raw is None:
-            continue
-        videos = raw if isinstance(raw, list) else [raw]
-        if not videos:
-            continue
-        first = videos[0]
-        if isinstance(first, dict):
-            inner_val = first.get("value") or first.get("output") or first.get("result") or {}
-            inner_val = inner_val if isinstance(inner_val, dict) else {}
-            fn = (
-                first.get("filename")
-                or first.get("file_name")
-                or first.get("name")
-                or first.get("path")
-                or inner_val.get("filename")
-                or inner_val.get("file_name")
-                or inner_val.get("name")
-            )
-            if not fn:
-                for _k, v in first.items():
-                    if isinstance(v, str) and v.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
-                        fn = v.strip()
-                        break
-            if fn:
-                inner = inner_val if inner_val else first
-                sub = inner.get("subfolder", "")
-                typ = inner.get("type", "output")
-                return (fn, sub, typ)
-        elif isinstance(first, str):
-            return (first, "", "output")
-        elif isinstance(first, (list, tuple)) and len(first) >= 1:
-            # [filename, subfolder, type] 형태
-            return (str(first[0]), str(first[1]) if len(first) > 1 else "", str(first[2]) if len(first) > 2 else "output")
+        # SaveVideo 등: videos, gifs, images, animated 순으로 확인. animated가 [true]처럼 비파일이면 스킵.
+        for key in ("videos", "gifs", "images", "animations", "animated", "video"):
+            raw = node_out.get(key)
+            if raw is None:
+                continue
+            videos = raw if isinstance(raw, list) else [raw]
+            if not videos:
+                continue
+            first = videos[0]
+            if isinstance(first, dict):
+                inner_val = first.get("value") or first.get("output") or first.get("result") or {}
+                inner_val = inner_val if isinstance(inner_val, dict) else {}
+                fn = (
+                    first.get("filename")
+                    or first.get("file_name")
+                    or first.get("name")
+                    or first.get("path")
+                    or inner_val.get("filename")
+                    or inner_val.get("file_name")
+                    or inner_val.get("name")
+                )
+                if not fn:
+                    for _k, v in first.items():
+                        if isinstance(v, str) and v.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
+                            fn = v.strip()
+                            break
+                if fn:
+                    inner = inner_val if inner_val else first
+                    return (fn, inner.get("subfolder", ""), inner.get("type", "output"))
+            elif isinstance(first, str) and first.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
+                return (first.strip(), "", "output")
+            elif isinstance(first, (list, tuple)) and len(first) >= 1:
+                return (str(first[0]), str(first[1]) if len(first) > 1 else "", str(first[2]) if len(first) > 2 else "output")
     return None
 
 
