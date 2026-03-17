@@ -133,9 +133,8 @@ def _extract_poses_mediapipe(video_path: Path, fps_out: float | None = None) -> 
 
     mp_pose = _get_mediapipe_pose_module()
     if mp_pose is None:
-        logger.warning(
-            "Pose extraction requires mediapipe (pip install mediapipe>=0.10.0). "
-            "Legacy 'solutions.pose' and 'python.solutions.pose' not found."
+        logger.info(
+            "Pose (legacy) not available; extract_poses_from_video will try MediaPipe Tasks API next."
         )
         return None
 
@@ -241,6 +240,7 @@ def _extract_poses_mediapipe_tasks(video_path: Path, fps_out: float | None = Non
         return None
     model_path = _get_pose_landmarker_model_path()
     if not model_path or not model_path.exists():
+        logger.debug("PoseLandmarker model not found; _get_pose_landmarker_model_path returned %s", model_path)
         return None
     try:
         from mediapipe.tasks import python as mp_tasks_python
@@ -338,7 +338,14 @@ def extract_poses_from_video(video_path: Path, fps_out: float | None = 30.0) -> 
     out = _extract_poses_mediapipe(path, fps_out=fps_out)
     if out is not None:
         return out
-    return _extract_poses_mediapipe_tasks(path, fps_out=fps_out)
+    logger.info("Trying pose extraction with MediaPipe Tasks API (PoseLandmarker)...")
+    out = _extract_poses_mediapipe_tasks(path, fps_out=fps_out)
+    if out is None:
+        logger.warning(
+            "Pose extraction (Tasks API) failed: need .task model (auto-download or POSE_LANDMARKER_MODEL_PATH). "
+            "See data/pose_cache/pose_landmarker.task or env POSE_LANDMARKER_MODEL_PATH."
+        )
+    return out
 
 
 def normalize_motion(motion: MotionSequence) -> MotionSequence:
