@@ -105,13 +105,18 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
     for _node_id, node_out in outputs.items():
         if not isinstance(node_out, dict):
             continue
-        # ComfyUI 노드별 키: videos, gifs, animations, animated(LTX 등), video(단수) 등
+        # 노드 최상단에 filename 있는 경우 (일부 워크플로)
+        top_fn = node_out.get("filename") or node_out.get("file_name")
+        if isinstance(top_fn, str) and top_fn.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
+            return (top_fn.strip(), node_out.get("subfolder", ""), node_out.get("type", "output"))
+        # ComfyUI 노드별 키: videos, gifs, animations, animated(LTX 등), images(단일 비디오인 경우도 있음)
         raw = (
             node_out.get("videos")
             or node_out.get("gifs")
             or node_out.get("animations")
             or node_out.get("animated")
             or (node_out.get("video") if isinstance(node_out.get("video"), list) else None)
+            or node_out.get("images")
         )
         # 리스트가 아니면 단일 항목(딕셔너리/문자열)으로 취급
         if raw is None:
@@ -121,11 +126,38 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
             continue
         first = videos[0]
         if isinstance(first, dict):
-            fn = first.get("filename")
+            inner_val = first.get("value") or first.get("output") or first.get("result") or {}
+            inner_val = inner_val if isinstance(inner_val, dict) else {}
+            fn = (
+                first.get("filename")
+                or first.get("file_name")
+                or first.get("name")
+                or first.get("path")
+                or inner_val.get("filename")
+                or inner_val.get("file_name")
+                or inner_val.get("name")
+            )
+            if not fn:
+                for _k, v in first.items():
+                    if isinstance(v, str) and v.strip().endswith((".mp4", ".webm", ".gif", ".mov")):
+                        fn = v.strip()
+                        break
             if fn:
-                return (fn, first.get("subfolder", ""), first.get("type", "output"))
+                inner = inner_val if inner_val else first
+                sub = inner.get("subfolder", "")
+                typ = inner.get("type", "output")
+                return (fn, sub, typ)
+            # 구조 확인용: 실제 키와 값 일부 로그 (노드 273 등 animated 형식 대응)
+            logger.warning(
+                "ComfyUI output 항목에 filename/name/path 없음. 키=%s, 값예시=%s",
+                list(first.keys())[:12],
+                {k: (v[:80] if isinstance(v, str) else v) for k, v in list(first.items())[:5]},
+            )
         elif isinstance(first, str):
             return (first, "", "output")
+        elif isinstance(first, (list, tuple)) and len(first) >= 1:
+            # [filename, subfolder, type] 형태
+            return (str(first[0]), str(first[1]) if len(first) > 1 else "", str(first[2]) if len(first) > 2 else "output")
     return None
 
 
