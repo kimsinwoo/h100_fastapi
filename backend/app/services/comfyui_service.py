@@ -89,6 +89,15 @@ async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[
         return {"name": out.get("name", name), "subfolder": out.get("subfolder", "")}
 
 
+def _safe_log_dump(obj: Any, max_len: int = 4000) -> str:
+    """디버깅용: dict/list를 JSON 유사 문자열로 변환 (길이 제한)."""
+    try:
+        out = json.dumps(obj, ensure_ascii=False, indent=2, default=lambda x: str(type(x).__name__))
+        return out[:max_len] + ("..." if len(out) > max_len else "")
+    except Exception:
+        return repr(obj)[:max_len]
+
+
 def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str, str] | None:
     """history에서 첫 비디오 출력 (SaveVideo / VHS_VideoCombine 등). (filename, subfolder, type)."""
     if "outputs" in history:
@@ -147,12 +156,6 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
                 sub = inner.get("subfolder", "")
                 typ = inner.get("type", "output")
                 return (fn, sub, typ)
-            # 구조 확인용: 실제 키와 값 일부 로그 (노드 273 등 animated 형식 대응)
-            logger.warning(
-                "ComfyUI output 항목에 filename/name/path 없음. 키=%s, 값예시=%s",
-                list(first.keys())[:12],
-                {k: (v[:80] if isinstance(v, str) else v) for k, v in list(first.items())[:5]},
-            )
         elif isinstance(first, str):
             return (first, "", "output")
         elif isinstance(first, (list, tuple)) and len(first) >= 1:
@@ -362,6 +365,7 @@ async def run_ltx23_image_to_video(
         poll_interval = 2.0  # 0.5→2초: 로그·부하 감소, 영상 워크플로는 완료까지 시간 걸림
         start = asyncio.get_event_loop().time()
         last_log_at = 0.0
+        full_dump_logged = False  # 비디오 못 찾을 때 전체 구조는 한 번만 출력
         while (asyncio.get_event_loop().time() - start) < max_wait:
             history = await _get_history(prompt_id)
             # ComfyUI 응답 두 가지: 1) { prompt_id: { outputs:... } }  2) 단일 항목이면 { outputs:... } 만 옴
@@ -376,14 +380,54 @@ async def run_ltx23_image_to_video(
                 if first_video:
                     filename, subfolder, type_ = first_video
                     return await _get_video_bytes(filename, subfolder, type_)
-                # 완료됐는데 비디오 못 찾은 경우: 노드별 출력 키 로그 (노드 구조가 다르면 여기서 확인)
-                outputs = info.get("outputs") if isinstance(info.get("outputs"), dict) else {}
-                node_keys = list(outputs.keys())
-                logger.warning(
-                    "ComfyUI LTX-2.3 완료로 보이지만 비디오 출력을 찾지 못함. output 노드 수=%s, 노드별 키 예시=%s",
-                    len(node_keys),
-                    {nid: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for nid, v in list(outputs.items())[:3]},
-                )
+                # 완료됐는데 비디오 못 찾은 경우: 전체 구조 한 번만 상세 출력 (이유 파악용)
+                if not full_dump_logged:
+                    full_dump_logged = True
+                    outputs = info.get("outputs") if isinstance(info.get("outputs"), dict) else {}
+                    logger.info(
+                        "[ComfyUI history 전체] prompt_id=%s, API 응답 최상위 키(history)=%s, info 최상위 키=%s",
+                        prompt_id[:8],
+                        list(history.keys()),
+                        list(info.keys()),
+                    )
+                    logger.info("[ComfyUI history] raw response (info) =\n%s", _safe_log_dump(info, max_len=8000))
+                    for nid, node_out in outputs.items():
+                        if not isinstance(node_out, dict):
+                            logger.info("[ComfyUI 노드 %s] 타입=%s", nid, type(node_out).__name__)
+                            continue
+                        logger.info(
+                            "[ComfyUI 노드 %s] 키=%s",
+                            nid,
+                            list(node_out.keys()),
+                        )
+                        for key in ("images", "animated", "videos", "gifs", "animations"):
+                            val = node_out.get(key)
+                            if val is None:
+                                continue
+                            if isinstance(val, list):
+                                logger.info(
+                                    "[ComfyUI 노드 %s.%s] len=%s, 첫 항목 타입=%s, 첫 항목 내용=\n%s",
+                                    nid,
+                                    key,
+                                    len(val),
+                                    type(val[0]).__name__ if val else "N/A",
+                                    _safe_log_dump(val[0], max_len=3000) if val else "[]",
+                                )
+                                if len(val) > 1:
+                                    logger.info(
+                                        "[ComfyUI 노드 %s.%s] 두 번째 항목=\n%s",
+                                        nid,
+                                        key,
+                                        _safe_log_dump(val[1], max_len=1500) if len(val) > 1 else "N/A",
+                                    )
+                            else:
+                                logger.info(
+                                    "[ComfyUI 노드 %s.%s] 타입=%s, 값=\n%s",
+                                    nid,
+                                    key,
+                                    type(val).__name__,
+                                    _safe_log_dump(val, max_len=2000),
+                                )
             elapsed = asyncio.get_event_loop().time() - start
             if elapsed - last_log_at >= 30.0:
                 logger.info(
