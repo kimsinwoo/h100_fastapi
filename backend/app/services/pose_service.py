@@ -100,26 +100,22 @@ def _get_mediapipe_pose_module():
     except (ImportError, AttributeError):
         pass
 
-    # 6) 실패 시: mediapipe.tasks(PoseLandmarker) 폴백 사용 안내
+    # 6) 실패 시 로그만 (폴백은 extract_poses_from_video에서 Tasks API로 처리)
     try:
         import mediapipe as mp
-        if "tasks" in dir(mp):
+        has_tasks = getattr(mp, "tasks", None) is not None
+        if has_tasks:
             logger.info(
-                "mediapipe 레거시 Pose 없음(dir=%s). mediapipe.tasks(PoseLandmarker)로 포즈 추출 시도.",
-                [x for x in dir(mp) if not x.startswith("_")],
+                "mediapipe 레거시 Pose 없음. mediapipe.tasks(PoseLandmarker)로 포즈 추출 시도 예정."
             )
         else:
             logger.warning(
-                "mediapipe는 설치되어 있으나 Pose 모듈을 찾지 못함. mediapipe.__file__=%s, dir(mediapipe)=%s. 오류: %s",
-                getattr(mp, "__file__", None),
+                "mediapipe에 'tasks' 없음. dir(mediapipe)=%s. 첫 import 오류: %s",
                 [x for x in dir(mp) if not x.startswith("_")],
                 _last_import_error or "unknown",
             )
     except ImportError:
-        logger.warning(
-            "mediapipe 패키지 자체를 import할 수 없음. pip install mediapipe>=0.10.0 확인. 오류: %s",
-            _last_import_error or "unknown",
-        )
+        logger.warning("mediapipe import 실패: %s", _last_import_error or "unknown")
     return None
 
 
@@ -329,21 +325,23 @@ def extract_poses_from_video(video_path: Path, fps_out: float | None = 30.0) -> 
     """
     Extract body skeleton keypoints from every frame of a video.
     Returns MotionSequence (frame, timestamp, keypoints per frame) or None if failed.
-    레거시 mediapipe.python.solutions.pose → 없으면 mediapipe.tasks.vision.PoseLandmarker 사용.
+    사용 가능한 백엔드 순서: 1) 레거시 mediapipe.python.solutions.pose  2) mediapipe.tasks.vision.PoseLandmarker
     """
     path = Path(video_path)
     if not path.exists() or not path.is_file():
         logger.error("Video file not found: %s", path)
         return None
-    out = _extract_poses_mediapipe(path, fps_out=fps_out)
-    if out is not None:
-        return out
-    logger.info("Trying pose extraction with MediaPipe Tasks API (PoseLandmarker)...")
+
+    # 레거시 사용 가능하면 레거시만 사용 (불필요한 Tasks 시도·로그 방지)
+    if _get_mediapipe_pose_module() is not None:
+        return _extract_poses_mediapipe(path, fps_out=fps_out)
+
+    # 레거시 없음 → Tasks API만 사용 (mediapipe에 'tasks' 있는 환경)
+    logger.info("Pose extraction: using MediaPipe Tasks API (PoseLandmarker).")
     out = _extract_poses_mediapipe_tasks(path, fps_out=fps_out)
     if out is None:
         logger.warning(
-            "Pose extraction (Tasks API) failed: need .task model (auto-download or POSE_LANDMARKER_MODEL_PATH). "
-            "See data/pose_cache/pose_landmarker.task or env POSE_LANDMARKER_MODEL_PATH."
+            "Pose extraction (Tasks API) failed. Need .task model: set POSE_LANDMARKER_MODEL_PATH or allow auto-download to data/pose_cache/pose_landmarker.task"
         )
     return out
 
