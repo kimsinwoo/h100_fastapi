@@ -105,14 +105,19 @@ def _extract_first_video_from_history(history: dict[str, Any]) -> tuple[str, str
     for _node_id, node_out in outputs.items():
         if not isinstance(node_out, dict):
             continue
-        # ComfyUI 노드별 키: videos, gifs, animations, video(단수) 등
-        videos = (
+        # ComfyUI 노드별 키: videos, gifs, animations, animated(LTX 등), video(단수) 등
+        raw = (
             node_out.get("videos")
             or node_out.get("gifs")
             or node_out.get("animations")
+            or node_out.get("animated")
             or (node_out.get("video") if isinstance(node_out.get("video"), list) else None)
         )
-        if not videos or not isinstance(videos, list):
+        # 리스트가 아니면 단일 항목(딕셔너리/문자열)으로 취급
+        if raw is None:
+            continue
+        videos = raw if isinstance(raw, list) else [raw]
+        if not videos:
             continue
         first = videos[0]
         if isinstance(first, dict):
