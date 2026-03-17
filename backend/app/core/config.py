@@ -243,6 +243,12 @@ class Settings(BaseSettings):
         le=7200.0,
         description="ComfyUI 워크플로 대기 시간(초). LTX-2.3 비디오는 10~20분 걸릴 수 있음. 필요 시 COMFYUI_TIMEOUT_SECONDS=1800 등으로 증가.",
     )
+    comfyui_video_timeout_seconds: float | None = Field(
+        default=None,
+        ge=60.0,
+        le=7200.0,
+        description="ComfyUI 영상 워크플로 전용 대기 시간(초). 미설정 시 comfyui_timeout_seconds 사용. 20분 이상 걸리면 1200~1800 권장.",
+    )
     pipelines_dir_name: str = Field(
         default="pipelines",
         description="ComfyUI 워크플로우 JSON 보관 (backend_dir 기준)",

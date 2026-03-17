@@ -310,9 +310,10 @@ async def run_ltx23_image_to_video(
         if not prompt_id:
             raise RuntimeError("ComfyUI did not return prompt_id")
 
-        max_wait = settings.comfyui_timeout_seconds
-        poll_interval = 0.5
+        max_wait = getattr(settings, "comfyui_video_timeout_seconds", None) or settings.comfyui_timeout_seconds
+        poll_interval = 2.0  # 0.5→2초: 로그·부하 감소, 영상 워크플로는 완료까지 시간 걸림
         start = asyncio.get_event_loop().time()
+        last_log_at = 0.0
         while (asyncio.get_event_loop().time() - start) < max_wait:
             history = await _get_history(prompt_id)
             if prompt_id in history:
@@ -322,9 +323,20 @@ async def run_ltx23_image_to_video(
                     if first_video:
                         filename, subfolder, type_ = first_video
                         return await _get_video_bytes(filename, subfolder, type_)
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed - last_log_at >= 30.0:
+                logger.info(
+                    "ComfyUI LTX-2.3 대기 중 prompt_id=%s 경과 %.0fs (최대 %.0fs)",
+                    prompt_id[:8], elapsed, max_wait,
+                )
+                last_log_at = elapsed
             await asyncio.sleep(poll_interval)
 
-        raise TimeoutError(f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s")
+        raise TimeoutError(
+            f"ComfyUI LTX-2.3 workflow {prompt_id} did not finish within {max_wait}s. "
+            "영상 생성이 제한 시간 내에 완료되지 않았습니다. ComfyUI 서버 상태를 확인하거나 "
+            "COMFYUI_VIDEO_TIMEOUT_SECONDS를 늘린 후 다시 시도해 주세요."
+        )
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
         raise RuntimeError(
             f"ComfyUI server unreachable at {base_url}. "

@@ -182,7 +182,7 @@ export default function VideoPage() {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       {isProcessing && (
-        <LoadingOverlay message="동영상 생성 중... (LTX-2, 5~10분 소요될 수 있습니다. 최대 10분까지 기다려 주세요)" />
+        <LoadingOverlay message="동영상 생성 중... (LTX-2.3 / ComfyUI, 5~15분 소요될 수 있습니다. 완료까지 기다려 주세요)" />
       )}
 
       <div className="mx-auto max-w-4xl px-4">

@@ -70,6 +70,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+# httpx 매 요청 INFO 로그 방지 (ComfyUI /history 폴링 등 반복 요청 시 로그 과다)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _gpu_available() -> bool:

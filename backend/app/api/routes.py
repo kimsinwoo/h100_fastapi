@@ -1172,7 +1172,13 @@ async def _run_dance_job(job_id: str, image_bytes: bytes, motion_id: str, charac
                                     "processing_time": round(processing_time, 2)})
     except Exception as e:
         logger.exception("Dance job %s failed: %s", job_id, e)
-        _dance_jobs[job_id].update({"status": "failed", "error": str(e)})
+        err_msg = str(e)
+        if "did not finish within" in err_msg or "TimeoutError" in type(e).__name__:
+            err_msg = (
+                "영상 생성이 제한 시간(약 15분) 내에 완료되지 않았습니다. "
+                "ComfyUI 서버가 바쁘거나 워크플로가 지연 중일 수 있습니다. 잠시 후 다시 시도해 주세요."
+            )
+        _dance_jobs[job_id].update({"status": "failed", "error": err_msg})
 
 
 async def _run_dance_custom_job(job_id: str, image_bytes: bytes, video_bytes: bytes, character: str) -> None:
@@ -1186,7 +1192,14 @@ async def _run_dance_custom_job(job_id: str, image_bytes: bytes, video_bytes: by
                                     "processing_time": round(processing_time, 2)})
     except Exception as e:
         logger.exception("Dance custom job %s failed: %s", job_id, e)
-        _dance_jobs[job_id].update({"status": "failed", "error": str(e)})
+        err_msg = str(e)
+        # 타임아웃 시 사용자용 짧은 메시지 + 상세는 로그에
+        if "did not finish within" in err_msg or "TimeoutError" in type(e).__name__:
+            err_msg = (
+                "영상 생성이 제한 시간(약 15분) 내에 완료되지 않았습니다. "
+                "ComfyUI 서버가 바쁘거나 워크플로가 지연 중일 수 있습니다. 잠시 후 다시 시도해 주세요."
+            )
+        _dance_jobs[job_id].update({"status": "failed", "error": err_msg})
 
 
 # ---------- LLM (gpt-oss-20b) API ----------

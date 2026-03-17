@@ -946,6 +946,11 @@ export function getErrorMessage(error: unknown): string {
       }
     }
   }
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (/Dance generation timed out|timed out/i.test(msg))
+      return "영상 생성 대기 시간이 초과되었습니다. 서버가 바쁠 수 있으니 잠시 후 다시 시도해 주세요.";
+    return msg;
+  }
   return "오류가 발생했습니다.";
 }
