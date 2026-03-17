@@ -75,14 +75,20 @@ async def _get_image(filename: str, subfolder: str = "", type_: str = "output") 
 
 def _prepare_reference_video_for_comfyui(reference_video_path: Path) -> str | None:
     """
-    레퍼런스 영상을 ComfyUI가 읽을 수 있는 경로에 복사하고 파일명 반환.
-    COMFYUI_REFERENCE_VIDEO_DIR 이 설정되어 있어야 함. 없으면 None.
+    레퍼런스 영상을 ComfyUI가 읽을 수 있는 경로에 두고 파일명 반환.
+    COMFYUI_REFERENCE_VIDEO_DIR 설정 시: 이미 해당 디렉터리 안에 있으면 복사 없이 파일명만 반환,
+    아니면 해당 디렉터리로 복사 후 파일명 반환. 미설정 시 None.
     """
     settings = get_settings()
     ref_dir = getattr(settings, "comfyui_reference_video_dir", None)
     if not ref_dir:
         return None
-    dir_path = Path(ref_dir)
+    dir_path = Path(ref_dir).resolve()
+    if not reference_video_path.exists():
+        return None
+    # 이미 ref_dir 안에 있으면 복사 없이 파일명만 반환 (예: motions_dir 와 동일 경로로 설정한 경우)
+    if reference_video_path.parent.resolve() == dir_path:
+        return reference_video_path.name
     if not dir_path.is_dir():
         try:
             dir_path.mkdir(parents=True, exist_ok=True)
@@ -305,11 +311,44 @@ def _inject_ltx23_workflow_inputs(
     workflow: dict[str, Any],
     image_name: str,
     prompt_text: str,
+    negative_prompt_text: str = "",
     reference_video_filename: str | None = None,
 ) -> dict[str, Any]:
-    """워크플로에 업로드된 이미지·프롬프트·(선택)레퍼런스 영상 파일명 주입. LoadImage, CLIP, LoadVideo 등."""
+    """워크플로에 이미지·프롬프트(positive/negative)·(선택)레퍼런스 주입. LoadImage, PrimitiveStringMultiline(Prompt), CLIPTextEncode, LoadVideo 등."""
     import copy
     wf = copy.deepcopy(workflow)
+    # 1) PrimitiveStringMultiline "Prompt" (267:266): LTXV에서 positive가 여기서 나옴 → value 로 주입
+    for nid, node in wf.items():
+        if not isinstance(node, dict):
+            continue
+        ct = node.get("class_type") or ""
+        meta = node.get("_meta") or {}
+        title = (meta.get("title") or "").lower()
+        inputs = node.get("inputs") or {}
+        if "primitivestringmultiline" in ct.lower() and "prompt" in title and "value" in inputs:
+            node["inputs"] = {**inputs, "value": prompt_text}
+            logger.info("ComfyUI 프롬프트 주입(PrimitiveStringMultiline): 노드 %s value 길이=%d", nid, len(prompt_text))
+            break
+    # 2) CLIPTextEncode: node_id 순 첫 번째=positive, 두 번째=negative (연결 유지하면서 텍스트도 직접 주입)
+    clip_text_nodes = [
+        (nid, node) for nid, node in wf.items()
+        if isinstance(node, dict)
+        and "clip" in (node.get("class_type") or "").lower()
+        and "text" in (node.get("class_type") or "").lower()
+    ]
+    clip_text_nodes.sort(key=lambda x: x[0])
+    for i, (nid, node) in enumerate(clip_text_nodes):
+        inputs = node.get("inputs") or {}
+        text = prompt_text if i == 0 else (negative_prompt_text or "")
+        node["inputs"] = {**inputs, "text": text}
+    if clip_text_nodes:
+        pos_id = clip_text_nodes[0][0]
+        neg_id = clip_text_nodes[1][0] if len(clip_text_nodes) > 1 else None
+        logger.info(
+            "ComfyUI CLIP 주입: positive=%s(len=%d), negative=%s(len=%d)",
+            pos_id, len(prompt_text), neg_id or "-", len(negative_prompt_text),
+        )
+
     for nid, node in wf.items():
         if not isinstance(node, dict):
             continue
@@ -317,9 +356,7 @@ def _inject_ltx23_workflow_inputs(
         inputs = node.get("inputs") or {}
         if "loadimage" in ct or "load image" in ct:
             node["inputs"] = {**inputs, "image": image_name}
-        if "clip" in ct and "text" in ct:
-            node["inputs"] = {**inputs, "text": prompt_text}
-        # 레퍼런스 영상: LoadVideo / VHS_LoadVideo 등 (노드가 비디오를 읽는 경우)
+        # 레퍼런스 영상: LoadVideo / VHS_LoadVideo 등
         if reference_video_filename and "video" in ct and ("load" in ct or "vhs" in ct or "read" in ct or "file" in ct):
             for key in ("video", "file_path", "path", "filename", "input"):
                 if key in inputs:
@@ -327,7 +364,6 @@ def _inject_ltx23_workflow_inputs(
                     logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 %s=%s", nid, ct, key, reference_video_filename)
                     break
             else:
-                # 입력 키가 없으면 video 로 시도 (일부 노드는 기본 이름 사용)
                 node["inputs"] = {**inputs, "video": reference_video_filename}
                 logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 video=%s", nid, ct, reference_video_filename)
     return wf
@@ -399,7 +435,11 @@ async def run_ltx23_image_to_video(
                     "동일 동작 반영을 위해 .env에 COMFYUI_REFERENCE_VIDEO_DIR=ComfyUI의 input 폴더 경로 를 설정하고, "
                     "워크플로에 레퍼런스용 LoadVideo 노드가 있어야 합니다."
                 )
-        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt, reference_video_filename=ref_filename)
+        prompt_graph = _inject_ltx23_workflow_inputs(
+            graph, image_name, prompt,
+            negative_prompt_text=negative_prompt or "",
+            reference_video_filename=ref_filename,
+        )
 
         out = await _post_prompt(prompt_graph)
         if "error" in out:

@@ -100,16 +100,21 @@ def _get_mediapipe_pose_module():
     except (ImportError, AttributeError):
         pass
 
-    # 6) 실패 시 진단: mediapipe가 있으면 경로·속성 로그
+    # 6) 실패 시: mediapipe.tasks(PoseLandmarker) 폴백 사용 안내
     try:
         import mediapipe as mp
-        logger.warning(
-            "mediapipe는 설치되어 있으나 Pose 모듈을 찾지 못함. mediapipe.__file__=%s, dir(mediapipe)=%s. "
-            "첫 import 오류: %s",
-            getattr(mp, "__file__", None),
-            [x for x in dir(mp) if not x.startswith("_")],
-            _last_import_error or "unknown",
-        )
+        if "tasks" in dir(mp):
+            logger.info(
+                "mediapipe 레거시 Pose 없음(dir=%s). mediapipe.tasks(PoseLandmarker)로 포즈 추출 시도.",
+                [x for x in dir(mp) if not x.startswith("_")],
+            )
+        else:
+            logger.warning(
+                "mediapipe는 설치되어 있으나 Pose 모듈을 찾지 못함. mediapipe.__file__=%s, dir(mediapipe)=%s. 오류: %s",
+                getattr(mp, "__file__", None),
+                [x for x in dir(mp) if not x.startswith("_")],
+                _last_import_error or "unknown",
+            )
     except ImportError:
         logger.warning(
             "mediapipe 패키지 자체를 import할 수 없음. pip install mediapipe>=0.10.0 확인. 오류: %s",
@@ -198,16 +203,142 @@ def _extract_poses_mediapipe(video_path: Path, fps_out: float | None = None) -> 
     return MotionSequence(fps=out_fps, width=w, height=h, frames=frames_out)
 
 
+# MediaPipe Tasks API (mediapipe.tasks) — 레거시 mediapipe.python 없을 때 사용
+POSE_LANDMARKER_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task"
+)
+
+
+def _get_pose_landmarker_model_path() -> Path | None:
+    """Tasks API용 .task 모델 경로. 없으면 다운로드 시도 후 반환. 실패 시 None."""
+    from app.core.config import get_settings
+    settings = get_settings()
+    if getattr(settings, "pose_landmarker_model_path", None):
+        p = Path(settings.pose_landmarker_model_path)
+        if p.exists():
+            return p
+        logger.warning("POSE_LANDMARKER_MODEL_PATH not found: %s", p)
+    default = settings.pose_cache_dir / "pose_landmarker.task"
+    if default.exists():
+        return default
+    try:
+        import urllib.request
+        default.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading PoseLandmarker model to %s ...", default)
+        urllib.request.urlretrieve(POSE_LANDMARKER_MODEL_URL, default)
+        return default
+    except Exception as e:
+        logger.warning("PoseLandmarker model download failed: %s. Set POSE_LANDMARKER_MODEL_PATH to a .task file.", e)
+        return None
+
+
+def _extract_poses_mediapipe_tasks(video_path: Path, fps_out: float | None = None) -> MotionSequence | None:
+    """mediapipe.tasks.vision.PoseLandmarker (Tasks API)로 프레임별 포즈 추출. 레거시 solutions.pose 없을 때 사용."""
+    try:
+        import cv2
+    except ImportError as e:
+        logger.warning("Pose extraction (Tasks) requires opencv-python: %s", e)
+        return None
+    model_path = _get_pose_landmarker_model_path()
+    if not model_path or not model_path.exists():
+        return None
+    try:
+        from mediapipe.tasks import python as mp_tasks_python
+        from mediapipe.tasks.python import vision
+        BaseOptions = mp_tasks_python.BaseOptions
+        RunningMode = vision.RunningMode
+    except ImportError as e:
+        logger.warning("MediaPipe Tasks API not available: %s", e)
+        return None
+    try:
+        import mediapipe as mp
+    except ImportError:
+        return None
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        logger.error("Could not open video: %s", video_path)
+        return None
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    base_options = BaseOptions(model_asset_path=str(model_path))
+    options = vision.PoseLandmarkerOptions(
+        base_options=base_options,
+        running_mode=RunningMode.VIDEO,
+        min_pose_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    landmarker = vision.PoseLandmarker.create_from_options(options)
+    frames_out: list[FramePose] = []
+    frame_idx = 0
+    try:
+        while True:
+            ret, image = cap.read()
+            if not ret:
+                break
+            timestamp = frame_idx / fps if fps > 0 else float(frame_idx)
+            timestamp_ms = int(timestamp * 1000)
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            result = landmarker.detect_for_video(mp_image, timestamp_ms)
+            keypoints: list[Keypoint] = []
+            if result.pose_landmarks:
+                for pose_landmarks in result.pose_landmarks:
+                    lm = pose_landmarks
+                    try:
+                        n = len(lm)
+                    except TypeError:
+                        break
+                    if n > 12:
+                        p11 = lm[11]
+                        p12 = lm[12]
+                        lx = getattr(p11, "x", 0) * w
+                        ly = getattr(p11, "y", 0) * h
+                        rx = getattr(p12, "x", 0) * w
+                        ry = getattr(p12, "y", 0) * h
+                        keypoints.append(
+                            Keypoint(joint="neck", x=(lx + rx) / 2.0, y=(ly + ry) / 2.0)
+                        )
+                    for idx, name in MEDIAPIPE_TO_JOINT:
+                        if idx < n:
+                            p = lm[idx]
+                            keypoints.append(
+                                Keypoint(
+                                    joint=name,
+                                    x=getattr(p, "x", 0) * w,
+                                    y=getattr(p, "y", 0) * h,
+                                )
+                            )
+                    break
+            frames_out.append(FramePose(frame=frame_idx, timestamp=timestamp, keypoints=keypoints))
+            frame_idx += 1
+            if frame_count > 0 and frame_idx >= frame_count:
+                break
+    finally:
+        landmarker.close()
+    cap.release()
+    out_fps = fps_out if fps_out and fps_out > 0 else fps
+    if not frames_out:
+        return None
+    logger.info("Pose extraction (Tasks API) OK: %d frames from %s", len(frames_out), video_path.name)
+    return MotionSequence(fps=out_fps, width=w, height=h, frames=frames_out)
+
+
 def extract_poses_from_video(video_path: Path, fps_out: float | None = 30.0) -> MotionSequence | None:
     """
     Extract body skeleton keypoints from every frame of a video.
     Returns MotionSequence (frame, timestamp, keypoints per frame) or None if failed.
+    레거시 mediapipe.python.solutions.pose → 없으면 mediapipe.tasks.vision.PoseLandmarker 사용.
     """
     path = Path(video_path)
     if not path.exists() or not path.is_file():
         logger.error("Video file not found: %s", path)
         return None
-    return _extract_poses_mediapipe(path, fps_out=fps_out)
+    out = _extract_poses_mediapipe(path, fps_out=fps_out)
+    if out is not None:
+        return out
+    return _extract_poses_mediapipe_tasks(path, fps_out=fps_out)
 
 
 def normalize_motion(motion: MotionSequence) -> MotionSequence:

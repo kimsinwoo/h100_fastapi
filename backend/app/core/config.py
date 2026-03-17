@@ -211,6 +211,10 @@ class Settings(BaseSettings):
         default="data/pose_cache",
         description="Cached normalized pose JSON per motion_id.",
     )
+    pose_landmarker_model_path: str | None = Field(
+        default=None,
+        description="MediaPipe Tasks API용 .task 모델 경로. 비우면 data/pose_cache/pose_landmarker.task 사용(없으면 자동 다운로드 시도).",
+    )
 
     @property
     def motions_dir(self) -> Path:
