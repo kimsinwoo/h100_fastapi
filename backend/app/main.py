@@ -59,6 +59,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.api.routes import router as api_router
+from app.api.reels_routes import router as reels_router
 from app.utils.file_handler import ensure_generated_dir
 from app.services.image_service import is_pipeline_loaded, preload_pipeline
 
@@ -138,6 +139,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(api_router)
+    app.include_router(reels_router, prefix="/api")
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -270,6 +272,7 @@ def _get_app() -> FastAPI:
         expose_headers=["*"],
     )
     root.include_router(api_router)
+    root.include_router(reels_router, prefix="/api")
 
     @root.get("/health")
     async def _health() -> dict[str, str | bool]:

@@ -13,6 +13,7 @@ httpx>=0.27.0
 
 # --- ML (OmniGen 또는 Z-Image: diffusers OmniGenPipeline / ZImageImg2ImgPipeline) ---
 # torch와 torchvision은 반드시 같은 PyTorch 릴리스로 맞출 것 (버전 불일치 시 torchvision::nms 오류)
+# CUDA 버전은 run.sh에서 --index-url로 설치함 (여기서는 버전만 명시)
 torch>=2.2.0
 torchvision>=0.17.0
 diffusers>=0.36.0  # LTX-2 비디오 사용 시: pip install git+https://github.com/huggingface/diffusers.git
@@ -35,3 +36,10 @@ trl>=0.8.0
 
 # 배경 교체 (Cloud 테마: 세그멘테이션 → 구름 생성 → 합성). 없으면 img2img만 사용
 rembg[cpu]>=2.0.50
+
+# --- Reels Dance Motion LoRA ---
+# decord: fast video frame extraction (fallback to cv2 if unavailable)
+decord>=0.6.0
+# PyYAML: YAML config for training scripts
+PyYAML>=6.0
+# AnimateDiff requires diffusers>=0.25.0 (already covered above via >=0.36.0)

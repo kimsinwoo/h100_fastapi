@@ -54,12 +54,21 @@ def _extract_poses_mediapipe(video_path: Path, fps_out: float | None = None) -> 
     """Extract body keypoints per frame using MediaPipe Pose. Returns None if dependency missing."""
     try:
         import cv2
-        import mediapipe as mp
     except ImportError as e:
-        logger.warning("Pose extraction requires opencv-python and mediapipe: %s", e)
+        logger.warning("Pose extraction requires opencv-python: %s", e)
         return None
 
-    mp_pose = mp.solutions.pose
+    try:
+        # mediapipe 0.10+ moved solutions under mediapipe.python.solutions
+        from mediapipe.python.solutions import pose as mp_pose
+    except ImportError:
+        try:
+            import mediapipe as mp
+            mp_pose = mp.solutions.pose
+        except (ImportError, AttributeError) as e:
+            logger.warning("Pose extraction requires mediapipe: %s", e)
+            return None
+
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         logger.error("Could not open video: %s", video_path)

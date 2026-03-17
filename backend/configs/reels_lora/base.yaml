@@ -1,0 +1,39 @@
+# Reels Dance LoRA — Base Training Configuration
+# Override any field via CLI: --num_train_steps 10000
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+base_model: "runwayml/stable-diffusion-v1-5"
+motion_adapter: "guoyww/animatediff-motion-adapter-v1-5-2"
+
+# ── LoRA ──────────────────────────────────────────────────────────────────────
+lora_rank: 32          # Higher = more expressive but more VRAM. H100: try 64.
+lora_alpha: 32         # Usually equal to rank
+lora_dropout: 0.05
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+video_dir: "data/reels_raw"       # Structure: video_dir/{category}/*.mp4
+cache_dir: "data/reels_cache"
+clip_frames: 16                   # Frames per training clip (8–32)
+image_size: 512                   # Training resolution (256/512/768)
+batch_size: 2                     # Per-GPU batch size
+num_workers: 4
+
+# ── Training ──────────────────────────────────────────────────────────────────
+num_train_steps: 5000             # 3000–10000 for good convergence
+gradient_accumulation_steps: 4   # Effective batch = batch_size × accum_steps
+learning_rate: 0.0001             # 1e-4 recommended for LoRA
+lr_warmup_steps: 200
+weight_decay: 0.01
+max_grad_norm: 1.0
+mixed_precision: "bf16"           # H100: use bf16. V100/A100: fp16.
+gradient_checkpointing: true
+
+# ── H100 Optimizations ────────────────────────────────────────────────────────
+enable_tf32: true
+enable_torch_compile: false       # true = faster after warm-up, slow first run
+enable_flash_attention: true
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output_dir: "data/reels_lora"
+save_every: 500
+log_every: 50

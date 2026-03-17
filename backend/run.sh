@@ -10,6 +10,14 @@ fi
 
 # 첫 설치 시 torch/diffusers 등 대용량 패키지로 10~20분 걸릴 수 있음. 타임아웃·바이너리 우선으로 설치
 PIP_TIMEOUT="${PIP_INSTALL_TIMEOUT:-900}"
+
+# torch CUDA 버전 확인 후 CPU-only면 CUDA 버전으로 재설치 (H100 서버 전용)
+TORCH_CUDA=$(python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False")
+if [ "$TORCH_CUDA" = "False" ]; then
+  echo "CUDA not detected in current torch. Installing CUDA-enabled torch (cu121)..."
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --timeout "$PIP_TIMEOUT" -q
+fi
+
 echo "Installing dependencies (timeout=${PIP_TIMEOUT}s, first run may take 10-20 min)..."
 if [ -n "${PIP_VERBOSE:-}" ]; then
   pip install -r requirements.txt --timeout "$PIP_TIMEOUT" --prefer-binary

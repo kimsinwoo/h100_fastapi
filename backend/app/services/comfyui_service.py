@@ -55,12 +55,11 @@ async def _post_prompt(prompt: dict[str, Any], client_id: str | None = None) -> 
 
 
 async def _get_history(prompt_id: str) -> dict[str, Any]:
-    """GET /history/{prompt_id} → execution result with outputs."""
+    """GET /history/{prompt_id} → raw response dict. 폴링 측에서 prompt_id 키 여부로 완료 판단."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(f"{_base()}/history/{prompt_id}")
         r.raise_for_status()
-        data = r.json()
-        return data.get(prompt_id, data)
+        return r.json()
 
 
 async def _get_image(filename: str, subfolder: str = "", type_: str = "output") -> bytes:
