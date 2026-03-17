@@ -73,6 +73,33 @@ async def _get_image(filename: str, subfolder: str = "", type_: str = "output") 
         return r.content
 
 
+def _prepare_reference_video_for_comfyui(reference_video_path: Path) -> str | None:
+    """
+    레퍼런스 영상을 ComfyUI가 읽을 수 있는 경로에 복사하고 파일명 반환.
+    COMFYUI_REFERENCE_VIDEO_DIR 이 설정되어 있어야 함. 없으면 None.
+    """
+    settings = get_settings()
+    ref_dir = getattr(settings, "comfyui_reference_video_dir", None)
+    if not ref_dir:
+        return None
+    dir_path = Path(ref_dir)
+    if not dir_path.is_dir():
+        try:
+            dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning("ComfyUI 레퍼런스 디렉터리 생성 실패 %s: %s", ref_dir, e)
+            return None
+    name = f"ref_{uuid.uuid4().hex[:12]}{reference_video_path.suffix or '.mp4'}"
+    dest = dir_path / name
+    try:
+        import shutil
+        shutil.copy2(reference_video_path, dest)
+        return name
+    except Exception as e:
+        logger.warning("레퍼런스 영상 복사 실패 %s -> %s: %s", reference_video_path, dest, e)
+        return None
+
+
 async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[str, str]:
     """ComfyUI에 이미지 업로드. POST /upload/image → { name, subfolder }."""
     name = filename or f"ltx_input_{uuid.uuid4().hex[:12]}.png"
@@ -274,8 +301,13 @@ async def health_check() -> bool:
         return False
 
 
-def _inject_ltx23_workflow_inputs(workflow: dict[str, Any], image_name: str, prompt_text: str) -> dict[str, Any]:
-    """워크플로에 업로드된 이미지 파일명과 프롬프트를 주입. ComfyUI 노드: LoadImage, CLIPTextEncode 등."""
+def _inject_ltx23_workflow_inputs(
+    workflow: dict[str, Any],
+    image_name: str,
+    prompt_text: str,
+    reference_video_filename: str | None = None,
+) -> dict[str, Any]:
+    """워크플로에 업로드된 이미지·프롬프트·(선택)레퍼런스 영상 파일명 주입. LoadImage, CLIP, LoadVideo 등."""
     import copy
     wf = copy.deepcopy(workflow)
     for nid, node in wf.items():
@@ -287,6 +319,17 @@ def _inject_ltx23_workflow_inputs(workflow: dict[str, Any], image_name: str, pro
             node["inputs"] = {**inputs, "image": image_name}
         if "clip" in ct and "text" in ct:
             node["inputs"] = {**inputs, "text": prompt_text}
+        # 레퍼런스 영상: LoadVideo / VHS_LoadVideo 등 (노드가 비디오를 읽는 경우)
+        if reference_video_filename and "video" in ct and ("load" in ct or "vhs" in ct or "read" in ct or "file" in ct):
+            for key in ("video", "file_path", "path", "filename", "input"):
+                if key in inputs:
+                    node["inputs"] = {**inputs, key: reference_video_filename}
+                    logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 %s=%s", nid, ct, key, reference_video_filename)
+                    break
+            else:
+                # 입력 키가 없으면 video 로 시도 (일부 노드는 기본 이름 사용)
+                node["inputs"] = {**inputs, "video": reference_video_filename}
+                logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 video=%s", nid, ct, reference_video_filename)
     return wf
 
 
@@ -301,6 +344,7 @@ async def run_ltx23_image_to_video(
     num_inference_steps: int = 8,
     guidance_scale: float = 1.0,
     seed: int | None = None,
+    reference_video_path: Path | None = None,
 ) -> bytes:
     """
     LTX-2.3 이미지→비디오를 ComfyUI(LTXVideo 노드)로 실행.
@@ -342,7 +386,20 @@ async def run_ltx23_image_to_video(
 
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")
-        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt)
+        ref_filename: str | None = None
+        if reference_video_path and reference_video_path.exists():
+            ref_filename = _prepare_reference_video_for_comfyui(reference_video_path)
+            if ref_filename:
+                logger.info("레퍼런스 영상을 ComfyUI용으로 준비함: %s", ref_filename)
+            elif getattr(get_settings(), "comfyui_reference_video_dir", None):
+                logger.warning("레퍼런스 영상 복사 실패. COMFYUI_REFERENCE_VIDEO_DIR 경로 확인.")
+            else:
+                logger.info(
+                    "레퍼런스 영상이 ComfyUI에 전달되지 않음. "
+                    "동일 동작 반영을 위해 .env에 COMFYUI_REFERENCE_VIDEO_DIR=ComfyUI의 input 폴더 경로 를 설정하고, "
+                    "워크플로에 레퍼런스용 LoadVideo 노드가 있어야 합니다."
+                )
+        prompt_graph = _inject_ltx23_workflow_inputs(graph, image_name, prompt, reference_video_filename=ref_filename)
 
         out = await _post_prompt(prompt_graph)
         if "error" in out:

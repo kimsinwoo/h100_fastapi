@@ -12,6 +12,7 @@ import asyncio
 import io
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
@@ -542,6 +543,7 @@ async def run_image_to_video(
     guidance_scale: float = DEFAULT_GUIDANCE_SCALE,
     seed: int | None = None,
     condition_strength: float | None = None,
+    reference_video_path: Path | None = None,
 ) -> tuple[bytes, float]:
     settings = get_settings()
     # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
@@ -582,6 +584,7 @@ async def run_image_to_video(
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
             seed=seed,
+            reference_video_path=reference_video_path,
         )
         return out_bytes, time.perf_counter() - start
 

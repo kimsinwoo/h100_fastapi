@@ -249,6 +249,10 @@ class Settings(BaseSettings):
         le=7200.0,
         description="ComfyUI 영상 워크플로 전용 대기 시간(초). 미설정 시 comfyui_timeout_seconds 사용. 20분 이상 걸리면 1200~1800 권장.",
     )
+    comfyui_reference_video_dir: str | None = Field(
+        default=None,
+        description="ComfyUI가 레퍼런스 영상을 읽는 디렉터리(절대경로). 설정 시 커스텀 댄스 시 업로드한 레퍼런스 영상을 여기 복사 후 워크플로에 파일명 주입. ComfyUI input 경로와 동일하게 맞추면 됨.",
+    )
     pipelines_dir_name: str = Field(
         default="pipelines",
         description="ComfyUI 워크플로우 JSON 보관 (backend_dir 기준)",
