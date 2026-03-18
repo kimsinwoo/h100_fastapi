@@ -8,10 +8,12 @@ import {
   getErrorMessage,
   getApiResourceUrl,
   getDanceMotions,
+  getDanceList,
+  refreshDanceList,
   generateDance,
   generateDanceCustom,
 } from "../services/api";
-import type { GenerateVideoResponse, DanceMotionItem } from "../services/api";
+import type { GenerateVideoResponse, DanceMotionItem, DanceVideoInfo } from "../services/api";
 import {
   VIDEO_PRESETS,
   VIDEO_PRESETS_TOP_20,
@@ -44,8 +46,11 @@ export default function VideoPage() {
   const [state, setState] = useState<VideoState>({ phase: "idle" });
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
   const [danceMotions, setDanceMotions] = useState<DanceMotionItem[]>([]);
-  const [selectedMotionId, setSelectedMotionId] = useState<string>("rat_dance");
+  const [danceList, setDanceList] = useState<DanceVideoInfo[]>([]);
+  const [selectedMotionId, setSelectedMotionId] = useState<string>("");
   const [danceCharacter, setDanceCharacter] = useState<"dog" | "cat">("dog");
+  const [danceListLoading, setDanceListLoading] = useState(false);
+  const [danceListRefreshing, setDanceListRefreshing] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const [customRefVideo, setCustomRefVideo] = useState<File | null>(null);
   const [customCharacter, setCustomCharacter] = useState<"dog" | "cat">("dog");
@@ -56,9 +61,36 @@ export default function VideoPage() {
     getHealth()
       .then((r) => setGpuAvailable(r.gpu_available))
       .catch(() => setGpuAvailable(null));
-    getDanceMotions()
-      .then(setDanceMotions)
-      .catch(() => setDanceMotions([]));
+
+    setDanceListLoading(true);
+    Promise.all([getDanceList(), getDanceMotions()])
+      .then(([listRes, motions]) => {
+        setDanceMotions(motions);
+        const dances = listRes.dances ?? [];
+        setDanceList(dances);
+        if (dances.length > 0) setSelectedMotionId(dances[0].id);
+        else if (motions.length > 0) setSelectedMotionId(motions[0].id);
+        else setSelectedMotionId("rat_dance");
+      })
+      .catch(() => {
+        setDanceList([]);
+        getDanceMotions().then(setDanceMotions).catch(() => setDanceMotions([]));
+      })
+      .finally(() => setDanceListLoading(false));
+  }, []);
+
+  const handleRefreshDanceList = useCallback(async () => {
+    setDanceListRefreshing(true);
+    try {
+      await refreshDanceList();
+      const r = await getDanceList();
+      setDanceList(r.dances);
+      if (r.dances.length > 0) setSelectedMotionId(r.dances[0].id);
+    } catch {
+      setDanceList([]);
+    } finally {
+      setDanceListRefreshing(false);
+    }
   }, []);
 
   const handlePreset = useCallback((preset: VideoPresetItem) => {
@@ -287,6 +319,89 @@ export default function VideoPage() {
               className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               동영상 생성
+            </button>
+          </section>
+
+          <hr className="border-gray-200" />
+
+          <section>
+            <h2 className="mb-1 text-sm font-semibold text-gray-700">사전 등록된 댄스 영상으로 생성</h2>
+            <p className="mb-3 text-xs text-gray-500">
+              서버에 등록된 댄스 영상 중 하나를 선택하면, 업로드한 캐릭터 이미지가 해당 동작을 따라 움직입니다.
+            </p>
+            {danceListLoading ? (
+              <p className="mb-3 text-sm text-gray-500">댄스 목록 불러오는 중...</p>
+            ) : danceList.length > 0 ? (
+              <>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="text-xs font-medium text-gray-600">댄스 영상 선택</label>
+                  <button
+                    type="button"
+                    onClick={handleRefreshDanceList}
+                    disabled={danceListRefreshing || isProcessing}
+                    className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {danceListRefreshing ? "새로고침 중..." : "목록 새로고침"}
+                  </button>
+                </div>
+                <div className="mb-3 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+                  {danceList.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setSelectedMotionId(d.id)}
+                      disabled={isProcessing}
+                      className={`mb-1 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                        selectedMotionId === d.id
+                          ? "border-indigo-500 bg-indigo-50 text-indigo-800"
+                          : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
+                      }`}
+                    >
+                      <span className="font-medium">{d.display_name}</span>
+                      <span className="text-xs text-gray-500">
+                        {d.duration_seconds.toFixed(1)}초 · {d.file_size_mb.toFixed(1)}MB
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-800">
+                등록된 댄스 영상이 없습니다. 서버의 motions 폴더에 mp4 파일을 넣고 아래 새로고침을 눌러주세요.
+                <button
+                  type="button"
+                  onClick={handleRefreshDanceList}
+                  disabled={danceListRefreshing || isProcessing}
+                  className="ml-2 rounded border border-amber-400 bg-white px-2 py-1 text-xs hover:bg-amber-50 disabled:opacity-50"
+                >
+                  {danceListRefreshing ? "새로고침 중..." : "목록 새로고침"}
+                </button>
+              </div>
+            )}
+            <div className="mb-3 flex gap-2">
+              {(["dog", "cat"] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setDanceCharacter(c)}
+                  disabled={isProcessing}
+                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${
+                    danceCharacter === c
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-indigo-400"
+                  }`}
+                >
+                  {c === "dog" ? "강아지" : "고양이"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleDanceGenerate}
+              disabled={!canDanceGenerate}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              선택한 댄스로 영상 생성
             </button>
           </section>
 

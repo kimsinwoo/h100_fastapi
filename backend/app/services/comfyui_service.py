@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.core.exceptions import WorkflowVideoNodeNotFoundError
 from app.utils.file_handler import ensure_generated_dir
 
 logger = logging.getLogger(__name__)
@@ -354,30 +355,38 @@ def _inject_ltx23_workflow_inputs(
             pos_id, len(prompt_text), neg_id or "-", len(negative_prompt_text),
         )
 
+    # 레퍼런스 영상: VHS_LoadVideo / VHS_LoadVideoPath / LoadVideo 노드에만 주입 (class_type 대소문자 무시)
+    REF_VIDEO_NODE_TYPES = frozenset(("vhs_loadvideo", "vhs_loadvideopath", "loadvideo"))
     ref_injected = False
     for nid, node in wf.items():
         if not isinstance(node, dict):
             continue
-        ct = (node.get("class_type") or "").lower()
+        ct = node.get("class_type") or ""
+        ct_lower = ct.lower()
         inputs = node.get("inputs") or {}
-        if "loadimage" in ct or "load image" in ct:
+        if "loadimage" in ct_lower or "load image" in ct_lower:
             node["inputs"] = {**inputs, "image": image_name}
-        # 레퍼런스 영상: LoadVideo / VHS_LoadVideo 등
-        if reference_video_filename and "video" in ct and ("load" in ct or "vhs" in ct or "read" in ct or "file" in ct):
+        if reference_video_filename and ct_lower in REF_VIDEO_NODE_TYPES:
             for key in ("video", "file_path", "path", "filename", "input"):
                 if key in inputs:
                     node["inputs"] = {**inputs, key: reference_video_filename}
-                    logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 %s=%s", nid, ct, key, reference_video_filename)
+                    logger.info(
+                        "댄스 영상 주입 완료: 노드 %s (%s) 입력 %s=%s",
+                        nid, ct, key, reference_video_filename,
+                    )
                     break
             else:
                 node["inputs"] = {**inputs, "video": reference_video_filename}
-                logger.info("ComfyUI 레퍼런스 영상 주입: 노드 %s (%s) 입력 video=%s", nid, ct, reference_video_filename)
+                logger.info(
+                    "댄스 영상 주입 완료: 노드 %s (%s) ← %s",
+                    nid, ct, reference_video_filename,
+                )
             ref_injected = True
+            break  # 첫 번째 매칭 노드에만 주입
     if reference_video_filename and not ref_injected:
-        logger.warning(
-            "레퍼런스 파일명=%s 이지만 워크플로에 레퍼런스용 비디오 입력 노드(LoadVideo 등)가 없어 주입되지 않음. "
-            "ComfyUI에서 레퍼런스 영상을 받는 노드를 추가한 뒤 API 포맷으로 저장해야 동작이 반영됩니다.",
-            reference_video_filename,
+        raise WorkflowVideoNodeNotFoundError(
+            f"레퍼런스 파일명={reference_video_filename}. "
+            "ComfyUI UI에서 VHS_LoadVideo 노드를 추가하고 API 포맷으로 저장한 뒤 재시도하세요."
         )
     return wf
 

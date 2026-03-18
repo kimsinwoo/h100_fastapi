@@ -43,3 +43,21 @@ class EmptyDanceLibraryError(DogDanceException):
             message=f"댄스 영상 폴더({path})가 비어있습니다. mp4, mov, avi 파일을 추가 후 POST /api/dance/refresh 를 호출하세요.",
             status_code=404,
         )
+
+
+class WorkflowVideoNodeNotFoundError(DogDanceException):
+    """
+    워크플로우에 VHS_LoadVideo 노드가 없을 때 발생.
+    ComfyUI UI에서 VHS_LoadVideo 노드 추가 후 API 포맷 export 미완료를 의미.
+    """
+
+    def __init__(self, detail: str = ""):
+        super().__init__(
+            message=(
+                "워크플로우에 댄스 영상 입력 노드(VHS_LoadVideo)가 없습니다. "
+                "ComfyUI UI에서 VHS_LoadVideo 노드를 추가하고 "
+                "API 포맷으로 다시 export한 뒤 ltx23_i2v.json을 교체하세요. "
+                f"{detail}"
+            ).strip(),
+            status_code=500,
+        )

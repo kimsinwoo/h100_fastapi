@@ -432,6 +432,36 @@ export async function getDanceMotions(): Promise<DanceMotionItem[]> {
   return Array.isArray(data) ? data : [];
 }
 
+/** 사전 등록 댄스 영상 한 건 (GET /api/dance/list) */
+export type DanceVideoInfo = {
+  id: string;
+  display_name: string;
+  filename: string;
+  duration_seconds: number;
+  fps: number;
+  width: number;
+  height: number;
+  frame_count: number;
+  file_size_mb: number;
+};
+
+export type DanceListResponse = {
+  total: number;
+  dances: DanceVideoInfo[];
+};
+
+/** 서버 폴더(motions/ 등)에 등록된 댄스 영상 목록 */
+export async function getDanceList(): Promise<DanceListResponse> {
+  const { data } = await api.get<DanceListResponse>("/api/dance/list");
+  return { total: data?.total ?? 0, dances: Array.isArray(data?.dances) ? data.dances : [] };
+}
+
+/** 댄스 폴더 재스캔 후 목록 갱신 */
+export async function refreshDanceList(): Promise<{ message: string; added: string[]; total: number }> {
+  const { data } = await api.post<{ message: string; added: string[]; total: number }>("/api/dance/refresh");
+  return data;
+}
+
 export async function generateDance(
   file: File,
   motionId: string,
