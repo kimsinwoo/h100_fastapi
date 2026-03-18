@@ -84,6 +84,7 @@ def patch_workflow() -> None:
 
     # VHS_LoadVideo 노드 추가 (기존 연결은 변경하지 않음 — 런타임에 파일명만 주입)
     new_id = next_node_id(graph)
+    # _meta.title 은 영문만 사용 (ComfyUI가 노드 타입 조회 시 한글 제목으로 인한 오류 방지)
     vhs_node = {
         "class_type": "VHS_LoadVideo",
         "inputs": {
@@ -96,7 +97,7 @@ def patch_workflow() -> None:
             "skip_first_frames": 0,
             "select_every_nth": 1,
         },
-        "_meta": {"title": "댄스 영상 입력 (자동 패치)"},
+        "_meta": {"title": "VHS Load Video"},
     }
     graph[new_id] = vhs_node
     print(f"VHS_LoadVideo 노드 추가: ID={new_id} (런타임에 video 파일명 주입)")

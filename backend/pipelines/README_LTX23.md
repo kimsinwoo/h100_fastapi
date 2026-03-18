@@ -20,13 +20,21 @@
 
 커스텀 댄스 영상을 워크플로에 반영하려면:
 
-1. ComfyUI에서 **Video Helper Suite** 설치 후 **VHS Load Video** 노드를 워크플로에 추가합니다.
-2. 해당 노드의 **IMAGE** 출력을 포즈/ControlNet 등 레퍼런스를 받는 노드에 연결합니다.
-3. **Save (API Format)** 으로 저장한 JSON을 **`ltx23_i2v_ref.json`** 이름으로 이 폴더에 둡니다.
+1. **Video Helper Suite 설치 (필수)** — `VHS_LoadVideo` 노드가 없으면 400 missing_node_type 오류가 납니다.
+   ```bash
+   cd ComfyUI/custom_nodes
+   git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+   pip install -r ComfyUI-VideoHelperSuite/requirements.txt
+   ```
+   설치 후 ComfyUI를 재시작하세요.
+
+2. ComfyUI에서 **VHS Load Video** 노드를 워크플로에 추가하거나, backend에서 `python scripts/patch_workflow.py` 로 자동 패치합니다.
+3. 해당 노드의 **IMAGE** 출력을 포즈/ControlNet 등 레퍼런스를 받는 노드에 연결합니다.
+4. **Save (API Format)** 으로 저장한 JSON을 **`ltx23_i2v_ref.json`** 이름으로 이 폴더에 둡니다.
 
 레퍼런스 영상을 사용하는 요청이 들어오면 백엔드는 `ltx23_i2v_ref.json` 이 있으면 이를 사용하고, 없으면 기본 `ltx23_i2v.json` 만 사용합니다 (이 경우 레퍼런스 미반영 시 에러로 안내).
 
-4. `.env` 에 **`COMFYUI_REFERENCE_VIDEO_DIR`** = ComfyUI의 input 폴더 절대 경로를 설정하면, 업로드/선택된 댄스 영상이 해당 폴더로 복사된 뒤 파일명이 워크플로에 주입됩니다.
+5. `.env` 에 **`COMFYUI_REFERENCE_VIDEO_DIR`** = ComfyUI의 input 폴더 절대 경로를 설정하면, 업로드/선택된 댄스 영상이 해당 폴더로 복사된 뒤 파일명이 워크플로에 주입됩니다.
 
 ## 성능·품질 (LTX-2.3 distilled)
 

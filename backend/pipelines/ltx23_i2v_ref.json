@@ -676,7 +676,7 @@
         "select_every_nth": 1
       },
       "_meta": {
-        "title": "댄스 영상 입력 (자동 패치)"
+        "title": "VHS Load Video"
       }
     }
   }

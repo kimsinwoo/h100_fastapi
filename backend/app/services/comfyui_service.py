@@ -615,6 +615,26 @@ async def run_ltx23_image_to_video(
                 body = e.response.text[:500] if e.response.text else ""
             except Exception:
                 pass
+        # VHS_LoadVideo 등 missing_node_type → Video Helper Suite 미설치 안내
+        if e.response and e.response.status_code == 400 and body:
+            try:
+                import json as _json
+                data = _json.loads(e.response.text) if e.response.text else {}
+                err = data.get("error") or {}
+                if err.get("type") == "missing_node_type":
+                    class_type = (err.get("extra_info") or {}).get("class_type") or ""
+                    if "VHS_LoadVideo" in class_type or "LoadVideo" in (err.get("message") or ""):
+                        raise RuntimeError(
+                            "ComfyUI에 Video Helper Suite가 설치되어 있지 않습니다. "
+                            "레퍼런스 댄스 영상을 사용하려면 다음을 실행한 뒤 ComfyUI를 재시작하세요:\n"
+                            "  cd ComfyUI/custom_nodes\n"
+                            "  git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite\n"
+                            "  pip install -r ComfyUI-VideoHelperSuite/requirements.txt"
+                        ) from e
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
         msg = f"ComfyUI returned {e.response.status_code if e.response else 'error'} for /prompt."
         if body:
             msg += f" Response: {body}"
