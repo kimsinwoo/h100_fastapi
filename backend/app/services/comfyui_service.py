@@ -313,6 +313,69 @@ async def health_check() -> bool:
         return False
 
 
+def _load_workflow_graph(
+    workflow_name: str,
+    pipelines_dir: Path,
+    prefer_ref: bool = False,
+) -> dict[str, Any]:
+    """
+    워크플로우 로드. 우선순위:
+      1) prefer_ref 시 pipelines/{name}_ref.json
+      2) pipelines/{name}.json
+      3) pipelines/comfyui_ltx23_workflow.json
+    반환: ComfyUI API용 prompt 맵 (node_id -> node_spec).
+    """
+    candidates: list[Path] = []
+    if prefer_ref:
+        candidates.append(pipelines_dir / f"{workflow_name}_ref.json")
+    candidates.append(pipelines_dir / f"{workflow_name}.json")
+    candidates.append(pipelines_dir / "comfyui_ltx23_workflow.json")
+
+    for path in candidates:
+        if path.exists():
+            raw = _load_workflow_json(path)
+            graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
+            if isinstance(graph, dict):
+                logger.info("워크플로우 로드: %s", path.name)
+                return graph
+    raise FileNotFoundError(
+        f"워크플로우 파일을 찾을 수 없습니다. 탐색: {[str(c) for c in candidates]}. "
+        "scripts/patch_workflow.py 를 실행한 뒤 다시 시도하세요."
+    )
+
+
+def inject_reference_video(workflow: dict[str, Any], video_filename: str) -> None:
+    """
+    워크플로우의 VHS_LoadVideo 계열 노드에 댄스 영상 파일명을 주입 (in-place).
+    노드가 없으면 RuntimeError (patch_workflow.py 안내).
+    """
+    LOAD_VIDEO_TYPES = ("VHS_LoadVideo", "VHS_LoadVideoPath", "LoadVideo")
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        if node.get("class_type") in LOAD_VIDEO_TYPES:
+            inputs = node.get("inputs") or {}
+            if "video" in inputs:
+                inputs["video"] = video_filename
+            else:
+                node["inputs"] = {**inputs, "video": video_filename}
+            logger.info(
+                "[inject_reference_video] 완료: 노드 %s (%s) ← %s",
+                node_id, node.get("class_type"), video_filename,
+            )
+            return
+    node_list = [
+        f"[{nid}]{n.get('class_type')}"
+        for nid, n in workflow.items()
+        if isinstance(n, dict)
+    ]
+    raise RuntimeError(
+        "워크플로우에 VHS_LoadVideo 노드가 없습니다. "
+        "backend에서 python scripts/patch_workflow.py 를 실행하여 워크플로우를 패치하세요. "
+        f"현재 노드: {node_list[:20]}{'...' if len(node_list) > 20 else ''}"
+    )
+
+
 def _inject_ltx23_workflow_inputs(
     workflow: dict[str, Any],
     image_name: str,
@@ -422,41 +485,14 @@ async def run_ltx23_image_to_video(
         raise RuntimeError("ComfyUI is disabled (COMFYUI_ENABLED=false)")
 
     workflow_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
-    workflow_path = settings.pipelines_dir / f"{workflow_name}.json"
-    if not workflow_path.exists():
-        workflow_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
-    # 레퍼런스 영상이 있으면 *_ref.json 워크플로우 우선 사용 (VHS_LoadVideo 등 포함된 전용 워크플로)
-    if reference_video_path and reference_video_path.exists():
-        ref_workflow = settings.pipelines_dir / f"{workflow_name}_ref.json"
-        if ref_workflow.exists():
-            workflow_path = ref_workflow
-            logger.info("레퍼런스 영상 사용: 워크플로우 %s 사용", ref_workflow.name)
-    if not workflow_path.exists():
-        raise RuntimeError(
-            f"LTX-2.3 ComfyUI workflow not found. Tried: {workflow_name}.json and comfyui_ltx23_workflow.json in {settings.pipelines_dir}. "
-            "Export your LTXVideo workflow from ComfyUI and save to pipelines/ (see pipelines/README_LTX23.md)."
-        )
+    prefer_ref = bool(reference_video_path and reference_video_path.exists())
+    try:
+        graph = _load_workflow_graph(workflow_name, settings.pipelines_dir, prefer_ref=prefer_ref)
+    except FileNotFoundError as e:
+        raise RuntimeError(str(e)) from e
 
     base_url = settings.comfyui_base_url
     try:
-        raw = _load_workflow_json(workflow_path)
-        # ComfyUI /prompt API expects only the prompt map (node_id -> { class_type, inputs, _meta }).
-        # Full workflow JSON has "prompt", "last_node_id", "version", "nodes", "links" etc.; send only "prompt".
-        graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
-        if not isinstance(graph, dict):
-            raise RuntimeError(
-                "Workflow file must be in ComfyUI API format: include a 'prompt' key with node_id -> node_spec. "
-                "In ComfyUI use Save (API Format) or export the prompt-only JSON."
-            )
-        # When we used full raw (no "prompt" key), ensure it is prompt-only (every value is a node dict)
-        if graph is raw:
-            for k, v in graph.items():
-                if not isinstance(v, dict) or "class_type" not in v or "inputs" not in v:
-                    raise RuntimeError(
-                        "Workflow file must be in ComfyUI API format (prompt-only). "
-                        "Save your workflow in ComfyUI as 'Save (API Format)' and use that JSON."
-                    )
-
         uploaded = await upload_image(image_bytes)
         image_name = uploaded.get("name", "image.png")
         ref_filename: str | None = None
@@ -464,6 +500,7 @@ async def run_ltx23_image_to_video(
             ref_filename = _prepare_reference_video_for_comfyui(reference_video_path)
             if ref_filename:
                 logger.info("레퍼런스 영상을 ComfyUI용으로 준비함: %s", ref_filename)
+                inject_reference_video(graph, ref_filename)  # 반드시 먼저 주입, 노드 없으면 여기서 에러
             elif getattr(get_settings(), "comfyui_reference_video_dir", None):
                 logger.warning("레퍼런스 영상 복사 실패. COMFYUI_REFERENCE_VIDEO_DIR 경로 확인.")
             else:
