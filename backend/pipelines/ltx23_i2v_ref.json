@@ -354,7 +354,7 @@
           0
         ],
         "latent": [
-          "267:228",
+          "303",
           0
         ]
       },
@@ -663,20 +663,82 @@
         "title": "Math Expression"
       }
     },
-    "274": {
+    "300": {
       "class_type": "VHS_LoadVideo",
       "inputs": {
         "video": "__DANCE_VIDEO_PLACEHOLDER__",
-        "force_rate": 8,
+        "force_rate": 24,
         "force_size": "Custom Width x Custom Height",
-        "custom_width": 768,
-        "custom_height": 512,
-        "frame_load_cap": 49,
+        "custom_width": 720,
+        "custom_height": 1280,
+        "frame_load_cap": 121,
         "skip_first_frames": 0,
-        "select_every_nth": 1
+        "select_every_nth": 1,
+        "meta_batch_size": 16
       },
       "_meta": {
         "title": "VHS Load Video"
+      }
+    },
+    "301": {
+      "class_type": "ResizeImageMaskNode",
+      "inputs": {
+        "resize_type": "scale dimensions",
+        "resize_type.width": [
+          "267:257",
+          0
+        ],
+        "resize_type.height": [
+          "267:258",
+          0
+        ],
+        "resize_type.crop": "center",
+        "scale_method": "lanczos",
+        "input": [
+          "300",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "Dance video resize"
+      }
+    },
+    "302": {
+      "class_type": "LTXVPreprocess",
+      "inputs": {
+        "img_compression": 18,
+        "image": [
+          "301",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "Dance preprocess"
+      }
+    },
+    "303": {
+      "class_type": "LTXVImgToVideoInplace",
+      "inputs": {
+        "strength": 0.85,
+        "bypass": [
+          "267:201",
+          0
+        ],
+        "vae": [
+          "267:236",
+          2
+        ],
+        "image": [
+          "302",
+          0
+        ],
+        "latent": [
+          "267:228",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "Dance motion encode"
       }
     }
   }

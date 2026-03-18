@@ -420,7 +420,7 @@ def _load_workflow_graph(
             raw = _load_workflow_json(path)
             graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
             if isinstance(graph, dict):
-                logger.info("워크플로우 로드: %s", path.name)
+                logger.info("워크플로우 로드: %s (노드 수: %d)", path.name, len(graph))
                 return graph
     raise FileNotFoundError(
         f"워크플로우 파일을 찾을 수 없습니다. 탐색: {[str(c) for c in candidates]}. "
@@ -461,8 +461,9 @@ def inject_reference_video(workflow: dict[str, Any], video_filename: str) -> Non
             node_id, ct, video_filename,
         )
         return
-    logger.warning(
-        "워크플로우에 VHS_LoadVideo 노드 없음. backend에서 python scripts/patch_workflow.py 를 실행하세요."
+    logger.error(
+        "[inject_reference_video] VHS_LoadVideo 노드 없음. "
+        "backend에서 python scripts/patch_workflow.py 를 실행하세요."
     )
 
 
