@@ -15,10 +15,25 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
-from app.core.exceptions import WorkflowVideoNodeNotFoundError
 from app.utils.file_handler import ensure_generated_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _unwrap_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
+    """
+    ComfyUI API 포맷은 두 가지 구조로 올 수 있다:
+      - 래핑됨:   {"prompt": {"1": {node}, "2": {node}, ...}}
+      - 래핑 안됨: {"1": {node}, "2": {node}, ...}
+    항상 노드 dict(래핑 안 된 형태)를 반환한다.
+    """
+    if (
+        len(workflow) == 1
+        and "prompt" in workflow
+        and isinstance(workflow["prompt"], dict)
+    ):
+        return workflow["prompt"]
+    return workflow
 
 
 def _load_workflow_json(path: Path) -> dict[str, Any]:
@@ -110,6 +125,75 @@ def _prepare_reference_video_for_comfyui(reference_video_path: Path) -> str | No
     except Exception as e:
         logger.warning("레퍼런스 영상 복사 실패 %s -> %s: %s", reference_video_path, dest, e)
         return None
+
+
+async def upload_pose_frames_to_comfyui(
+    pose_cache_path: Path | str,
+    max_frames: int = 49,
+) -> list[str]:
+    """
+    pose_cache JSON(프레임별 keypoints)을 스켈레톤 이미지로 그린 뒤 ComfyUI에 업로드.
+    MotionSequence 형식: { fps, width, height, frames: [{ frame, timestamp, keypoints: [{ joint, x, y }] }] }.
+    Returns: ComfyUI에 업로드된 이미지 파일명 리스트.
+    """
+    path = Path(pose_cache_path)
+    if not path.exists():
+        logger.warning("포즈 캐시 없음: %s", path)
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning("포즈 캐시 로드 실패 %s: %s", path, e)
+        return []
+    fps = data.get("fps", 8)
+    width = int(data.get("width", 768))
+    height = int(data.get("height", 512))
+    frames_data = data.get("frames", [])[:max_frames]
+    if not frames_data:
+        logger.warning("포즈 캐시에 프레임 없음: %s", path)
+        return []
+
+    # 관절 연결 (joint 이름 기준, MediaPipe Pose 순서)
+    CONNECTIONS = [
+        ("left_shoulder", "right_shoulder"),
+        ("left_shoulder", "left_elbow"), ("left_elbow", "left_wrist"),
+        ("right_shoulder", "right_elbow"), ("right_elbow", "right_wrist"),
+        ("left_shoulder", "left_hip"), ("right_shoulder", "right_hip"),
+        ("left_hip", "right_hip"),
+        ("left_hip", "left_knee"), ("left_knee", "left_ankle"),
+        ("right_hip", "right_knee"), ("right_knee", "right_ankle"),
+    ]
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        logger.warning("PIL 없음. 포즈 프레임 업로드 스킵.")
+        return []
+
+    import io
+    uploaded_names: list[str] = []
+    for i, frame_data in enumerate(frames_data):
+        keypoints = frame_data.get("keypoints", [])
+        kp_by_joint = {kp.get("joint"): (float(kp.get("x", 0)), float(kp.get("y", 0))) for kp in keypoints if isinstance(kp, dict) and "joint" in kp}
+        img = Image.new("RGB", (width, height), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        for j1, j2 in CONNECTIONS:
+            if j1 in kp_by_joint and j2 in kp_by_joint:
+                x1, y1 = kp_by_joint[j1]
+                x2, y2 = kp_by_joint[j2]
+                x1, y1 = int(x1 * width), int(y1 * height)
+                x2, y2 = int(x2 * width), int(y2 * height)
+                draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255), width=3)
+        for _j, (px, py) in kp_by_joint.items():
+            px, py = int(px * width), int(py * height)
+            draw.ellipse([(px - 4, py - 4), (px + 4, py + 4)], fill=(0, 255, 0))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        name = f"pose_frame_{i:04d}.png"
+        result = await upload_image(buf.getvalue(), name)
+        uploaded_names.append(result.get("name", name))
+    logger.info("포즈 프레임 %d장 ComfyUI 업로드 완료", len(uploaded_names))
+    return uploaded_names
 
 
 async def upload_image(image_bytes: bytes, filename: str | None = None) -> dict[str, str]:
@@ -347,32 +431,38 @@ def _load_workflow_graph(
 def inject_reference_video(workflow: dict[str, Any], video_filename: str) -> None:
     """
     워크플로우의 VHS_LoadVideo 계열 노드에 댄스 영상 파일명을 주입 (in-place).
-    노드가 없으면 RuntimeError (patch_workflow.py 안내).
+    래핑된 구조({"prompt": {...}})여도 _unwrap_workflow로 노드만 순회.
     """
-    LOAD_VIDEO_TYPES = ("VHS_LoadVideo", "VHS_LoadVideoPath", "LoadVideo")
-    for node_id, node in workflow.items():
+    nodes = _unwrap_workflow(workflow)
+    LOAD_VIDEO_TYPES = frozenset(("vhs_loadvideo", "vhs_loadvideopath", "loadvideo"))
+    for node_id, node in nodes.items():
         if not isinstance(node, dict):
             continue
-        if node.get("class_type") in LOAD_VIDEO_TYPES:
-            inputs = node.get("inputs") or {}
-            if "video" in inputs:
-                inputs["video"] = video_filename
-            else:
-                node["inputs"] = {**inputs, "video": video_filename}
-            logger.info(
-                "[inject_reference_video] 완료: 노드 %s (%s) ← %s",
-                node_id, node.get("class_type"), video_filename,
-            )
-            return
-    node_list = [
-        f"[{nid}]{n.get('class_type')}"
-        for nid, n in workflow.items()
-        if isinstance(n, dict)
-    ]
-    raise RuntimeError(
-        "워크플로우에 VHS_LoadVideo 노드가 없습니다. "
-        "backend에서 python scripts/patch_workflow.py 를 실행하여 워크플로우를 패치하세요. "
-        f"현재 노드: {node_list[:20]}{'...' if len(node_list) > 20 else ''}"
+        ct = (node.get("class_type") or "").strip()
+        ct_lower = ct.lower().replace(" ", "")
+        is_video_node = (
+            ct_lower in LOAD_VIDEO_TYPES
+            or ("load" in ct_lower and "video" in ct_lower)
+        )
+        if not is_video_node:
+            continue
+        inputs = node.get("inputs") or {}
+        for key in ("video", "file_path", "path", "filename"):
+            if key in inputs:
+                node["inputs"][key] = video_filename
+                logger.info(
+                    "[inject_reference_video] 완료: 노드 %s (%s).%s ← %s",
+                    node_id, ct, key, video_filename,
+                )
+                return
+        node["inputs"] = {**inputs, "video": video_filename}
+        logger.info(
+            "[inject_reference_video] 강제 주입: 노드 %s (%s) ← %s",
+            node_id, ct, video_filename,
+        )
+        return
+    logger.warning(
+        "워크플로우에 VHS_LoadVideo 노드 없음. backend에서 python scripts/patch_workflow.py 를 실행하세요."
     )
 
 
@@ -383,24 +473,24 @@ def _inject_ltx23_workflow_inputs(
     negative_prompt_text: str = "",
     reference_video_filename: str | None = None,
 ) -> dict[str, Any]:
-    """워크플로에 이미지·프롬프트(positive/negative)·(선택)레퍼런스 주입. LoadImage, PrimitiveStringMultiline(Prompt), CLIPTextEncode, LoadVideo 등."""
+    """워크플로에 이미지·프롬프트(positive/negative)·(선택)레퍼런스 주입. 래핑된 구조도 _unwrap_workflow로 노드만 순회."""
     import copy
     wf = copy.deepcopy(workflow)
-    # 1) PrimitiveStringMultiline "Prompt" (267:266): LTXV에서 positive가 여기서 나옴 → value 로 주입
-    for nid, node in wf.items():
+    nodes = _unwrap_workflow(wf)
+    # 1) PrimitiveStringMultiline "Prompt" → value 주입
+    for nid, node in nodes.items():
         if not isinstance(node, dict):
             continue
-        ct = node.get("class_type") or ""
-        meta = node.get("_meta") or {}
-        title = (meta.get("title") or "").lower()
+        ct = (node.get("class_type") or "").lower()
+        meta = (node.get("_meta") or {}).get("title") or ""
         inputs = node.get("inputs") or {}
-        if "primitivestringmultiline" in ct.lower() and "prompt" in title and "value" in inputs:
+        if "primitivestringmultiline" in ct and "prompt" in meta.lower() and "value" in inputs:
             node["inputs"] = {**inputs, "value": prompt_text}
-            logger.info("ComfyUI 프롬프트 주입(PrimitiveStringMultiline): 노드 %s value 길이=%d", nid, len(prompt_text))
+            logger.info("[inject] 프롬프트(PrimitiveStringMultiline): 노드 %s value 길이=%d", nid, len(prompt_text))
             break
-    # 2) CLIPTextEncode: node_id 순 첫 번째=positive, 두 번째=negative (연결 유지하면서 텍스트도 직접 주입)
+    # 2) CLIPTextEncode: positive/negative 주입
     clip_text_nodes = [
-        (nid, node) for nid, node in wf.items()
+        (nid, node) for nid, node in nodes.items()
         if isinstance(node, dict)
         and "clip" in (node.get("class_type") or "").lower()
         and "text" in (node.get("class_type") or "").lower()
@@ -411,24 +501,20 @@ def _inject_ltx23_workflow_inputs(
         text = prompt_text if i == 0 else (negative_prompt_text or "")
         node["inputs"] = {**inputs, "text": text}
     if clip_text_nodes:
-        pos_id = clip_text_nodes[0][0]
-        neg_id = clip_text_nodes[1][0] if len(clip_text_nodes) > 1 else None
         logger.info(
             "ComfyUI CLIP 주입: positive=%s(len=%d), negative=%s(len=%d)",
-            pos_id, len(prompt_text), neg_id or "-", len(negative_prompt_text),
+            clip_text_nodes[0][0], len(prompt_text),
+            clip_text_nodes[1][0] if len(clip_text_nodes) > 1 else "-", len(negative_prompt_text),
         )
-
-    # 레퍼런스 영상: 비디오 로더 노드 탐색 (명시 타입 + "load"+"video" 포함 class_type)
+    # 3) 이미지 로더 + 레퍼런스 비디오 로더
     REF_VIDEO_NODE_TYPES = frozenset(("vhs_loadvideo", "vhs_loadvideopath", "loadvideo"))
 
     def _is_video_loader_node(class_type: str) -> bool:
-        ct = (class_type or "").lower().replace(" ", "")
-        if ct in REF_VIDEO_NODE_TYPES:
-            return True
-        return "load" in ct and "video" in ct
+        c = (class_type or "").lower().replace(" ", "")
+        return c in REF_VIDEO_NODE_TYPES or ("load" in c and "video" in c)
 
     ref_injected = False
-    for nid, node in wf.items():
+    for nid, node in nodes.items():
         if not isinstance(node, dict):
             continue
         ct = node.get("class_type") or ""
@@ -436,29 +522,24 @@ def _inject_ltx23_workflow_inputs(
         inputs = node.get("inputs") or {}
         if "loadimage" in ct_lower or "load image" in ct_lower:
             node["inputs"] = {**inputs, "image": image_name}
+            logger.info("[inject] 이미지 주입: 노드 %s (%s) ← %s", nid, ct, image_name)
         if reference_video_filename and _is_video_loader_node(ct):
             for key in ("video", "file_path", "path", "filename", "input"):
                 if key in inputs:
                     node["inputs"] = {**inputs, key: reference_video_filename}
-                    logger.info(
-                        "댄스 영상 주입 완료: 노드 %s (%s) 입력 %s=%s",
-                        nid, ct, key, reference_video_filename,
-                    )
+                    logger.info("[inject] 댄스 영상 주입: 노드 %s (%s).%s ← %s", nid, ct, key, reference_video_filename)
+                    ref_injected = True
                     break
-            else:
+            if not ref_injected:
                 node["inputs"] = {**inputs, "video": reference_video_filename}
-                logger.info(
-                    "댄스 영상 주입 완료: 노드 %s (%s) ← %s",
-                    nid, ct, reference_video_filename,
-                )
-            ref_injected = True
-            break  # 첫 번째 매칭 노드에만 주입
+                logger.info("[inject] 댄스 영상 강제 주입: 노드 %s (%s) ← %s", nid, ct, reference_video_filename)
+                ref_injected = True
+            break
     if reference_video_filename and not ref_injected:
-        raise WorkflowVideoNodeNotFoundError(
-            f"레퍼런스 파일명={reference_video_filename}. "
-            "ComfyUI에서 Video Helper Suite → VHS Load Video 노드를 추가한 뒤, "
-            "해당 노드를 포즈/ControlNet 등에 연결하고 'Save (API Format)'으로 저장하세요. "
-            "레퍼런스 전용 워크플로는 pipelines/ltx23_i2v_ref.json 으로 저장하면 자동 사용됩니다."
+        logger.warning(
+            "레퍼런스 파일명=%s 이지만 워크플로에 레퍼런스용 비디오 입력 노드가 없어 주입되지 않음. "
+            "ComfyUI에서 VHS_LoadVideo 노드를 추가하고 API 포맷으로 저장하세요.",
+            reference_video_filename,
         )
     return wf
 
@@ -514,8 +595,9 @@ async def run_ltx23_image_to_video(
             negative_prompt_text=negative_prompt or "",
             reference_video_filename=ref_filename,
         )
-
-        out = await _post_prompt(prompt_graph)
+        # ComfyUI API는 노드 dict만 받음. 래핑된 구조면 언래핑 후 전송
+        prompt_to_send = _unwrap_workflow(prompt_graph)
+        out = await _post_prompt(prompt_to_send)
         if "error" in out:
             raise RuntimeError(f"ComfyUI LTX-2.3 prompt error: {out['error']}")
         prompt_id = out.get("prompt_id") or str(out.get("number", ""))
