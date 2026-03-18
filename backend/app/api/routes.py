@@ -75,7 +75,14 @@ from app.services.training_store import (
     update_item as training_update_item,
 )
 from app.utils.file_handler import get_generated_url, save_upload_async
-from app.schemas.dance_schema import DanceGenerateResponse, DanceJobResponse, DanceJobStatusResponse
+from app.schemas.dance_schema import (
+    DanceGenerateResponse,
+    DanceJobResponse,
+    DanceJobStatusResponse,
+    DanceListResponse,
+    DanceRefreshResponse,
+    DanceVideoInfo,
+)
 from app.schemas.comfyui_schema import ComfyUIRunRequest, ComfyUIRunResponse
 from app.services.comfyui_service import (
     run_workflow_and_get_image,
@@ -1063,6 +1070,49 @@ async def list_dance_motions() -> list[dict[str, str]]:
     return list(DANCE_MOTIONS)
 
 
+@router.get("/dance/list", response_model=DanceListResponse)
+async def list_dance_library(request: Request) -> DanceListResponse:
+    """사전 등록된 댄스 영상 목록 (dance_videos/ 또는 motions/ 폴더 스캔)."""
+    library = getattr(request.app.state, "dance_library", None)
+    if library is None:
+        return DanceListResponse(total=0, dances=[])
+    dances = await library.list_all()
+    return DanceListResponse(
+        total=len(dances),
+        dances=[
+            DanceVideoInfo(
+                id=d.id,
+                display_name=d.display_name,
+                filename=d.filename,
+                duration_seconds=d.duration_seconds,
+                fps=d.fps,
+                width=d.width,
+                height=d.height,
+                frame_count=d.frame_count,
+                file_size_mb=d.file_size_mb,
+            )
+            for d in dances
+        ],
+    )
+
+
+@router.post("/dance/refresh", response_model=DanceRefreshResponse)
+async def refresh_dance_library(request: Request) -> DanceRefreshResponse:
+    """dance_videos/ 폴더 재스캔 후 캐시 갱신. 새 파일 추가 후 서버 재시작 없이 호출."""
+    library = getattr(request.app.state, "dance_library", None)
+    if library is None:
+        return DanceRefreshResponse(message="댄스 라이브러리가 초기화되지 않았습니다.", added=[], total=0)
+    before_ids = set(library._cache.keys())
+    await library.scan()
+    after = library._cache
+    added = [after[k].filename for k in after if k not in before_ids]
+    return DanceRefreshResponse(
+        message="스캔 완료",
+        added=added,
+        total=len(after),
+    )
+
+
 @router.post("/dance/generate", response_model=DanceJobResponse)
 async def generate_dance(
     background_tasks: BackgroundTasks,
@@ -1094,17 +1144,27 @@ async def generate_dance(
         raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"File too large. Max {settings.upload_max_size_mb}MB")
-    if get_motion_video_path(mid) is None:
+    # 댄스 라이브러리에서 경로 조회; 없으면 기존 motions 폴더 경로 사용
+    reference_video_path = None
+    library = getattr(request.app.state, "dance_library", None)
+    if library is not None:
+        dance = await library.get(mid)
+        if dance is not None:
+            from pathlib import Path
+            reference_video_path = Path(dance.path)
+    if reference_video_path is None and get_motion_video_path(mid) is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Motion '{mid}' not found. Add reference video to motions/ (e.g. rat_dance.mp4).",
+            detail=f"Motion '{mid}' not found. Add reference video to motions/ or use GET /api/dance/list.",
         )
+    if reference_video_path is None:
+        reference_video_path = get_motion_video_path(mid)
 
     import uuid as _uuid
     job_id = _uuid.uuid4().hex
     _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
                            "motion_id": mid, "character": char, "error": None}
-    background_tasks.add_task(_run_dance_job, job_id, content, mid, char)
+    background_tasks.add_task(_run_dance_job, job_id, content, mid, char, reference_video_path)
     return DanceJobResponse(job_id=job_id)
 
 
@@ -1161,10 +1221,21 @@ async def get_dance_job_status(job_id: str) -> DanceJobStatusResponse:
     return DanceJobStatusResponse(job_id=job_id, **job)
 
 
-async def _run_dance_job(job_id: str, image_bytes: bytes, motion_id: str, character: str) -> None:
+async def _run_dance_job(
+    job_id: str,
+    image_bytes: bytes,
+    motion_id: str,
+    character: str,
+    reference_video_path=None,
+) -> None:
+    from pathlib import Path
+    ref_path = Path(reference_video_path) if reference_video_path else None
     try:
         out_bytes, processing_time = await run_dance_generate(
-            image_bytes=image_bytes, motion_id=motion_id, character=character
+            image_bytes=image_bytes,
+            motion_id=motion_id,
+            character=character,
+            reference_video_path=ref_path,
         )
         video_filename = await save_upload_async(out_bytes, suffix=".mp4")
         video_url = get_generated_url(video_filename)

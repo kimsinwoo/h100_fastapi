@@ -111,12 +111,31 @@ def get_or_extract_pose(motion_id: str) -> MotionSequence | None:
     if video_path is None:
         logger.warning("No reference video for motion_id=%s", motion_id)
         return None
-    raw = extract_poses_from_video(video_path, fps_out=30.0)
+    return get_or_extract_pose_from_path(video_path, cache_key=motion_id)
+
+
+def get_or_extract_pose_from_path(
+    video_path: Path,
+    cache_key: str | None = None,
+    fps_out: float = 30.0,
+) -> MotionSequence | None:
+    """
+    Extract and normalize pose from a video file. Optionally cache by cache_key (e.g. motion_id).
+    Returns None if extraction fails or empty.
+    """
+    if cache_key:
+        cached = load_cached_pose(cache_key)
+        if cached is not None:
+            return cached
+    if not video_path.exists() or not video_path.is_file():
+        return None
+    raw = extract_poses_from_video(video_path, fps_out=fps_out)
     if raw is None or not raw.frames:
-        logger.warning("Pose extraction failed or empty for motion_id=%s", motion_id)
+        logger.warning("Pose extraction failed or empty for path=%s", video_path)
         return None
     normalized = normalize_motion(raw)
-    save_pose_cache(motion_id, normalized)
+    if cache_key:
+        save_pose_cache(cache_key, normalized)
     return normalized
 
 
@@ -205,15 +224,14 @@ async def run_dance_generate(
     image_bytes: bytes,
     motion_id: str,
     character: str = "dog",
+    reference_video_path: Path | None = None,
 ) -> tuple[bytes, float]:
     """
     Run dance video generation: optionally ensure pose cache, then run LTX-2 image-to-video
-    with the character image and dance prompt. Returns (video_bytes, processing_time_seconds).
+    with the character image and dance prompt.
+    reference_video_path 가 있으면 해당 경로를 레퍼런스 영상으로 사용(라이브러리 등에서 전달).
+    Returns (video_bytes, processing_time_seconds).
     """
-    # Pre-warm pose cache in background (optional)
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, get_or_extract_pose, motion_id)
-
     from app.services.video_service import (
         DANCE_CONDITION_STRENGTH,
         DANCE_SHORT_FRAME_RATE,
@@ -224,6 +242,14 @@ async def run_dance_generate(
         DANCE_SHORT_WIDTH,
         NEGATIVE_PET_DANCE,
     )
+
+    video_path = reference_video_path or get_motion_video_path(motion_id)
+    if video_path is not None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: get_or_extract_pose_from_path(video_path, cache_key=motion_id),
+        )
 
     prompt = get_dance_prompt(motion_id, character)
     out_bytes, elapsed = await run_image_to_video(
@@ -238,5 +264,6 @@ async def run_dance_generate(
         guidance_scale=DANCE_SHORT_GUIDANCE_SCALE,
         seed=None,
         condition_strength=DANCE_CONDITION_STRENGTH,
+        reference_video_path=video_path,
     )
     return out_bytes, elapsed

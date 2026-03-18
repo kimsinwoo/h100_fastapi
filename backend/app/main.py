@@ -100,6 +100,14 @@ async def lifespan(app: FastAPI):
             "LLM (vLLM): 요청 주소=%s — 7001 vLLM에 로그가 안 뜨면 메인과 vLLM이 같은 호스트인지 확인하고, 다른 호스트면 LLM_API_BASE를 vLLM이 도는 주소로 설정하세요.",
             settings.llm_api_base.rstrip("/"),
         )
+    # 댄스 라이브러리: dance_videos/ (또는 motions/) 스캔 → GET /api/dance/list, POST /api/dance/refresh
+    from app.services.dance_library import DanceLibrary
+    dance_library = DanceLibrary(settings.dance_videos_dir)
+    await dance_library.scan()
+    app.state.dance_library = dance_library
+    logger.info("댄스 영상 %d개 로드됨 (폴더: %s)", len(dance_library._cache), settings.dance_videos_dir)
+    if dance_library._cache:
+        logger.info("댄스 ID 목록: %s", list(dance_library._cache.keys()))
     yield
     logger.info("Shutting down")
 

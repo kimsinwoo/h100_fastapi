@@ -207,6 +207,11 @@ class Settings(BaseSettings):
         default="motions",
         description="Reference dance videos (backend_dir relative). Put rat_dance.mp4 etc.",
     )
+    # 댄스 라이브러리 스캔 폴더 (사전 등록 댄스 영상). 비우면 motions_dir_name 과 동일 경로 사용
+    dance_videos_dir_name: str | None = Field(
+        default=None,
+        description="댄스 영상 사전 등록 폴더(backend_dir 기준). 비우면 motions_dir_name 사용.",
+    )
     pose_cache_dir_name: str = Field(
         default="data/pose_cache",
         description="Cached normalized pose JSON per motion_id.",
@@ -219,6 +224,14 @@ class Settings(BaseSettings):
     @property
     def motions_dir(self) -> Path:
         p = self.backend_dir / self.motions_dir_name
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def dance_videos_dir(self) -> Path:
+        """댄스 라이브러리 스캔 경로 (dance_videos/ 또는 motions/)."""
+        name = self.dance_videos_dir_name or self.motions_dir_name
+        p = self.backend_dir / name
         p.mkdir(parents=True, exist_ok=True)
         return p
 

@@ -68,3 +68,35 @@ class DanceJobStatusResponse(BaseModel):
     motion_id: str | None = None
     character: str | None = None
     error: str | None = None
+
+
+# ----- 댄스 라이브러리 (사전 등록 영상 목록) -----
+
+
+class DanceVideoInfo(BaseModel):
+    """사전 등록 댄스 영상 한 건 (GET /api/dance/list 응답용)."""
+
+    id: str = Field(..., description="dance_video_id (파일명 기반 slug)")
+    display_name: str = Field(..., description="표시 이름")
+    filename: str = Field(..., description="파일명")
+    duration_seconds: float = Field(..., ge=0)
+    fps: float = Field(..., ge=0)
+    width: int = Field(..., ge=0)
+    height: int = Field(..., ge=0)
+    frame_count: int = Field(..., ge=0)
+    file_size_mb: float = Field(..., ge=0)
+
+
+class DanceListResponse(BaseModel):
+    """GET /api/dance/list 응답."""
+
+    total: int = Field(..., description="등록된 댄스 영상 개수")
+    dances: list[DanceVideoInfo] = Field(default_factory=list)
+
+
+class DanceRefreshResponse(BaseModel):
+    """POST /api/dance/refresh 응답."""
+
+    message: str = Field(..., description="예: 스캔 완료")
+    added: list[str] = Field(default_factory=list, description="새로 추가된 파일명")
+    total: int = Field(..., ge=0, description="스캔 후 전체 개수")
