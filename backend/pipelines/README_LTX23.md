@@ -16,6 +16,18 @@
 
 설정에서 다른 이름을 쓰려면 `COMFYUI_LTX23_WORKFLOW=이름` (확장자 제외)으로 지정하세요.
 
+## 댄스/레퍼런스 영상 반영 (선택)
+
+커스텀 댄스 영상을 워크플로에 반영하려면:
+
+1. ComfyUI에서 **Video Helper Suite** 설치 후 **VHS Load Video** 노드를 워크플로에 추가합니다.
+2. 해당 노드의 **IMAGE** 출력을 포즈/ControlNet 등 레퍼런스를 받는 노드에 연결합니다.
+3. **Save (API Format)** 으로 저장한 JSON을 **`ltx23_i2v_ref.json`** 이름으로 이 폴더에 둡니다.
+
+레퍼런스 영상을 사용하는 요청이 들어오면 백엔드는 `ltx23_i2v_ref.json` 이 있으면 이를 사용하고, 없으면 기본 `ltx23_i2v.json` 만 사용합니다 (이 경우 레퍼런스 미반영 시 에러로 안내).
+
+4. `.env` 에 **`COMFYUI_REFERENCE_VIDEO_DIR`** = ComfyUI의 input 폴더 절대 경로를 설정하면, 업로드/선택된 댄스 영상이 해당 폴더로 복사된 뒤 파일명이 워크플로에 주입됩니다.
+
 ## 성능·품질 (LTX-2.3 distilled)
 
 - 해상도: 32 배수 (예: 768×512, 640×384).

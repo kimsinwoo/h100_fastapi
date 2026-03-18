@@ -355,8 +355,15 @@ def _inject_ltx23_workflow_inputs(
             pos_id, len(prompt_text), neg_id or "-", len(negative_prompt_text),
         )
 
-    # 레퍼런스 영상: VHS_LoadVideo / VHS_LoadVideoPath / LoadVideo 노드에만 주입 (class_type 대소문자 무시)
+    # 레퍼런스 영상: 비디오 로더 노드 탐색 (명시 타입 + "load"+"video" 포함 class_type)
     REF_VIDEO_NODE_TYPES = frozenset(("vhs_loadvideo", "vhs_loadvideopath", "loadvideo"))
+
+    def _is_video_loader_node(class_type: str) -> bool:
+        ct = (class_type or "").lower().replace(" ", "")
+        if ct in REF_VIDEO_NODE_TYPES:
+            return True
+        return "load" in ct and "video" in ct
+
     ref_injected = False
     for nid, node in wf.items():
         if not isinstance(node, dict):
@@ -366,7 +373,7 @@ def _inject_ltx23_workflow_inputs(
         inputs = node.get("inputs") or {}
         if "loadimage" in ct_lower or "load image" in ct_lower:
             node["inputs"] = {**inputs, "image": image_name}
-        if reference_video_filename and ct_lower in REF_VIDEO_NODE_TYPES:
+        if reference_video_filename and _is_video_loader_node(ct):
             for key in ("video", "file_path", "path", "filename", "input"):
                 if key in inputs:
                     node["inputs"] = {**inputs, key: reference_video_filename}
@@ -386,7 +393,9 @@ def _inject_ltx23_workflow_inputs(
     if reference_video_filename and not ref_injected:
         raise WorkflowVideoNodeNotFoundError(
             f"레퍼런스 파일명={reference_video_filename}. "
-            "ComfyUI UI에서 VHS_LoadVideo 노드를 추가하고 API 포맷으로 저장한 뒤 재시도하세요."
+            "ComfyUI에서 Video Helper Suite → VHS Load Video 노드를 추가한 뒤, "
+            "해당 노드를 포즈/ControlNet 등에 연결하고 'Save (API Format)'으로 저장하세요. "
+            "레퍼런스 전용 워크플로는 pipelines/ltx23_i2v_ref.json 으로 저장하면 자동 사용됩니다."
         )
     return wf
 
@@ -416,6 +425,12 @@ async def run_ltx23_image_to_video(
     workflow_path = settings.pipelines_dir / f"{workflow_name}.json"
     if not workflow_path.exists():
         workflow_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
+    # 레퍼런스 영상이 있으면 *_ref.json 워크플로우 우선 사용 (VHS_LoadVideo 등 포함된 전용 워크플로)
+    if reference_video_path and reference_video_path.exists():
+        ref_workflow = settings.pipelines_dir / f"{workflow_name}_ref.json"
+        if ref_workflow.exists():
+            workflow_path = ref_workflow
+            logger.info("레퍼런스 영상 사용: 워크플로우 %s 사용", ref_workflow.name)
     if not workflow_path.exists():
         raise RuntimeError(
             f"LTX-2.3 ComfyUI workflow not found. Tried: {workflow_name}.json and comfyui_ltx23_workflow.json in {settings.pipelines_dir}. "
