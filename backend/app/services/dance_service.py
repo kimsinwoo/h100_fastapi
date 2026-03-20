@@ -152,6 +152,7 @@ async def run_dance_generate_custom(
     image_bytes: bytes,
     reference_video_bytes: bytes,
     character: str = "dog",
+    reference_video_filename: str | None = None,
 ) -> tuple[bytes, float]:
     """
     Run dance video generation from a user-uploaded reference video.
@@ -164,17 +165,20 @@ async def run_dance_generate_custom(
     motions_dir = settings.motions_dir
     motions_dir.mkdir(parents=True, exist_ok=True)
 
-    # 임시 motion ID로 레퍼런스 영상 저장
+    # 임시 motion ID로 레퍼런스 영상 저장 (원본 확장자 유지: mov/webm/mp4 등)
     import uuid
     temp_motion_id = f"custom_{uuid.uuid4().hex[:8]}"
-    temp_video_path = motions_dir / f"{temp_motion_id}.mp4"
+    allowed_suffixes = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
+    input_suffix = Path(reference_video_filename or "").suffix.lower()
+    suffix = input_suffix if input_suffix in allowed_suffixes else ".mp4"
+    temp_video_path = motions_dir / f"{temp_motion_id}{suffix}"
 
     try:
         temp_video_path.write_bytes(reference_video_bytes)
         logger.info("Custom reference video saved: %s", temp_video_path)
 
         # MOTION_VIDEOS에 임시 등록 (포즈 추출 시 사용)
-        MOTION_VIDEOS[temp_motion_id] = f"{temp_motion_id}.mp4"
+        MOTION_VIDEOS[temp_motion_id] = f"{temp_motion_id}{suffix}"
 
         # 포즈 추출 시도 (선택). 실패해도 레퍼런스 영상 파일을 ComfyUI에 넘겨 동작 반영 가능.
         loop = asyncio.get_event_loop()

@@ -1173,6 +1173,7 @@ async def generate_dance_custom(
     background_tasks: BackgroundTasks,
     request: Request,
     character: Annotated[str, Form(description="dog or cat")] = "dog",
+    file: Annotated[UploadFile | None, File(description="Character image (alias)")] = None,
     image: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
     reference_video: Annotated[UploadFile | None, File(description="Reference video to mimic movements")] = None,
 ) -> DanceJobResponse:
@@ -1181,8 +1182,9 @@ async def generate_dance_custom(
     즉시 job_id 반환 → GET /dance/status/{job_id} 로 폴링.
     """
     _check_rate_limit(request)
-    if not image or not image.filename:
-        raise HTTPException(status_code=422, detail="Missing character image. Send as 'image'.")
+    upload = image if (image and image.filename) else file
+    if not upload or not upload.filename:
+        raise HTTPException(status_code=422, detail="Missing character image. Send as 'image' or 'file'.")
     if not reference_video or not reference_video.filename:
         raise HTTPException(status_code=422, detail="Missing reference_video file.")
     char = (character or "dog").strip().lower()
@@ -1190,10 +1192,10 @@ async def generate_dance_custom(
         char = "dog"
     settings = get_settings()
 
-    image_content = await image.read()
+    image_content = await upload.read()
     if len(image_content) == 0:
         raise HTTPException(status_code=400, detail="Empty image file")
-    if not image.content_type or not image.content_type.startswith("image/"):
+    if not upload.content_type or not upload.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="image must be an image file (image/png, image/jpeg, ...)")
     if len(image_content) > settings.upload_max_bytes:
         raise HTTPException(status_code=400, detail=f"Image too large. Max {settings.upload_max_size_mb}MB")
@@ -1203,12 +1205,27 @@ async def generate_dance_custom(
         raise HTTPException(status_code=400, detail="Empty reference_video file")
     if len(video_content) > 200 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="reference_video too large. Max 200MB")
+    ref_name = (reference_video.filename or "").lower()
+    ref_type = (reference_video.content_type or "").lower()
+    allowed_ext = (".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v")
+    if not (ref_name.endswith(allowed_ext) or ref_type.startswith("video/")):
+        raise HTTPException(
+            status_code=400,
+            detail="reference_video must be a video file (mp4/mov/webm/mkv/avi/m4v).",
+        )
 
     import uuid as _uuid
     job_id = _uuid.uuid4().hex
     _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
                            "motion_id": "custom", "character": char, "error": None}
-    background_tasks.add_task(_run_dance_custom_job, job_id, image_content, video_content, char)
+    background_tasks.add_task(
+        _run_dance_custom_job,
+        job_id,
+        image_content,
+        video_content,
+        char,
+        reference_video.filename,
+    )
     return DanceJobResponse(job_id=job_id)
 
 
@@ -1252,10 +1269,19 @@ async def _run_dance_job(
         _dance_jobs[job_id].update({"status": "failed", "error": err_msg})
 
 
-async def _run_dance_custom_job(job_id: str, image_bytes: bytes, video_bytes: bytes, character: str) -> None:
+async def _run_dance_custom_job(
+    job_id: str,
+    image_bytes: bytes,
+    video_bytes: bytes,
+    character: str,
+    reference_video_filename: str | None = None,
+) -> None:
     try:
         out_bytes, processing_time = await run_dance_generate_custom(
-            image_bytes=image_bytes, reference_video_bytes=video_bytes, character=character
+            image_bytes=image_bytes,
+            reference_video_bytes=video_bytes,
+            character=character,
+            reference_video_filename=reference_video_filename,
         )
         video_filename = await save_upload_async(out_bytes, suffix=".mp4")
         video_url = get_generated_url(video_filename)
