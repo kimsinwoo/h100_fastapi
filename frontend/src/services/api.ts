@@ -15,7 +15,7 @@ import type {
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
 
 /** 백엔드 주소. 프론트 로컬 + 백엔드 다른 서버면 .env에 VITE_API_BASE_URL=백엔드URL 설정. 없으면 아래 기본값 사용 */
-const DEFAULT_API_BASE = "http://210.91.154.131:20443/95ce287337c3ad9f";
+const DEFAULT_API_BASE = "http://210.91.154.131:20443/deployment2/a05af76e431fe3ac";
 const getBaseURL = (): string => {
   const url = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "";
   return (url || "").trim() || DEFAULT_API_BASE;
@@ -794,8 +794,8 @@ const HEALTH_CHAT_INTRO =
 export const HEALTH_CHAT_SHORT_INTRO = HEALTH_CHAT_INTRO;
 
 const getBaseUrl = () =>
-  (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
-  "http://210.91.154.131:20443/95ce287337c3ad9f";
+  (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL?.trim() ||
+  DEFAULT_API_BASE;
 
 /** 스트리밍 채팅: 청크마다 onChunk 호출, 완료 시 전체 content 반환. 표시가 빨리 되고 체감 속도 개선. */
 export async function llmChatStream(

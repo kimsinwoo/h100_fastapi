@@ -433,6 +433,11 @@ export default function VideoPage() {
             <p className="mb-3 text-xs text-gray-500">
               pose_sdxl은 서버에 <code className="rounded bg-gray-100 px-1">pipelines/dance/dog_pose_generation.json</code>과 ComfyUI가 필요합니다. 실패 시 자동으로 LTX 경로로 재시도할 수 있습니다.
             </p>
+            <p className="mb-3 rounded-md border border-amber-100 bg-amber-50/80 px-2 py-2 text-xs text-amber-900">
+              <strong className="font-semibold">동작 방식 안내:</strong> 강아지 사진은 사용자가 올린 이미지를 쓰며, 별도 &quot;강아지 자동 인식&quot; 단계는 없습니다.
+              레퍼런스 댄스 영상의 포즈 추출은 <strong className="font-medium">사람 골격(MediaPipe) 기준</strong>이라 네 발 보행과 어긋날 수 있습니다.
+              ComfyUI에서 Wan만 단독 실행하는 것과 이 앱의 댄스 API(LTX/pose_sdxl)는 <strong className="font-medium">다른 경로</strong>입니다. 자세한 격차는 백엔드 <code className="rounded bg-white/60 px-0.5">docs/DANCE_GOALS_AND_GAPS.md</code> 참고.
+            </p>
             <button
               type="button"
               onClick={handleDanceGenerate}
@@ -507,6 +512,9 @@ export default function VideoPage() {
                 포즈→ComfyUI (pose_sdxl)
               </button>
             </div>
+            <p className="mb-3 text-xs text-amber-800/90">
+              레퍼런스는 <strong>모션 참고</strong>용입니다. 사람 영상이면 포즈는 인체 기준이며, Wan(ComfyUI 단독)과 앱 API는 별도입니다. → <code className="rounded bg-amber-100/80 px-0.5">backend/docs/DANCE_GOALS_AND_GAPS.md</code>
+            </p>
             <button
               type="button"
               onClick={handleCustomDanceGenerate}

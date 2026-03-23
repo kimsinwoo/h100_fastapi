@@ -448,7 +448,7 @@ def inject_reference_video(workflow: dict[str, Any], video_filename: str) -> Non
         if not is_video_node:
             continue
         inputs = node.get("inputs") or {}
-        for key in ("video", "file_path", "path", "filename"):
+        for key in ("video", "file", "file_path", "path", "filename"):
             if key in inputs:
                 node["inputs"][key] = video_filename
                 logger.info(
@@ -456,7 +456,7 @@ def inject_reference_video(workflow: dict[str, Any], video_filename: str) -> Non
                     node_id, ct, key, video_filename,
                 )
                 return
-        node["inputs"] = {**inputs, "video": video_filename}
+        node["inputs"] = {**inputs, "file": video_filename}
         logger.info(
             "[inject_reference_video] 강제 주입: 노드 %s (%s) ← %s",
             node_id, ct, video_filename,
@@ -526,14 +526,14 @@ def _inject_ltx23_workflow_inputs(
             node["inputs"] = {**inputs, "image": image_name}
             logger.info("[inject] 이미지 주입: 노드 %s (%s) ← %s", nid, ct, image_name)
         if reference_video_filename and _is_video_loader_node(ct):
-            for key in ("video", "file_path", "path", "filename", "input"):
+            for key in ("video", "file", "file_path", "path", "filename", "input"):
                 if key in inputs:
                     node["inputs"] = {**inputs, key: reference_video_filename}
                     logger.info("[inject] 댄스 영상 주입: 노드 %s (%s).%s ← %s", nid, ct, key, reference_video_filename)
                     ref_injected = True
                     break
             if not ref_injected:
-                node["inputs"] = {**inputs, "video": reference_video_filename}
+                node["inputs"] = {**inputs, "file": reference_video_filename}
                 logger.info("[inject] 댄스 영상 강제 주입: 노드 %s (%s) ← %s", nid, ct, reference_video_filename)
                 ref_injected = True
             break
@@ -723,6 +723,152 @@ async def run_ltx23_image_to_video(
         if body:
             msg += f" Response: {body}"
         raise RuntimeError(msg) from e
+
+
+def _strip_node_meta_from_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
+    """Remove _meta from each node (ComfyUI /prompt may reject per-node _meta in some versions)."""
+    import copy
+
+    out = copy.deepcopy(prompt)
+    for _nid, node in out.items():
+        if isinstance(node, dict):
+            node.pop("_meta", None)
+    return out
+
+
+def _inject_wan_vace_sampler_and_dims(
+    workflow: dict[str, Any],
+    seed: int | None,
+    width: int | None,
+    height: int | None,
+    length: int | None,
+) -> dict[str, Any]:
+    """Optional KSampler seed + WanVaceToVideo width/height/length overrides."""
+    import copy
+
+    wf = copy.deepcopy(workflow)
+    nodes = _unwrap_workflow(wf)
+    for _nid, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        ct = (node.get("class_type") or "").lower()
+        inp = node.get("inputs")
+        if not isinstance(inp, dict):
+            continue
+        if seed is not None and "sampler" in ct and "seed" in inp:
+            inp["seed"] = int(seed) % (2**31)
+        if (node.get("class_type") or "") == "WanVaceToVideo":
+            if width is not None:
+                inp["width"] = int(width)
+            if height is not None:
+                inp["height"] = int(height)
+            if length is not None:
+                inp["length"] = int(length)
+    return wf
+
+
+async def run_wan_vace_v2v_image_to_video(
+    image_bytes: bytes,
+    prompt: str,
+    negative_prompt: str = "",
+    reference_video_path: Path | None = None,
+    seed: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    num_frames: int | None = None,
+) -> bytes:
+    """
+    Wan VACE 14B video-to-video style: reference image + control/reference video → MP4.
+    워크플로: pipelines/<COMFYUI_WAN_VACE_V2V_WORKFLOW>.json (예: video_wan_vace_14B_v2v).
+    ComfyUI에 WanVideoWrapper, LoadVideo(file), WanVaceToVideo, SaveVideo 필요.
+    """
+    settings = get_settings()
+    if not settings.comfyui_enabled:
+        raise RuntimeError("ComfyUI is disabled (COMFYUI_ENABLED=false)")
+    if not reference_video_path or not reference_video_path.exists():
+        raise ValueError("Wan VACE v2v requires an existing reference_video_path (control video).")
+
+    wf_name = getattr(settings, "comfyui_wan_vace_v2v_workflow", "video_wan_vace_14B_v2v") or "video_wan_vace_14B_v2v"
+    path = settings.pipelines_dir / f"{wf_name}.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Wan VACE workflow not found: {path}. "
+            "Export your graph as API JSON and save as pipelines/video_wan_vace_14B_v2v.json"
+        )
+    raw = _load_workflow_json(path)
+    graph = raw.get("prompt") if isinstance(raw.get("prompt"), dict) else raw
+    if not isinstance(graph, dict):
+        raise RuntimeError("Invalid Wan VACE workflow JSON structure")
+
+    base_url = settings.comfyui_base_url
+    try:
+        uploaded = await upload_image(image_bytes)
+        image_name = uploaded.get("name", "image.png")
+        ref_filename = _prepare_reference_video_for_comfyui(reference_video_path)
+        if not ref_filename:
+            raise RuntimeError(
+                "Could not stage reference video for ComfyUI. Set COMFYUI_REFERENCE_VIDEO_DIR to ComfyUI input path."
+            )
+        inject_reference_video(graph, ref_filename)
+        prompt_graph = _inject_ltx23_workflow_inputs(
+            graph,
+            image_name,
+            prompt,
+            negative_prompt_text=negative_prompt or "",
+            reference_video_filename=ref_filename,
+        )
+        prompt_graph = _inject_wan_vace_sampler_and_dims(
+            prompt_graph, seed=seed, width=width, height=height, length=num_frames
+        )
+        prompt_to_send = _strip_node_meta_from_prompt(_unwrap_workflow(prompt_graph))
+        out = await _post_prompt(prompt_to_send)
+        if "error" in out:
+            raise RuntimeError(f"ComfyUI Wan VACE prompt error: {out['error']}")
+        prompt_id = out.get("prompt_id") or str(out.get("number", ""))
+        if not prompt_id:
+            raise RuntimeError("ComfyUI did not return prompt_id")
+
+        max_wait = getattr(settings, "comfyui_video_timeout_seconds", None) or settings.comfyui_timeout_seconds
+        poll_interval = 2.0
+        start = asyncio.get_event_loop().time()
+        last_log_at = 0.0
+        full_dump_logged = False
+        while (asyncio.get_event_loop().time() - start) < max_wait:
+            history = await _get_history(prompt_id)
+            if prompt_id in history and isinstance(history[prompt_id], dict):
+                info = history[prompt_id]
+            elif "outputs" in history and isinstance(history.get("outputs"), dict):
+                info = history
+            else:
+                info = None
+            if info is not None:
+                first_video = _extract_first_video_from_history(info)
+                if first_video:
+                    filename, subfolder, type_ = first_video
+                    return await _get_video_bytes(filename, subfolder, type_)
+                if not full_dump_logged:
+                    full_dump_logged = True
+                    logger.info("[Wan VACE] history keys=%s", list(history.keys()) if isinstance(history, dict) else "n/a")
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed - last_log_at >= 30.0:
+                logger.info(
+                    "ComfyUI Wan VACE 대기 중 prompt_id=%s 경과 %.0fs (최대 %.0fs)",
+                    str(prompt_id)[:8], elapsed, max_wait,
+                )
+                last_log_at = elapsed
+            await asyncio.sleep(poll_interval)
+
+        raise TimeoutError(
+            f"ComfyUI Wan VACE workflow {prompt_id} did not finish within {max_wait}s."
+        )
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        raise RuntimeError(
+            f"ComfyUI server unreachable at {base_url}. "
+            "Ensure ComfyUI is running and COMFYUI_BASE_URL is correct."
+        ) from e
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:800] if e.response and e.response.text else ""
+        raise RuntimeError(f"ComfyUI returned {e.response.status_code if e.response else 'error'}. {body}") from e
 
 
 # ──────────────────────────────────────────────────────────────────────────────

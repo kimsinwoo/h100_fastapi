@@ -56,6 +56,9 @@ bash scripts/run_vllm_minimal.sh
 
 로컬 ComfyUI 서버(기본 8188) 연동: `GET /api/comfyui/health`, `POST /api/comfyui/run`. 워크플로우 JSON은 `pipelines/` 에 두고 `pipeline_name` 으로 실행 가능.
 
+- **상위 레포(talktailForPet)에 `ComfyUI/` 가 있는 경우**: 루트의 `COMFYUI.md` 와 `bash scripts/print_comfyui_local_env.sh` 로 `COMFYUI_REFERENCE_VIDEO_DIR` / `COMFYUI_OUTPUT_DIR` 를 `.env` 에 맞춤.
+- **Wan 2.1 / VACE (Kijai)**: ComfyUI에 두는 diffusion·LoRA·VAE·T5 경로는 `docs/COMFYUI_WAN_MODELS.md` — LoRA는 `scripts/setup_wan_comfy_models.py` 로 [Kijai/WanVideo_comfy](https://huggingface.co/Kijai/WanVideo_comfy) 에서 받을 수 있음.
+
 ## LTX-2 이미지→비디오
 
 - **기본**: `Lightricks/LTX-2` (diffusers 파이프라인). ComfyUI 없이 zimage_webapp만으로 동작.

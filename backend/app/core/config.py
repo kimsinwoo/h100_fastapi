@@ -94,6 +94,17 @@ class Settings(BaseSettings):
         default="ltx23_i2v",
         description="ComfyUI에서 LTX-2.3 이미지→비디오에 쓸 워크플로 파일명(확장자 제외). pipelines/<name>.json",
     )
+    wan_vace_v2v_enabled: bool = Field(
+        default=False,
+        description=(
+            "True이고 레퍼런스 영상이 있으면 LTX 대신 Wan VACE v2v 워크플로 "
+            "(pipelines/<COMFYUI_WAN_VACE_V2V_WORKFLOW>.json)로 이미지+영상→영상 생성."
+        ),
+    )
+    comfyui_wan_vace_v2v_workflow: str = Field(
+        default="video_wan_vace_14B_v2v",
+        description="Wan VACE v2v용 API 워크플로 파일명(확장자 제외). pipelines/<name>.json",
+    )
     comfyui_output_dir: str | None = Field(
         default=None,
         description="ComfyUI 출력 디렉터리 절대경로. 비디오 생성 시 여기서 파일 읽음. 비우면 /view 등으로 조회 시도.",

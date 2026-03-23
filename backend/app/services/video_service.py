@@ -570,6 +570,32 @@ async def run_image_to_video(
             "See backend/pipelines/README_LTX23.md"
         )
 
+    # Wan VACE v2v: 이미지 + 레퍼런스 영상 → 영상 (pipelines/video_wan_vace_14B_v2v.json 등)
+    wan_enabled = getattr(settings, "wan_vace_v2v_enabled", False)
+    wan_name = getattr(settings, "comfyui_wan_vace_v2v_workflow", "video_wan_vace_14B_v2v") or "video_wan_vace_14B_v2v"
+    wan_path = settings.pipelines_dir / f"{wan_name}.json"
+    if (
+        wan_enabled
+        and getattr(settings, "comfyui_enabled", False)
+        and reference_video_path
+        and reference_video_path.exists()
+        and wan_path.is_file()
+    ):
+        from app.services.comfyui_service import run_wan_vace_v2v_image_to_video as _run_wan_vace
+
+        start = time.perf_counter()
+        out_bytes = await _run_wan_vace(
+            image_bytes=image_bytes,
+            prompt=prompt,
+            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+            reference_video_path=reference_video_path,
+            seed=seed,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+        )
+        return out_bytes, time.perf_counter() - start
+
     if use_comfyui:
         from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
         start = time.perf_counter()

@@ -1,0 +1,134 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 721882639882198,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["48", 0],
+      "positive": ["49", 0],
+      "negative": ["49", 1],
+      "latent_image": ["49", 2]
+    },
+    "class_type": "KSampler"
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": ["107", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "7": {
+    "inputs": {
+      "text": "",
+      "clip": ["107", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "8": {
+    "inputs": {
+      "samples": ["58", 0],
+      "vae": ["105", 0]
+    },
+    "class_type": "VAEDecode"
+  },
+  "48": {
+    "inputs": {
+      "shift": 8.000000000000002,
+      "model": ["107", 0]
+    },
+    "class_type": "ModelSamplingSD3"
+  },
+  "49": {
+    "inputs": {
+      "width": 720,
+      "height": 720,
+      "length": 81,
+      "batch_size": 1,
+      "strength": 1,
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "vae": ["105", 0],
+      "control_video": ["144", 0],
+      "reference_image": ["134", 0]
+    },
+    "class_type": "WanVaceToVideo"
+  },
+  "58": {
+    "inputs": {
+      "trim_amount": ["49", 3],
+      "samples": ["3", 0]
+    },
+    "class_type": "TrimVideoLatent"
+  },
+  "68": {
+    "inputs": {
+      "fps": 16,
+      "images": ["8", 0]
+    },
+    "class_type": "CreateVideo"
+  },
+  "105": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "106": {
+    "inputs": {
+      "unet_name": "wan2.1_vace_14B_fp16.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader"
+  },
+  "107": {
+    "inputs": {
+      "lora_name": "Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
+      "strength_model": 0.3,
+      "strength_clip": 1,
+      "model": ["106", 0],
+      "clip": ["110", 0]
+    },
+    "class_type": "LoraLoader"
+  },
+  "110": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp16.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "114": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": ["68", 0]
+    },
+    "class_type": "SaveVideo"
+  },
+  "134": {
+    "inputs": {
+      "image": "input.png"
+    },
+    "class_type": "LoadImage"
+  },
+  "144": {
+    "inputs": {
+      "video": ["145", 0]
+    },
+    "class_type": "GetVideoComponents"
+  },
+  "145": {
+    "inputs": {
+      "file": "reference.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo"
+  }
+}

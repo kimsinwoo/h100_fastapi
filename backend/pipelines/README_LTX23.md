@@ -2,6 +2,8 @@
 
 백엔드에서 `LTX2_USE_COMFYUI=true` 로 설정하면 이미지→비디오 생성이 ComfyUI(LTXVideo 노드)로 실행됩니다.
 
+**전체 가이드(폴더 구조, pose_sdxl, 환경 변수, 주입 규칙)**: [`../docs/COMFYUI_FULL_SETUP.md`](../docs/COMFYUI_FULL_SETUP.md)
+
 ## 모델 위치
 
 - LTX-2.3 체크포인트는 **ComfyUI/models** 에 두세요.

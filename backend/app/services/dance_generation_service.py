@@ -17,6 +17,10 @@ This service does not train LoRAs — it consumes existing ComfyUI graphs and op
 
 **GPU safety**: ComfyUI calls are serialized with an asyncio semaphore; heavy sync work runs in
 `run_in_executor`. Optional `torch.cuda.empty_cache()` after batches when CUDA is available.
+
+**Goals vs implementation** (강아지 자동 인식·사람↔강아지 대치·Wan 단독 등): see
+`docs/DANCE_GOALS_AND_GAPS.md` — this service does not run pet detection or human swap;
+reference video drives motion; MediaPipe pose is human-centric when using pose_sdxl.
 """
 
 from __future__ import annotations

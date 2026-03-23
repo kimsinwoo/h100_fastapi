@@ -1,5 +1,7 @@
 # Dance pipelines (ComfyUI API format)
 
+전체 설치·주입 규칙·환경 변수는 **[`docs/COMFYUI_FULL_SETUP.md`](../docs/COMFYUI_FULL_SETUP.md)** 를 참고하세요.
+
 ## `dog_pose_generation.json`
 
 **Shipped file**: minimal **LoadImage → SaveImage** graph to verify ComfyUI connectivity (`/prompt` → `/history` → `/view`).
@@ -21,8 +23,9 @@
 Optional operator graph for **frame sequence → video** entirely inside ComfyUI (e.g. VHS + LTX).  
 If omitted, the backend uses **ffmpeg** (`DanceGenerationService.generate_video`) or **LTX i2v** (`pipelines/comfyui_ltx23_workflow.json` / `ltx23_i2v.json`) via `run_image_to_video`.
 
-## Environment
+## Environment / API
 
-- `DANCE_USE_SDXL_POSE_PIPELINE=true` — enable per-frame SDXL pose path (requires valid exported `dog_pose_generation.json` with ≥2 `LoadImage` nodes).
+- **댄스 pose_sdxl 경로**: API `POST /api/dance/generate` (또는 custom)에서 **`pipeline=pose_sdxl`** 로 선택 (Form 필드).
 - `COMFYUI_BASE_URL`, `COMFYUI_ENABLED=true`
-- `COMFYUI_REFERENCE_VIDEO_DIR` — when using LTX + reference video, align with ComfyUI input directory.
+- `COMFYUI_REFERENCE_VIDEO_DIR` — LTX + 레퍼런스 영상 시 ComfyUI `input` 과 동일 경로 권장.
+- `DANCE_USE_SDXL_POSE_PIPELINE` — 레거시 플래그; **댄스 생성 경로에서는 사용하지 않음**. `pipeline=pose_sdxl` 사용 권장.
