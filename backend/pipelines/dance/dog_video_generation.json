@@ -1,0 +1,22 @@
+{
+  "_meta": {
+    "description": "Optional: ComfyUI graph for image sequence or latent sequence to MP4 (e.g. VHS + LTX). If unused, backend uses ffmpeg mux or existing LTX i2v workflow.",
+    "default_backend_path": "pipelines/comfyui_ltx23_workflow.json"
+  },
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example_frame.png"
+    }
+  },
+  "2": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dance_video_mux",
+      "images": [
+        "1",
+        0
+      ]
+    }
+  }
+}

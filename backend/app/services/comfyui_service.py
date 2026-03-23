@@ -341,7 +341,8 @@ async def run_workflow_and_get_image(
         raise RuntimeError("ComfyUI is disabled (COMFYUI_ENABLED=false)")
     max_wait = max_wait or settings.comfyui_timeout_seconds
 
-    out = await _post_prompt(workflow, client_id=client_id)
+    prompt_map = _unwrap_workflow(workflow)
+    out = await _post_prompt(prompt_map, client_id=client_id)
     if "error" in out:
         raise RuntimeError(f"ComfyUI prompt error: {out['error']}")
     prompt_id = out.get("prompt_id")
@@ -722,3 +723,130 @@ async def run_ltx23_image_to_video(
         if body:
             msg += f" Response: {body}"
         raise RuntimeError(msg) from e
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dance / pose SDXL workflows (ControlNet + IPAdapter — graph exported by operator)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def strip_non_comfy_keys(workflow: dict[str, Any]) -> dict[str, Any]:
+    """Remove keys ComfyUI /prompt does not accept (e.g. _meta, description)."""
+    import copy
+
+    out = copy.deepcopy(workflow)
+    if isinstance(out, dict):
+        out.pop("_meta", None)
+        out.pop("__meta__", None)
+        if "prompt" in out and isinstance(out["prompt"], dict):
+            out["prompt"].pop("_meta", None)
+    return out
+
+
+def load_dance_workflow_template(filename: str) -> dict[str, Any]:
+    """
+    Load `pipelines/dance/<filename>` (API format).
+    Replace the shipped template with your own export from ComfyUI (Save API Format).
+    """
+    settings = get_settings()
+    path = settings.pipelines_dir / "dance" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Dance workflow not found: {path}")
+    raw = _load_workflow_json(path)
+    return strip_non_comfy_keys(raw)
+
+
+def inject_dance_pose_workflow_inputs(
+    workflow: dict[str, Any],
+    character_image_name: str,
+    pose_image_name: str,
+    seed: int,
+    positive_prompt: str,
+    negative_prompt: str = "",
+) -> dict[str, Any]:
+    """
+    Inject character + OpenPose skeleton image names, CLIP prompts, and seed into an exported graph.
+
+    Heuristics:
+      - First LoadImage node → character reference (IPAdapter / conditioning source).
+      - Second LoadImage node → pose control image (ControlNet OpenPose).
+      - KSampler / KSamplerAdvanced: seed
+      - CLIPTextEncode nodes (sorted by id): first = positive, second = negative
+    """
+    import copy
+
+    wf = copy.deepcopy(workflow)
+    nodes = _unwrap_workflow(wf)
+    load_nodes: list[tuple[str, dict[str, Any]]] = []
+    for nid, node in sorted(nodes.items(), key=lambda x: str(x[0])):
+        if not isinstance(node, dict):
+            continue
+        ct = (node.get("class_type") or "").lower().replace(" ", "")
+        if "loadimage" in ct:
+            load_nodes.append((str(nid), node))
+    if len(load_nodes) >= 1:
+        load_nodes[0][1].setdefault("inputs", {})["image"] = character_image_name
+    if len(load_nodes) >= 2:
+        load_nodes[1][1].setdefault("inputs", {})["image"] = pose_image_name
+    else:
+        logger.warning(
+            "Dance pose workflow: expected ≥2 LoadImage nodes (character + pose). "
+            "Export SDXL+ControlNet+IPAdapter from ComfyUI and save to pipelines/dance/dog_pose_generation.json."
+        )
+
+    for _nid, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        ct = (node.get("class_type") or "").lower()
+        if "sampler" in ct and isinstance(node.get("inputs"), dict):
+            inp = node["inputs"]
+            if "seed" in inp:
+                inp["seed"] = int(seed) % (2**31)
+
+    clip_nodes = sorted(
+        [
+            (nid, n)
+            for nid, n in nodes.items()
+            if isinstance(n, dict)
+            and "clip" in (n.get("class_type") or "").lower()
+            and "text" in (n.get("class_type") or "").lower()
+        ],
+        key=lambda x: str(x[0]),
+    )
+    for i, (_nid, node) in enumerate(clip_nodes):
+        text = positive_prompt if i == 0 else (negative_prompt if i > 0 else "")
+        node.setdefault("inputs", {})["text"] = text
+
+    return _unwrap_workflow(wf)
+
+
+async def run_dance_pose_workflows_sequential(
+    workflow_template: dict[str, Any],
+    jobs: list[dict[str, Any]],
+    poll_interval: float = 0.5,
+    max_wait: float | None = None,
+) -> list[bytes]:
+    """
+    Run multiple injected pose workflows one after another (GPU-safe default).
+    Each job dict: character_image_name, pose_image_name, seed, positive_prompt, negative_prompt.
+    """
+    settings = get_settings()
+    max_wait = max_wait or settings.comfyui_timeout_seconds
+    out: list[bytes] = []
+    for job in jobs:
+        injected = inject_dance_pose_workflow_inputs(
+            workflow_template,
+            character_image_name=job["character_image_name"],
+            pose_image_name=job["pose_image_name"],
+            seed=int(job.get("seed", 0)),
+            positive_prompt=str(job.get("positive_prompt", "")),
+            negative_prompt=str(job.get("negative_prompt", "")),
+        )
+        prompt_map = _unwrap_workflow(injected)
+        img_bytes = await run_workflow_and_get_image(
+            prompt_map,
+            poll_interval=poll_interval,
+            max_wait=max_wait,
+        )
+        out.append(img_bytes)
+    return out

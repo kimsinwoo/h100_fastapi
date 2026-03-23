@@ -5,6 +5,7 @@ Uses MediaPipe Pose for body skeleton; output format compatible with motion cond
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -344,6 +345,92 @@ def extract_poses_from_video(video_path: Path, fps_out: float | None = 30.0) -> 
             "Pose extraction (Tasks API) failed. Need .task model: set POSE_LANDMARKER_MODEL_PATH or allow auto-download to data/pose_cache/pose_landmarker.task"
         )
     return out
+
+
+def get_pose_cache_path_for_key(cache_key: str) -> Path:
+    """Absolute path to cached pose JSON for a motion id / cache key (matches dance_service pose cache layout)."""
+    from app.core.config import get_settings
+
+    return get_settings().pose_cache_dir / f"{cache_key}.json"
+
+
+def write_motion_sequence_cache(cache_key: str, motion: MotionSequence) -> Path:
+    """Persist MotionSequence to pose cache directory; returns written path."""
+    path = get_pose_cache_path_for_key(cache_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(motion.model_dump_json(indent=2), encoding="utf-8")
+    logger.info("Pose cache written: %s (%d frames)", path, len(motion.frames))
+    return path
+
+
+def render_pose_frame_to_png_bytes(frame: FramePose, width: int, height: int) -> bytes:
+    """
+    Render one frame's skeleton to PNG bytes (pixel coordinates in `frame` keypoints).
+    Uses the same bone topology as ComfyUI upload_pose_frames_to_comfyui.
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as e:
+        raise RuntimeError("Pillow required for pose rendering: pip install Pillow") from e
+
+    from io import BytesIO
+
+    w, h = max(16, width), max(16, height)
+    kp_by_joint: dict[str, tuple[float, float]] = {}
+    for kp in frame.keypoints:
+        # Heuristic: values in [0,1] treated as normalized; else pixel coords
+        x, y = float(kp.x), float(kp.y)
+        if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+            x, y = x * w, y * h
+        kp_by_joint[kp.joint] = (x, y)
+
+    connections = [
+        ("left_shoulder", "right_shoulder"),
+        ("left_shoulder", "left_elbow"),
+        ("left_elbow", "left_wrist"),
+        ("right_shoulder", "right_elbow"),
+        ("right_elbow", "right_wrist"),
+        ("left_shoulder", "left_hip"),
+        ("right_shoulder", "right_hip"),
+        ("left_hip", "right_hip"),
+        ("left_hip", "left_knee"),
+        ("left_knee", "left_ankle"),
+        ("right_hip", "right_knee"),
+        ("right_knee", "right_ankle"),
+    ]
+
+    img = Image.new("RGB", (w, h), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    for j1, j2 in connections:
+        if j1 in kp_by_joint and j2 in kp_by_joint:
+            x1, y1 = kp_by_joint[j1]
+            x2, y2 = kp_by_joint[j2]
+            draw.line([(int(x1), int(y1)), (int(x2), int(y2))], fill=(255, 255, 255), width=3)
+    for _j, (px, py) in kp_by_joint.items():
+        px_i, py_i = int(px), int(py)
+        draw.ellipse(
+            [(px_i - 4, py_i - 4), (px_i + 4, py_i + 4)],
+            fill=(0, 255, 0),
+        )
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def extract_poses_from_videos_batch(
+    video_paths: list[Path],
+    fps_out: float | None = 30.0,
+) -> list[MotionSequence | None]:
+    """
+    Extract pose sequences from multiple videos without blocking the event loop.
+    Returns aligned list (None entries = failure).
+    """
+    loop = asyncio.get_event_loop()
+
+    async def one(p: Path) -> MotionSequence | None:
+        return await loop.run_in_executor(None, lambda: extract_poses_from_video(p, fps_out=fps_out))
+
+    return await asyncio.gather(*[one(Path(p)) for p in video_paths])
 
 
 def normalize_motion(motion: MotionSequence) -> MotionSequence:

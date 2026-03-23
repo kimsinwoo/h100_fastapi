@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "description": "REPLACE with ComfyUI Save (API Format): SDXL + ControlNet OpenPose + IPAdapter + KSampler + SaveImage. Shipped: minimal LoadImage->SaveImage for connectivity tests.",
+    "expected_injections": [
+      "LoadImage #1 = character image name (uploaded)",
+      "LoadImage #2 = pose skeleton PNG",
+      "CLIPTextEncode positive/negative",
+      "KSampler seed"
+    ]
+  },
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example_character.png"
+    }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example_pose.png"
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "dance_pose_frame",
+      "images": [
+        "1",
+        0
+      ]
+    }
+  }
+}

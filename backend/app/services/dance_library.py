@@ -10,11 +10,35 @@ import json
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from app.schemas.dance_schema import MotionSequence
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DanceSequence:
+    """
+    Serialized dance motion for conditioning (paths to pose JSON files + timing).
+
+    `poses` entries are filesystem paths to per-frame or chunked pose JSON files produced by
+    `pose_service` / `DanceGenerationService` (OpenPose-style keypoints).
+    """
+
+    poses: list[str] = field(default_factory=list)
+    fps: int = 8
+
+    @classmethod
+    def from_motion_cache(cls, motion_id: str, motion: "MotionSequence", cache_dir: Path) -> "DanceSequence":
+        """Single aggregated JSON path for the full sequence (common case)."""
+        path = Path(cache_dir) / f"{motion_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(motion.model_dump_json(indent=2), encoding="utf-8")
+        return cls(poses=[str(path.resolve())], fps=max(1, int(round(motion.fps))))
 
 
 @dataclass

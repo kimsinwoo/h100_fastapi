@@ -462,15 +462,20 @@ export async function refreshDanceList(): Promise<{ message: string; added: stri
   return data;
 }
 
+/** 댄스 생성 파이프라인: ltx(기본)=LTX+레퍼런스 영상, pose_sdxl=포즈→ComfyUI 프레임→ffmpeg */
+export type DancePipelineMode = "ltx" | "pose_sdxl";
+
 export async function generateDance(
   file: File,
   motionId: string,
-  character: "dog" | "cat"
+  character: "dog" | "cat",
+  pipeline: DancePipelineMode = "ltx"
 ): Promise<DanceGenerateResponse> {
   const form = new FormData();
   form.append("image", file);
   form.append("motion_id", motionId);
   form.append("character", character);
+  form.append("pipeline", pipeline);
   const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
     timeout: 60 * 1000, // 파일 업로드 + job_id 수신만 — 1분이면 충분
@@ -489,12 +494,14 @@ export async function generateDance(
 export async function generateDanceCustom(
   characterImage: File,
   referenceVideo: File,
-  character: "dog" | "cat"
+  character: "dog" | "cat",
+  pipeline: DancePipelineMode = "ltx"
 ): Promise<DanceGenerateResponse> {
   const form = new FormData();
   form.append("image", characterImage);
   form.append("reference_video", referenceVideo);
   form.append("character", character);
+  form.append("pipeline", pipeline);
   const uploadDanceApi = axios.create({
     baseURL: api.defaults.baseURL ?? "/",
     timeout: 60 * 1000, // 파일 업로드 + job_id 수신만

@@ -274,6 +274,26 @@ class Settings(BaseSettings):
         default="pipelines",
         description="ComfyUI 워크플로우 JSON 보관 (backend_dir 기준)",
     )
+    # Dance: optional SDXL + ControlNet + IPAdapter per-frame path (see pipelines/dance/README.md)
+    dance_use_sdxl_pose_pipeline: bool = Field(
+        default=False,
+        description=(
+            "[레거시] API Form 필드 pipeline=pose_sdxl 을 사용하는 것을 권장합니다. "
+            "이 값은 더 이상 generate_dance 경로에서 사용되지 않습니다."
+        ),
+    )
+    dance_frame_batch_size: int = Field(
+        default=4,
+        ge=1,
+        le=32,
+        description="SDXL pose path: frames per submit batch (sequential ComfyUI runs).",
+    )
+    dance_max_pose_frames: int = Field(
+        default=49,
+        ge=8,
+        le=241,
+        description="SDXL pose path: max frames to generate (caps GPU time).",
+    )
 
     @property
     def pipelines_dir(self) -> Path:

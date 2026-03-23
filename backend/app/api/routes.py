@@ -92,8 +92,6 @@ from app.services.comfyui_service import (
 )
 from app.services.dance_service import (
     get_motion_video_path,
-    run_dance_generate,
-    run_dance_generate_custom,
 )
 
 logger = logging.getLogger(__name__)
@@ -1119,12 +1117,16 @@ async def generate_dance(
     request: Request,
     motion_id: Annotated[str, Form(description="e.g. rat_dance")],
     character: Annotated[str, Form(description="dog or cat")] = "dog",
+    pipeline: Annotated[str, Form(description="ltx | pose_sdxl")] = "ltx",
     file: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
     image: Annotated[UploadFile | None, File(description="Character image (alias)")] = None,
 ) -> DanceJobResponse:
     """
     Generate video of character performing the selected dance (비동기 job).
     즉시 job_id 반환 → GET /dance/status/{job_id} 로 폴링.
+
+    - pipeline=ltx: LTX + 레퍼런스 댄스 영상(기본).
+    - pipeline=pose_sdxl: 포즈 추출 → ComfyUI 프레임(pipelines/dance/dog_pose_generation.json) → ffmpeg.
     """
     _check_rate_limit(request)
     upload = file if (file and file.filename) else image
@@ -1160,11 +1162,15 @@ async def generate_dance(
     if reference_video_path is None:
         reference_video_path = get_motion_video_path(mid)
 
+    pl = (pipeline or "ltx").strip().lower()
+    if pl not in ("ltx", "pose_sdxl"):
+        pl = "ltx"
+
     import uuid as _uuid
     job_id = _uuid.uuid4().hex
     _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
                            "motion_id": mid, "character": char, "error": None}
-    background_tasks.add_task(_run_dance_job, job_id, content, mid, char, reference_video_path)
+    background_tasks.add_task(_run_dance_job, job_id, content, mid, char, reference_video_path, pl)
     return DanceJobResponse(job_id=job_id)
 
 
@@ -1173,6 +1179,7 @@ async def generate_dance_custom(
     background_tasks: BackgroundTasks,
     request: Request,
     character: Annotated[str, Form(description="dog or cat")] = "dog",
+    pipeline: Annotated[str, Form(description="ltx | pose_sdxl")] = "ltx",
     file: Annotated[UploadFile | None, File(description="Character image (alias)")] = None,
     image: Annotated[UploadFile | None, File(description="Character image (dog/cat)")] = None,
     reference_video: Annotated[UploadFile | None, File(description="Reference video to mimic movements")] = None,
@@ -1180,6 +1187,8 @@ async def generate_dance_custom(
     """
     Generate video of character mimicking movements from a user-uploaded reference video (비동기 job).
     즉시 job_id 반환 → GET /dance/status/{job_id} 로 폴링.
+
+    pipeline: ltx (기본) | pose_sdxl — 사전 등록 댄스와 동일.
     """
     _check_rate_limit(request)
     upload = image if (image and image.filename) else file
@@ -1214,6 +1223,10 @@ async def generate_dance_custom(
             detail="reference_video must be a video file (mp4/mov/webm/mkv/avi/m4v).",
         )
 
+    pl = (pipeline or "ltx").strip().lower()
+    if pl not in ("ltx", "pose_sdxl"):
+        pl = "ltx"
+
     import uuid as _uuid
     job_id = _uuid.uuid4().hex
     _dance_jobs[job_id] = {"status": "processing", "video_url": None, "processing_time": None,
@@ -1225,6 +1238,7 @@ async def generate_dance_custom(
         video_content,
         char,
         reference_video.filename,
+        pl,
     )
     return DanceJobResponse(job_id=job_id)
 
@@ -1244,15 +1258,31 @@ async def _run_dance_job(
     motion_id: str,
     character: str,
     reference_video_path=None,
+    pipeline: str = "ltx",
 ) -> None:
     from pathlib import Path
+
+    from app.schemas.dance_generation_schema import DanceGenerationJobConfig
+    from app.services.dance_generation_service import DanceGenerationService
+
     ref_path = Path(reference_video_path) if reference_video_path else None
+    pl = pipeline if pipeline in ("ltx", "pose_sdxl") else "ltx"
     try:
-        out_bytes, processing_time = await run_dance_generate(
+        settings = get_settings()
+        job_cfg = DanceGenerationJobConfig(
+            motion_id=motion_id,
+            character=character if character in ("dog", "cat") else "dog",
+            pipeline=pl,
+            batch_size=settings.dance_frame_batch_size,
+            max_frames=settings.dance_max_pose_frames,
+        )
+        svc = DanceGenerationService()
+        out_bytes, processing_time, _state = await svc.generate_dance_video(
             image_bytes=image_bytes,
             motion_id=motion_id,
-            character=character,
+            character=character if character in ("dog", "cat") else "dog",
             reference_video_path=ref_path,
+            job=job_cfg,
         )
         video_filename = await save_upload_async(out_bytes, suffix=".mp4")
         video_url = get_generated_url(video_filename)
@@ -1275,13 +1305,29 @@ async def _run_dance_custom_job(
     video_bytes: bytes,
     character: str,
     reference_video_filename: str | None = None,
+    pipeline: str = "ltx",
 ) -> None:
+    from app.schemas.dance_generation_schema import DanceGenerationJobConfig
+    from app.services.dance_generation_service import DanceGenerationService
+
+    pl = pipeline if pipeline in ("ltx", "pose_sdxl") else "ltx"
+    char = character if character in ("dog", "cat") else "dog"
     try:
-        out_bytes, processing_time = await run_dance_generate_custom(
+        settings = get_settings()
+        job_cfg = DanceGenerationJobConfig(
+            motion_id="custom",
+            character=char,
+            pipeline=pl,
+            batch_size=settings.dance_frame_batch_size,
+            max_frames=settings.dance_max_pose_frames,
+        )
+        svc = DanceGenerationService()
+        out_bytes, processing_time, _state = await svc.generate_custom_dance_video(
             image_bytes=image_bytes,
             reference_video_bytes=video_bytes,
-            character=character,
+            character=char,
             reference_video_filename=reference_video_filename,
+            job=job_cfg,
         )
         video_filename = await save_upload_async(out_bytes, suffix=".mp4")
         video_url = get_generated_url(video_filename)

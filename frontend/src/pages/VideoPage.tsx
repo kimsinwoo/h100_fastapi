@@ -13,7 +13,12 @@ import {
   generateDance,
   generateDanceCustom,
 } from "../services/api";
-import type { GenerateVideoResponse, DanceMotionItem, DanceVideoInfo } from "../services/api";
+import type {
+  GenerateVideoResponse,
+  DanceMotionItem,
+  DanceVideoInfo,
+  DancePipelineMode,
+} from "../services/api";
 import {
   VIDEO_PRESETS,
   VIDEO_PRESETS_TOP_20,
@@ -54,6 +59,9 @@ export default function VideoPage() {
   const [showTips, setShowTips] = useState(false);
   const [customRefVideo, setCustomRefVideo] = useState<File | null>(null);
   const [customCharacter, setCustomCharacter] = useState<"dog" | "cat">("dog");
+  /** API pipeline: ltx = LTX+레퍼런스, pose_sdxl = 포즈→ComfyUI 프레임 */
+  const [dancePipeline, setDancePipeline] = useState<DancePipelineMode>("ltx");
+  const [customDancePipeline, setCustomDancePipeline] = useState<DancePipelineMode>("ltx");
 
   const currentPresets = PRESET_GROUPS.find((g) => g.key === presetGroup)?.list ?? VIDEO_PRESETS;
 
@@ -129,7 +137,7 @@ export default function VideoPage() {
     }
     setState({ phase: "loading" });
     try {
-      const data = await generateDance(file, selectedMotionId, danceCharacter);
+      const data = await generateDance(file, selectedMotionId, danceCharacter, dancePipeline);
       setState({
         phase: "success",
         data: {
@@ -141,7 +149,7 @@ export default function VideoPage() {
     } catch (err) {
       setState({ phase: "error", message: getErrorMessage(err) });
     }
-  }, [file, selectedMotionId, danceCharacter]);
+  }, [file, selectedMotionId, danceCharacter, dancePipeline]);
 
   const videoSrc =
     state.phase === "success"
@@ -192,7 +200,7 @@ export default function VideoPage() {
     }
     setState({ phase: "loading" });
     try {
-      const data = await generateDanceCustom(file, customRefVideo, customCharacter);
+      const data = await generateDanceCustom(file, customRefVideo, customCharacter, customDancePipeline);
       setState({
         phase: "success",
         data: {
@@ -204,7 +212,7 @@ export default function VideoPage() {
     } catch (err) {
       setState({ phase: "error", message: getErrorMessage(err) });
     }
-  }, [file, customRefVideo, customCharacter]);
+  }, [file, customRefVideo, customCharacter, customDancePipeline]);
 
   const isProcessing = state.phase === "loading";
   const canGenerate = file !== null && prompt.trim().length > 0 && !isProcessing;
@@ -395,6 +403,36 @@ export default function VideoPage() {
                 </button>
               ))}
             </div>
+            <p className="mb-2 text-xs font-medium text-gray-600">생성 방식 (API)</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setDancePipeline("ltx")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                  dancePipeline === "ltx"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-emerald-400"
+                }`}
+              >
+                LTX + 댄스 영상 (기본)
+              </button>
+              <button
+                type="button"
+                onClick={() => setDancePipeline("pose_sdxl")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                  dancePipeline === "pose_sdxl"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-emerald-400"
+                }`}
+              >
+                포즈→ComfyUI 프레임 (pose_sdxl)
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-gray-500">
+              pose_sdxl은 서버에 <code className="rounded bg-gray-100 px-1">pipelines/dance/dog_pose_generation.json</code>과 ComfyUI가 필요합니다. 실패 시 자동으로 LTX 경로로 재시도할 수 있습니다.
+            </p>
             <button
               type="button"
               onClick={handleDanceGenerate}
@@ -441,6 +479,33 @@ export default function VideoPage() {
                   {c === "dog" ? "강아지" : "고양이"}
                 </button>
               ))}
+            </div>
+            <p className="mb-2 text-xs font-medium text-gray-600">생성 방식 (API)</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCustomDancePipeline("ltx")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                  customDancePipeline === "ltx"
+                    ? "border-violet-500 bg-violet-50 text-violet-800"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-violet-400"
+                }`}
+              >
+                LTX + 레퍼런스 (기본)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomDancePipeline("pose_sdxl")}
+                disabled={isProcessing}
+                className={`rounded-lg border-2 px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                  customDancePipeline === "pose_sdxl"
+                    ? "border-violet-500 bg-violet-50 text-violet-800"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-violet-400"
+                }`}
+              >
+                포즈→ComfyUI (pose_sdxl)
+              </button>
             </div>
             <button
               type="button"
