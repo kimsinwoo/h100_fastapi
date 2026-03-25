@@ -14,15 +14,19 @@ import type {
 /** 프론트 요청 타임아웃: 2분 (이미지 생성 등 긴 API용). 동영상/댄스는 타임아웃 없음(무제한). */
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
 
-/** 백엔드 주소. 프론트 로컬 + 백엔드 다른 서버면 .env에 VITE_API_BASE_URL=백엔드URL 설정. 없으면 아래 기본값 사용 */
-const DEFAULT_API_BASE = "http://210.91.154.131:20443/deployment2/a05af76e431fe3ac";
+/**
+ * 백엔드 베이스 URL.
+ * 비우면 현재 페이지 origin 기준 상대 경로(/api, /health) — Vite 프록시(3000→7000) 또는 백엔드가 정적 파일을 같이 서빙할 때 동작.
+ * 원격 API만 쓸 때는 .env에 VITE_API_BASE_URL=https://your-api.example.com 설정.
+ */
+const DEFAULT_API_BASE = "";
 const getBaseURL = (): string => {
   const url = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "";
   return (url || "").trim() || DEFAULT_API_BASE;
 };
 
 const api = axios.create({
-  baseURL: getBaseURL(),
+  baseURL: getBaseURL() || undefined,
   timeout: FRONTEND_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
@@ -56,7 +60,7 @@ api.interceptors.request.use((config) => {
 
 /** FormData 전용: Content-Type 미설정 → multipart/form-data; boundary= 자동 설정 (422 방지) */
 const uploadApi = axios.create({
-  baseURL: api.defaults.baseURL ?? "/",
+  baseURL: api.defaults.baseURL ?? undefined,
   timeout: FRONTEND_TIMEOUT_MS,
 });
 uploadApi.interceptors.request.use((config) => {
@@ -67,7 +71,7 @@ uploadApi.interceptors.request.use((config) => {
 });
 
 const IMAGE_POLL_INTERVAL_MS = 3000;
-const IMAGE_POLL_MAX_WAIT_MS = 5 * 60 * 1000; // 5분
+const IMAGE_POLL_MAX_WAIT_MS = 8 * 60 * 1000; // 포즈 보강·재시도 시 여유
 
 /** Z-Image / SDXL: 비동기 잡 제출 후 폴링 (62초+ 걸릴 때 타임아웃 회피). species: 강아지/고양이에 맞는 프롬프트 적용. */
 export async function generateImage(
@@ -222,6 +226,17 @@ const VIDEO_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
 const COMFYUI_POLL_INTERVAL_MS = 2000;
 const COMFYUI_POLL_MAX_MS = 30 * 60 * 1000;
 
+/** 대용량 ArrayBuffer → base64 (spread/btoa 한 번에 넣으면 스택 초과 가능) */
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
 /** ComfyUI 동영상 생성 (업로드/prompt/history/view는 백엔드 프록시 경로로 요청). */
 async function generateVideoViaComfyUI(
   file: File,
@@ -308,11 +323,11 @@ async function generateVideoViaComfyUI(
   const videoBlob = await viewRes.blob();
   const processingTime = (Date.now() - start) / 1000;
   const buf = await videoBlob.arrayBuffer();
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const b64 = arrayBufferToBase64(buf);
   return {
     video_url: "",
     processing_time: processingTime,
-    video_base64: `data:video/mp4;base64,${b64}`,
+    video_base64: b64,
   };
 }
 
@@ -337,7 +352,7 @@ export async function generateVideo(
   if (preset) form.append("preset", preset);
   if (negativePrompt) form.append("negative_prompt", negativePrompt);
   const uploadVideoApi = axios.create({
-    baseURL: api.defaults.baseURL ?? "/",
+    baseURL: api.defaults.baseURL ?? undefined,
     timeout: 60 * 1000, // 업로드+job_id 수신만 하므로 1분이면 충분
   });
   uploadVideoApi.interceptors.request.use((config) => {
@@ -477,7 +492,7 @@ export async function generateDance(
   form.append("character", character);
   form.append("pipeline", pipeline);
   const uploadDanceApi = axios.create({
-    baseURL: api.defaults.baseURL ?? "/",
+    baseURL: api.defaults.baseURL ?? undefined,
     timeout: 60 * 1000, // 파일 업로드 + job_id 수신만 — 1분이면 충분
   });
   uploadDanceApi.interceptors.request.use((config) => {
@@ -503,7 +518,7 @@ export async function generateDanceCustom(
   form.append("character", character);
   form.append("pipeline", pipeline);
   const uploadDanceApi = axios.create({
-    baseURL: api.defaults.baseURL ?? "/",
+    baseURL: api.defaults.baseURL ?? undefined,
     timeout: 60 * 1000, // 파일 업로드 + job_id 수신만
   });
   uploadDanceApi.interceptors.request.use((config) => {
@@ -793,9 +808,10 @@ const HEALTH_CHAT_INTRO =
 /** 구조화 응답일 때 사용할 짧은 안내 문구 (사고 과정 노출 방지) */
 export const HEALTH_CHAT_SHORT_INTRO = HEALTH_CHAT_INTRO;
 
-const getBaseUrl = () =>
-  (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL?.trim() ||
-  DEFAULT_API_BASE;
+const getBaseUrl = () => {
+  const u = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL?.trim();
+  return u || DEFAULT_API_BASE;
+};
 
 /** 스트리밍 채팅: 청크마다 onChunk 호출, 완료 시 전체 content 반환. 표시가 빨리 되고 체감 속도 개선. */
 export async function llmChatStream(
@@ -952,6 +968,23 @@ export function getApiResourceUrl(pathOrUrl: string): string {
   const baseClean = base.replace(/\/$/, "");
   const path = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
   return `${baseClean}${path}`;
+}
+
+/** 재생용: 백엔드는 순수 base64; 예전 클라이언트가 data: 를 중복 붙인 경우에도 재생 가능 */
+export function videoSrcFromApiField(videoBase64: string | null | undefined, videoUrl: string): string {
+  if (!videoBase64?.trim()) return getApiResourceUrl(videoUrl);
+  const t = videoBase64.trim();
+  if (t.startsWith("data:")) return t;
+  return `data:video/mp4;base64,${t}`;
+}
+
+/** 다운로드용: data URL에서 raw base64만 추출 */
+export function rawBase64FromVideoField(videoBase64: string | null | undefined): string | null {
+  if (!videoBase64?.trim()) return null;
+  let t = videoBase64.trim();
+  const idx = t.indexOf("base64,");
+  if (t.startsWith("data:") && idx !== -1) t = t.slice(idx + 7);
+  return t;
 }
 
 /** 학습용 이미지 전체 URL (API base + image_url). */

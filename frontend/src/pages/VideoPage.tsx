@@ -7,6 +7,8 @@ import {
   getHealth,
   getErrorMessage,
   getApiResourceUrl,
+  videoSrcFromApiField,
+  rawBase64FromVideoField,
   getDanceMotions,
   getDanceList,
   refreshDanceList,
@@ -41,16 +43,14 @@ const PRESET_GROUPS: { key: PresetGroup; label: string; list: VideoPresetItem[] 
   { key: "viral", label: "바이럴 쇼츠", list: VIDEO_PRESETS_VIRAL },
 ];
 
-const defaultPreset = VIDEO_PRESETS[0];
-
 export default function VideoPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState<string>(defaultPreset.prompt);
-  const [negativePrompt, setNegativePrompt] = useState<string>(defaultPreset.negative);
+  const [prompt, setPrompt] = useState<string>(() => VIDEO_PRESETS[0]?.prompt ?? "");
+  const [negativePrompt, setNegativePrompt] = useState<string>(() => VIDEO_PRESETS[0]?.negative ?? "");
   const [presetGroup, setPresetGroup] = useState<PresetGroup>("basic");
   const [state, setState] = useState<VideoState>({ phase: "idle" });
   const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
-  const [danceMotions, setDanceMotions] = useState<DanceMotionItem[]>([]);
+  const [, setDanceMotions] = useState<DanceMotionItem[]>([]);
   const [danceList, setDanceList] = useState<DanceVideoInfo[]>([]);
   const [selectedMotionId, setSelectedMotionId] = useState<string>("");
   const [danceCharacter, setDanceCharacter] = useState<"dog" | "cat">("dog");
@@ -76,8 +76,8 @@ export default function VideoPage() {
         setDanceMotions(motions);
         const dances = listRes.dances ?? [];
         setDanceList(dances);
-        if (dances.length > 0) setSelectedMotionId(dances[0].id);
-        else if (motions.length > 0) setSelectedMotionId(motions[0].id);
+        if (dances.length > 0) setSelectedMotionId(dances[0]!.id);
+        else if (motions.length > 0) setSelectedMotionId(motions[0]!.id);
         else setSelectedMotionId("rat_dance");
       })
       .catch(() => {
@@ -93,7 +93,7 @@ export default function VideoPage() {
       await refreshDanceList();
       const r = await getDanceList();
       setDanceList(r.dances);
-      if (r.dances.length > 0) setSelectedMotionId(r.dances[0].id);
+      if (r.dances.length > 0) setSelectedMotionId(r.dances[0]!.id);
     } catch {
       setDanceList([]);
     } finally {
@@ -153,17 +153,15 @@ export default function VideoPage() {
 
   const videoSrc =
     state.phase === "success"
-      ? state.data.video_base64
-        ? `data:video/mp4;base64,${state.data.video_base64}`
-        : getApiResourceUrl(state.data.video_url)
+      ? videoSrcFromApiField(state.data.video_base64, state.data.video_url)
       : "";
 
   const handleDownload = useCallback(() => {
     if (state.phase !== "success") return;
-    const b64 = state.data.video_base64;
-    if (b64) {
+    const rawB64 = rawBase64FromVideoField(state.data.video_base64);
+    if (rawB64) {
       try {
-        const bin = atob(b64);
+        const bin = atob(rawB64);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const blob = new Blob([bytes], { type: "video/mp4" });

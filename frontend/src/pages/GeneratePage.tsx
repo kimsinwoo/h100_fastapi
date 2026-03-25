@@ -14,11 +14,13 @@ import {
   getApiResourceUrl,
   acAnalyze,
   acReconstruct,
+  analyzeUniversal,
 } from "../services/api";
 import type {
   GenerateResponse,
   StylesResponse,
   ACBiologicalAnalysis,
+  UniversalAnalysisResponse,
 } from "../types/api";
 
 type AppState =
@@ -55,6 +57,8 @@ export default function GeneratePage() {
   const [llmAvailable, setLlmAvailable] = useState<boolean>(false);
   const [llmModel, setLlmModel] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  /** Universal 분석 + 포즈 락·드리프트 시 1회 재생성 (체감 품질↑, 시간↑). */
+  const [qualityBoost, setQualityBoost] = useState(true);
   const [state, setState] = useState<AppState>({ phase: "idle" });
 
   // AC 주민 재구성: 폼 + 2단계 상태
@@ -110,15 +114,36 @@ export default function GeneratePage() {
     if (!file) return;
     setState({ phase: "loading" });
     try {
-      const data = await generateImage(file, style, customPrompt || null, strength, null, undefined, {
-        species,
-      });
+      const baseOpts = { species, validateAndRetry: false as boolean };
+      let opts:
+        | typeof baseOpts
+        | (typeof baseOpts & {
+            usePoseLock: true;
+            validateAndRetry: true;
+            analysis: UniversalAnalysisResponse;
+          }) = baseOpts;
+
+      if (qualityBoost) {
+        try {
+          const analysis = await analyzeUniversal({ file, species });
+          opts = {
+            species,
+            usePoseLock: true,
+            validateAndRetry: true,
+            analysis,
+          };
+        } catch {
+          /* 분석 실패 시 일반 파이프라인만 사용 */
+        }
+      }
+
+      const data = await generateImage(file, style, customPrompt || null, strength, null, undefined, opts);
       setState({ phase: "success", data });
     } catch (err) {
       const message = getErrorMessage(err);
       setState({ phase: "error", message });
     }
-  }, [file, style, species, customPrompt, strength]);
+  }, [file, style, species, customPrompt, strength, qualityBoost]);
 
   const handleDownload = useCallback(() => {
     if (state.phase !== "success") return;
@@ -246,7 +271,15 @@ export default function GeneratePage() {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       {(isProcessing || acLoading) && (
-        <LoadingOverlay message={acLoading ? "게임 캐릭터 생성 중..." : "이미지 생성 중... (1~2분 소요될 수 있습니다)"} />
+        <LoadingOverlay
+          message={
+            acLoading
+              ? "게임 캐릭터 생성 중..."
+              : qualityBoost && tab === "style"
+                ? "이미지 생성 중... (포즈 분석·생성으로 2~4분 걸릴 수 있습니다)"
+                : "이미지 생성 중... (1~2분 소요될 수 있습니다)"
+          }
+        />
       )}
 
       <div className="mx-auto max-w-4xl px-4">
@@ -365,7 +398,7 @@ export default function GeneratePage() {
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               disabled={isProcessing}
-              placeholder="예: pixel art, 8-bit, blocky pixels — 픽셀아트는 이렇게 구체적으로 적으면 더 잘 나옵니다. 비우면 오류."
+              placeholder="예: pixel art, 8-bit — 구체적으로 적을수록 좋습니다. 비워도 OmniGen 기본 스타일 지시가 적용됩니다."
               rows={3}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />
@@ -373,6 +406,23 @@ export default function GeneratePage() {
           <section>
             <h2 className="mb-2 text-sm font-semibold text-gray-700">4. Style (2D 캐릭터 재해석)</h2>
             <StyleSelector styles={styles} selected={style} onSelect={setStyle} disabled={isProcessing} />
+          </section>
+          <section className="rounded-lg border border-gray-100 bg-gray-50/80 p-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-800">
+              <input
+                type="checkbox"
+                checked={qualityBoost}
+                onChange={(e) => setQualityBoost(e.target.checked)}
+                disabled={isProcessing}
+                className="mt-0.5 accent-indigo-600"
+              />
+              <span>
+                <span className="font-semibold">품질 보강 (권장)</span>
+                <span className="block text-xs font-normal text-gray-600">
+                  자세·의류 등을 분석한 뒤 포즈를 맞추고, 결과가 어긋나면 1회 재시도합니다. 첫 실행에 분석 API가 한 번 더 호출됩니다.
+                </span>
+              </span>
+            </label>
           </section>
           <section>
             <label htmlFor="strength" className="mb-2 block text-sm font-semibold text-gray-700">

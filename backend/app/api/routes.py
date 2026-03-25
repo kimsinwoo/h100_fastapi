@@ -157,6 +157,16 @@ def _parse_optional_int(s: str | None) -> int | None:
         return None
 
 
+def _resolve_image_inference_steps(steps: str | None) -> int | None:
+    """steps 미지정 시 None → image_service가 스타일별 권장 스텝 사용. 예전 기본 9는 품질 저하 원인이었음."""
+    if steps is None or (isinstance(steps, str) and not steps.strip()):
+        return None
+    v = _parse_optional_int(steps)
+    if v is None or v < 1 or v > 70:
+        return None
+    return v
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(
     request: Request,
@@ -175,7 +185,7 @@ async def generate(
     use_pose_lock: Annotated[str | None, Form(description="If 'true' and analysis provided, use Universal pose-lock engine")] = None,
     analysis: Annotated[str | None, Form(description="JSON from /api/image/analyze-universal for pose-lock generation")] = None,
     validate_and_retry: Annotated[str | None, Form(description="If 'true' with use_pose_lock, re-analyze output and retry on drift")] = None,
-    steps: Annotated[str | None, Form(description="Inference steps (default 70)")] = None,
+    steps: Annotated[str | None, Form(description="Inference steps 1–70; omit for style default (recommended)")] = None,
     strength: Annotated[str | None, Form()] = None,
     seed: Annotated[str | None, Form()] = None,
 ) -> GenerateResponse:
@@ -190,9 +200,7 @@ async def generate(
         raise HTTPException(status_code=422, detail="Missing required file. Send as multipart field 'file' or 'image'.")
     strength_f: float | None = _parse_optional_float(strength)
     seed_i: int | None = _parse_optional_int(seed)
-    steps_i = _parse_optional_int(steps) if steps is not None else 9
-    if steps_i is None or steps_i < 1 or steps_i > 70:
-        steps_i = 9
+    steps_i = _resolve_image_inference_steps(steps)
     settings = get_settings()
     style_lower = style.strip().lower()
     allowed_list = get_allowed_style_keys()
@@ -306,7 +314,7 @@ async def _run_image_job(job_id: str, payload: dict) -> None:
                 species_key=payload.get("species_key"),
                 custom_prompt=payload.get("custom_prompt"),
                 raw_prompt=payload.get("raw_prompt_bool", False),
-                num_steps=payload.get("steps_i", 70),
+                num_steps=payload.get("steps_i"),
                 strength=payload.get("strength_f"),
                 seed=payload.get("seed_i"),
                 ac_background=payload.get("ac_background"),
@@ -396,9 +404,7 @@ async def generate_image_async(
             analysis_dict = _json.loads(analysis.strip())
         except _json.JSONDecodeError as e:
             raise HTTPException(status_code=400, detail=f"Invalid analysis JSON: {e}") from e
-    steps_i = _parse_optional_int(steps) if steps is not None else 9
-    if steps_i is None or steps_i < 1 or steps_i > 70:
-        steps_i = 9
+    steps_i = _resolve_image_inference_steps(steps)
     payload = {
         "content": content,
         "style_lower": style_lower,
