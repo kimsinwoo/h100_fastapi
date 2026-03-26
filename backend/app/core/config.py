@@ -263,7 +263,12 @@ class Settings(BaseSettings):
     )
     comfyui_base_url: str = Field(
         default="http://127.0.0.1:8188",
-        description="ComfyUI 서버 주소 (로컬: 8188)",
+        description=(
+            "ComfyUI HTTP API 베이스 (끝에 / 없음). 로컬: http://127.0.0.1:8188. "
+            "Kubernetes 등: FastAPI와 다른 Pod이면 서비스 DNS로 설정 "
+            "(예: http://comfyui:8188, http://comfyui.<ns>.svc.cluster.local:8188). "
+            "127.0.0.1은 ComfyUI가 같은 컨테이너/호스트에 있을 때만 동작합니다."
+        ),
     )
     comfyui_timeout_seconds: float = Field(
         default=900.0,

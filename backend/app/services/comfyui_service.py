@@ -20,6 +20,16 @@ from app.utils.file_handler import ensure_generated_dir
 logger = logging.getLogger(__name__)
 
 
+def _comfy_connection_error_msg(base_url: str) -> str:
+    return (
+        f"ComfyUI server unreachable at {base_url}. "
+        "백엔드(.env)에 COMFYUI_BASE_URL을 실제 ComfyUI 주소로 설정하세요. "
+        "Kubernetes 예: http://comfyui:8188 또는 http://comfyui.<namespace>.svc.cluster.local:8188. "
+        "로컬이면 ComfyUI 실행 후 http://127.0.0.1:8188. "
+        "Ensure ComfyUI is running."
+    )
+
+
 def _unwrap_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
     """
     ComfyUI API 포맷은 두 가지 구조로 올 수 있다:
@@ -688,10 +698,7 @@ async def run_ltx23_image_to_video(
             "COMFYUI_VIDEO_TIMEOUT_SECONDS를 늘린 후 다시 시도해 주세요."
         )
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-        raise RuntimeError(
-            f"ComfyUI server unreachable at {base_url}. "
-            "Ensure ComfyUI is running and COMFYUI_BASE_URL is correct (e.g. http://comfyui:8188 if in another pod/container)."
-        ) from e
+        raise RuntimeError(_comfy_connection_error_msg(base_url)) from e
     except httpx.HTTPStatusError as e:
         body = ""
         if e.response is not None:
@@ -862,10 +869,7 @@ async def run_wan_vace_v2v_image_to_video(
             f"ComfyUI Wan VACE workflow {prompt_id} did not finish within {max_wait}s."
         )
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-        raise RuntimeError(
-            f"ComfyUI server unreachable at {base_url}. "
-            "Ensure ComfyUI is running and COMFYUI_BASE_URL is correct."
-        ) from e
+        raise RuntimeError(_comfy_connection_error_msg(base_url)) from e
     except httpx.HTTPStatusError as e:
         body = e.response.text[:800] if e.response and e.response.text else ""
         raise RuntimeError(f"ComfyUI returned {e.response.status_code if e.response else 'error'}. {body}") from e

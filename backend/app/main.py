@@ -108,6 +108,26 @@ async def lifespan(app: FastAPI):
     logger.info("댄스 영상 %d개 로드됨 (폴더: %s)", len(dance_library._cache), settings.dance_videos_dir)
     if dance_library._cache:
         logger.info("댄스 ID 목록: %s", list(dance_library._cache.keys()))
+    # ComfyUI: LTX 워크플로 JSON이 있으면 영상 경로가 ComfyUI를 씀 → 기동 시 연결 여부 안내
+    try:
+        if getattr(settings, "comfyui_enabled", False):
+            wf_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
+            wf_path = settings.pipelines_dir / f"{wf_name}.json"
+            if not wf_path.is_file():
+                wf_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
+            if wf_path.is_file():
+                from app.services.comfyui_service import health_check
+
+                if not await health_check():
+                    logger.warning(
+                        "ComfyUI에 연결되지 않습니다 (COMFYUI_BASE_URL=%s). "
+                        "pipelines/%s 가 있어 영상 생성이 ComfyUI를 사용합니다. "
+                        "배포 서버 .env 에 COMFYUI_BASE_URL 을 ComfyUI Pod/서비스 주소로 설정하세요.",
+                        settings.comfyui_base_url,
+                        wf_path.name,
+                    )
+    except Exception as exc:
+        logger.debug("ComfyUI startup check skipped: %s", exc)
     yield
     logger.info("Shutting down")
 
