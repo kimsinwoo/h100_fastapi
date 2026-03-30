@@ -58,6 +58,14 @@ NEGATIVE_PROMPT_TURBO = (
     "camera movement, camera pan, panning shot, camera tilt, zoom in, zoom out, dolly, tracking shot, moving camera, crane shot."
 )
 
+# I2V: API 기본 종횡비(레거시 768×512). 실제 생성은 입력 사진 비율에 맞춘 해상도 사용.
+I2V_MAX_LONG_EDGE_DEFAULT = 768
+I2V_MAX_LONG_EDGE_QUALITY = 1024
+I2V_MIN_SHORT_EDGE = 256
+# 출력 종횡비가 극단이면(초광각 등) 모델 안정을 위해 비율을 약간 클램프
+I2V_ASPECT_MIN = 0.45   # ~9:20
+I2V_ASPECT_MAX = 2.15   # ~21:9
+
 # 기본: 32배수 해상도, 8n+1 프레임. LTX-2.3일 때 steps/guidance는 config ltx23_* 사용
 DEFAULT_WIDTH = 768   # 32*24
 DEFAULT_HEIGHT = 512  # 32*16
@@ -69,6 +77,12 @@ DEFAULT_GUIDANCE_SCALE = 4.0
 DEFAULT_NEGATIVE = NEGATIVE_PROMPT_TURBO
 
 # ---------- LTX-2 품질 파이프라인 (2.3 스타일 텍스트·시네마틱 품질) ----------
+# 참조 이미지와 동일 개체 유지 (다른 강아지/피사체 생성 완화)
+VIDEO_PROMPT_IDENTITY_PREFIX = (
+    "The exact same individual animal and subject as in the reference image. "
+    "Preserve identity, breed, coat colors, markings, and facial features. "
+    "Subtle natural motion only; do not replace, swap, or morph the subject. "
+)
 # 프롬프트 앞에 붙여 시네마틱/디테일 유도 (LTX-2 diffusers 경로)
 VIDEO_PROMPT_QUALITY_PREFIX = (
     "High quality, cinematic, detailed motion, natural lighting, sharp focus. "
@@ -77,6 +91,11 @@ VIDEO_PROMPT_QUALITY_PREFIX = (
 NEGATIVE_VIDEO_TEXT = (
     "floating text, wrong text, distorted letters, watermark, subtitle artifacts, "
     "burned-in text, logo, caption errors, blurry text, text overlay, floating captions."
+)
+# 정체성 붕괴·피사체 교체 완화
+IDENTITY_PRESERVE_NEGATIVE = (
+    "different animal, different dog, different cat, wrong breed, species swap, replacement subject, "
+    "morphed face, inconsistent fur, color change, another pet, wrong identity, cloned wrong subject"
 )
 
 # ---------- 반려동물 영상 (모션 안정성: 스피드맨/일그러짐 방지) ----------
@@ -127,6 +146,97 @@ def _clamp_num_frames_to_8n_plus_1(n: int, min_frames: int = 25) -> int:
     low = max(min_frames, low)
     high = min(241, high)
     return low if (n - low) <= (high - n) else high
+
+
+def compute_i2v_output_dimensions(
+    iw: int,
+    ih: int,
+    max_long_edge: int = I2V_MAX_LONG_EDGE_DEFAULT,
+    min_short_edge: int = I2V_MIN_SHORT_EDGE,
+) -> tuple[int, int]:
+    """
+    입력 픽셀 비율을 유지한 채 긴 변이 max_long_edge(32배수 클램프)에 오도록 출력 (w,h) 계산.
+    짧은 변이 너무 작으면 스케일 업 후 긴 변은 1280 상한.
+    """
+    if iw <= 0 or ih <= 0:
+        return _clamp_resolution_to_32(DEFAULT_WIDTH), _clamp_resolution_to_32(DEFAULT_HEIGHT)
+    max_long_edge = _clamp_resolution_to_32(max(256, min(1280, max_long_edge)))
+    aspect = (iw / ih) if ih else 1.0
+    aspect = max(I2V_ASPECT_MIN, min(I2V_ASPECT_MAX, aspect))
+    if aspect >= 1.0:
+        ow_f = float(max_long_edge)
+        oh_f = max_long_edge / aspect
+    else:
+        oh_f = float(max_long_edge)
+        ow_f = max_long_edge * aspect
+    smin = min(ow_f, oh_f)
+    if smin < min_short_edge:
+        k = min_short_edge / smin
+        ow_f *= k
+        oh_f *= k
+    m = max(ow_f, oh_f)
+    if m > 1280:
+        k = 1280 / m
+        ow_f *= k
+        oh_f *= k
+    ow = _clamp_resolution_to_32(int(round(ow_f)))
+    oh = _clamp_resolution_to_32(int(round(oh_f)))
+    return max(32, ow), max(32, oh)
+
+
+def compute_i2v_output_dimensions_from_bytes(image_bytes: bytes, max_long_edge: int) -> tuple[int, int]:
+    from PIL import Image, ImageOps
+
+    img = Image.open(io.BytesIO(image_bytes))
+    img.load()
+    img = ImageOps.exif_transpose(img)
+    iw, ih = img.size
+    return compute_i2v_output_dimensions(iw, ih, max_long_edge=max_long_edge)
+
+
+def letterbox_rgb_image(img, out_w: int, out_h: int, fill: tuple[int, int, int] = (12, 12, 14)):
+    """비율 유지 후 여백 패딩(레터박스). 중앙 크롭보다 피사체 전체·정체성 보존에 유리."""
+    from PIL import Image
+
+    img = img.convert("RGB")
+    w, h = img.size
+    if w <= 0 or h <= 0:
+        return Image.new("RGB", (max(32, out_w), max(32, out_h)), fill)
+    scale = min(out_w / w, out_h / h)
+    nw = max(1, int(round(w * scale)))
+    nh = max(1, int(round(h * scale)))
+    resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (out_w, out_h), fill)
+    left = (out_w - nw) // 2
+    top = (out_h - nh) // 2
+    canvas.paste(resized, (left, top))
+    return canvas
+
+
+def image_bytes_letterboxed_to_size(image_bytes: bytes, out_w: int, out_h: int) -> bytes:
+    """ComfyUI 업로드용: 입력과 동일 비율을 유지한 채 (out_w,out_h) 캔버스에 맞춘 PNG 바이트."""
+    from PIL import Image, ImageOps
+
+    img = Image.open(io.BytesIO(image_bytes))
+    img.load()
+    img = ImageOps.exif_transpose(img)
+    lb = letterbox_rgb_image(img, out_w, out_h)
+    buf = io.BytesIO()
+    lb.save(buf, format="PNG", compress_level=3)
+    return buf.getvalue()
+
+
+def _build_i2v_prompts(prompt: str, negative_prompt: str | None) -> tuple[str, str]:
+    """정체성·품질 프리픽스 + 네거티브(정체성 유지) 병합."""
+    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
+    if neg == DEFAULT_NEGATIVE or not (negative_prompt or "").strip():
+        neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
+    neg = f"{neg} {IDENTITY_PRESERVE_NEGATIVE}".strip()
+    user = (prompt or "").strip()
+    if not user:
+        return "", neg
+    combined = f"{VIDEO_PROMPT_IDENTITY_PREFIX}{VIDEO_PROMPT_QUALITY_PREFIX}{user}"
+    return combined, neg
 
 
 def _get_image_to_video_pipeline_class() -> tuple:
@@ -388,7 +498,7 @@ def _run_image_to_video_sync(
     num_inference_steps: int,
     guidance_scale: float,
     seed: int | None,
-    condition_strength: float = 1.0,
+    condition_strength: float | None = None,
 ) -> bytes:
     import torch
     import numpy as np
@@ -414,16 +524,7 @@ def _run_image_to_video_sync(
         raise ValueError(f"Invalid or corrupted image: {e}") from e
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
-    w, h = img.size
-    scale_w = width / w
-    scale_h = height / h
-    scale = max(scale_w, scale_h)
-    new_w = max(width, int(w * scale))
-    new_h = max(height, int(h * scale))
-    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    left = (new_w - width) // 2
-    top = (new_h - height) // 2
-    img = img.crop((left, top, left + width, top + height))
+    img = letterbox_rgb_image(img, width, height)
 
     # generator: 파이프라인 device와 맞추면 재현성·안정성에 유리
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -441,7 +542,8 @@ def _run_image_to_video_sync(
     )
 
     use_condition = getattr(_pipeline, "_ltx_video_condition_class", None) is not None
-    strength = max(0.0, min(1.0, condition_strength))
+    eff = 0.97 if condition_strength is None else condition_strength
+    strength = max(0.0, min(1.0, eff))
     with torch.inference_mode():
         if use_condition:
             LTX2VideoCondition = _pipeline._ltx_video_condition_class
@@ -561,6 +663,10 @@ async def run_image_to_video(
 ) -> tuple[bytes, float]:
     async with get_video_i2v_semaphore():
         settings = get_settings()
+        prompt_i2v, neg_i2v = _build_i2v_prompts(prompt, negative_prompt)
+        if not (prompt_i2v or "").strip():
+            raise ValueError("prompt is required for image-to-video")
+
         # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
         if _is_ltx23():
             if num_inference_steps == DEFAULT_NUM_STEPS:
@@ -599,10 +705,11 @@ async def run_image_to_video(
             from app.services.comfyui_service import run_wan_vace_v2v_image_to_video as _run_wan_vace
 
             start = time.perf_counter()
+            processed = image_bytes_letterboxed_to_size(image_bytes, width, height)
             out_bytes = await _run_wan_vace(
-                image_bytes=image_bytes,
-                prompt=prompt,
-                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                image_bytes=processed,
+                prompt=prompt_i2v,
+                negative_prompt=neg_i2v,
                 reference_video_path=reference_video_path,
                 seed=seed,
                 width=width,
@@ -614,10 +721,11 @@ async def run_image_to_video(
         if use_comfyui:
             from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
             start = time.perf_counter()
+            processed = image_bytes_letterboxed_to_size(image_bytes, width, height)
             out_bytes = await _run_comfyui(
-                image_bytes=image_bytes,
-                prompt=prompt,
-                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                image_bytes=processed,
+                prompt=prompt_i2v,
+                negative_prompt=neg_i2v,
                 width=width,
                 height=height,
                 num_frames=num_frames,
@@ -629,13 +737,7 @@ async def run_image_to_video(
             )
             return out_bytes, time.perf_counter() - start
 
-        # LTX-2 diffusers: 2.3 스타일 품질 파이프라인 적용 (텍스트·시네마틱)
-        prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
-        neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
-        if neg == DEFAULT_NEGATIVE or not neg:
-            neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
-
-        strength = condition_strength if condition_strength is not None else 1.0
+        strength = condition_strength if condition_strength is not None else 0.97
         await get_video_pipeline()
         loop = asyncio.get_event_loop()
         start = time.perf_counter()
@@ -643,8 +745,8 @@ async def run_image_to_video(
             None,
             lambda: _run_image_to_video_sync(
                 image_bytes,
-                prompt_quality,
-                neg,
+                prompt_i2v,
+                neg_i2v,
                 width,
                 height,
                 num_frames,

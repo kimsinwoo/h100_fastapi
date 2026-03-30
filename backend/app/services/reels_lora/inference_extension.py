@@ -437,10 +437,9 @@ class ReelsDanceGenerator:
         Delegate to the existing LTX-2 video pipeline with reels-optimized prompt.
         Keeps all existing LTX-2 behaviour intact.
         """
-        from app.services.video_service import run_image_to_video
         from app.services.video_service import (
-            DANCE_SHORT_WIDTH,
-            DANCE_SHORT_HEIGHT,
+            compute_i2v_output_dimensions_from_bytes,
+            run_image_to_video,
             DANCE_SHORT_NUM_FRAMES,
             DANCE_SHORT_FRAME_RATE,
             DANCE_SHORT_NUM_STEPS,
@@ -449,12 +448,13 @@ class ReelsDanceGenerator:
             NEGATIVE_PET_DANCE,
         )
 
+        dw, dh = compute_i2v_output_dimensions_from_bytes(image_bytes, 640)
         return await run_image_to_video(
             image_bytes=image_bytes,
             prompt=prompt,
             negative_prompt=NEGATIVE_PET_DANCE,
-            width=DANCE_SHORT_WIDTH,
-            height=DANCE_SHORT_HEIGHT,
+            width=dw,
+            height=dh,
             num_frames=num_frames or DANCE_SHORT_NUM_FRAMES,
             frame_rate=DANCE_SHORT_FRAME_RATE,
             num_inference_steps=num_steps or DANCE_SHORT_NUM_STEPS,

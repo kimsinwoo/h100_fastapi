@@ -49,6 +49,7 @@ from app.services.image_service import (
 from app.services.video_service import (
     run_image_to_video,
     _clamp_num_frames_to_8n_plus_1,
+    compute_i2v_output_dimensions_from_bytes,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
     DEFAULT_NUM_FRAMES,
@@ -64,6 +65,8 @@ from app.services.video_service import (
     QUALITY_HEIGHT,
     QUALITY_NUM_FRAMES,
     QUALITY_NUM_STEPS,
+    I2V_MAX_LONG_EDGE_DEFAULT,
+    I2V_MAX_LONG_EDGE_QUALITY,
 )
 from app.services.training_store import (
     add_item as training_add_item,
@@ -952,8 +955,18 @@ async def generate_video(
     if steps is None or steps < 1:
         steps = DANCE_SHORT_NUM_STEPS if use_dance_short else (QUALITY_NUM_STEPS if quality_mode else 25)
     steps = min(50, max(8, steps)) if use_dance_short else min(50, max(10, steps))
-    width = DANCE_SHORT_WIDTH if use_dance_short else (QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH)
-    height = DANCE_SHORT_HEIGHT if use_dance_short else (QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT)
+    try:
+        if use_dance_short:
+            width, height = compute_i2v_output_dimensions_from_bytes(content, 640)
+        else:
+            width, height = compute_i2v_output_dimensions_from_bytes(
+                content,
+                I2V_MAX_LONG_EDGE_QUALITY if quality_mode else I2V_MAX_LONG_EDGE_DEFAULT,
+            )
+    except Exception as e:
+        logger.warning("I2V output size from image failed, using fixed defaults: %s", e)
+        width = DANCE_SHORT_WIDTH if use_dance_short else (QUALITY_WIDTH if quality_mode else DEFAULT_WIDTH)
+        height = DANCE_SHORT_HEIGHT if use_dance_short else (QUALITY_HEIGHT if quality_mode else DEFAULT_HEIGHT)
     neg = (negative_prompt or "").strip()
     if use_dance_short and NEGATIVE_PET_DANCE:
         neg = f"{neg} {NEGATIVE_PET_DANCE}".strip() if neg else NEGATIVE_PET_DANCE

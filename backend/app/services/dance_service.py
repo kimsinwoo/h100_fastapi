@@ -190,10 +190,8 @@ async def run_dance_generate_custom(
         DANCE_CONDITION_STRENGTH,
         DANCE_SHORT_FRAME_RATE,
         DANCE_SHORT_GUIDANCE_SCALE,
-        DANCE_SHORT_HEIGHT,
         DANCE_SHORT_NUM_FRAMES,
         DANCE_SHORT_NUM_STEPS,
-        DANCE_SHORT_WIDTH,
         NEGATIVE_PET_DANCE,
     )
 
@@ -201,12 +199,15 @@ async def run_dance_generate_custom(
     # COMFYUI_REFERENCE_VIDEO_DIR 이 설정되어 있으면 동일 동작으로 생성됨.
     prompt = get_dance_prompt("rat_dance", character)
     try:
+        from app.services.video_service import compute_i2v_output_dimensions_from_bytes
+
+        dw, dh = compute_i2v_output_dimensions_from_bytes(image_bytes, 640)
         out_bytes, elapsed = await run_image_to_video(
             image_bytes=image_bytes,
             prompt=prompt,
             negative_prompt=NEGATIVE_PET_DANCE,
-            width=DANCE_SHORT_WIDTH,
-            height=DANCE_SHORT_HEIGHT,
+            width=dw,
+            height=dh,
             num_frames=DANCE_SHORT_NUM_FRAMES,
             frame_rate=DANCE_SHORT_FRAME_RATE,
             num_inference_steps=DANCE_SHORT_NUM_STEPS,
@@ -240,10 +241,8 @@ async def run_dance_generate(
         DANCE_CONDITION_STRENGTH,
         DANCE_SHORT_FRAME_RATE,
         DANCE_SHORT_GUIDANCE_SCALE,
-        DANCE_SHORT_HEIGHT,
         DANCE_SHORT_NUM_FRAMES,
         DANCE_SHORT_NUM_STEPS,
-        DANCE_SHORT_WIDTH,
         NEGATIVE_PET_DANCE,
     )
 
@@ -255,13 +254,16 @@ async def run_dance_generate(
             lambda: get_or_extract_pose_from_path(video_path, cache_key=motion_id),
         )
 
+    from app.services.video_service import compute_i2v_output_dimensions_from_bytes
+
     prompt = get_dance_prompt(motion_id, character)
+    dw, dh = compute_i2v_output_dimensions_from_bytes(image_bytes, 640)
     out_bytes, elapsed = await run_image_to_video(
         image_bytes=image_bytes,
         prompt=prompt,
         negative_prompt=NEGATIVE_PET_DANCE,
-        width=DANCE_SHORT_WIDTH,
-        height=DANCE_SHORT_HEIGHT,
+        width=dw,
+        height=dh,
         num_frames=DANCE_SHORT_NUM_FRAMES,
         frame_rate=DANCE_SHORT_FRAME_RATE,
         num_inference_steps=DANCE_SHORT_NUM_STEPS,

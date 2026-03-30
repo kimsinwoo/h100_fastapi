@@ -564,9 +564,11 @@ def _inject_ltx23_runtime_params(
     frame_rate: float,
     guidance_scale: float,
     seed: int | None,
+    ltx_img2video_strength: float | None = 0.97,
 ) -> dict[str, Any]:
     """
     API에서 넘긴 해상도·프레임 수·FPS·CFG·시드를 워크플로의 PrimitiveInt / CFGGuider / RandomNoise에 반영.
+    LTXVImgToVideoInplace strength: 참조 이미지 고정(정체성) 강도.
     pipelines/ltx23_i2v.json 계열(제목 Width/Height/Length/Frame Rate)과 호환.
     """
     import copy
@@ -604,10 +606,15 @@ def _inject_ltx23_runtime_params(
         elif ct == "RandomNoise" and seed_i is not None and "noise_seed" in inp:
             inp["noise_seed"] = seed_i
             node["inputs"] = inp
+        elif ltx_img2video_strength is not None:
+            ct_norm = (ct or "").replace(" ", "")
+            if "ltxvimagetovideoinplace" in ct_norm.lower() and "strength" in inp:
+                inp["strength"] = float(max(0.0, min(1.0, ltx_img2video_strength)))
+                node["inputs"] = inp
 
     logger.info(
-        "[inject] LTX runtime: %dx%d, frames=%d, fps=%d, cfg=%.2f, seed=%s",
-        w, h, nf, fr, cfg, seed_i,
+        "[inject] LTX runtime: %dx%d, frames=%d, fps=%d, cfg=%.2f, seed=%s, i2v_strength=%s",
+        w, h, nf, fr, cfg, seed_i, ltx_img2video_strength,
     )
     return wf
 
@@ -671,6 +678,7 @@ async def run_ltx23_image_to_video(
             frame_rate=frame_rate,
             guidance_scale=guidance_scale,
             seed=seed,
+            ltx_img2video_strength=0.97,
         )
         # ComfyUI API는 노드 dict만 받음. 일부 버전은 노드별 _meta 거부 → 제거
         prompt_to_send = _strip_node_meta_from_prompt(_unwrap_workflow(prompt_graph))
