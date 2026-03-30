@@ -2,6 +2,25 @@ import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+/**
+ * 로컬 Vite(3000) → 원격 배포 백엔드 프록시.
+ * - 브라우저는 /api, /health 만 호출 (CORS 없음)
+ * - target에 배포 base path 포함 시: 최종 요청은 {target}/api/... , {target}/health
+ *
+ * 로컬 백엔드만 쓸 때: `VITE_DEV_PROXY_TARGET=http://127.0.0.1:7000 npm run dev`
+ */
+const DEPLOY_TARGET =
+  process.env.VITE_DEV_PROXY_TARGET ||
+  "http://210.91.154.131:20443/deployment2/a05af76e431fe3ac";
+
+const proxyCommon = {
+  target: DEPLOY_TARGET,
+  changeOrigin: true,
+  secure: false,
+  /** 경로는 그대로 전달 (백엔드가 /api/*, /health 를 base 아래에서 받음) */
+  rewrite: (p: string) => p,
+} as const;
+
 export default defineConfig({
   base: "/",
   resolve: {
@@ -11,11 +30,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    // 로컬: 백엔드를 7000에서 띄우고 프론트는 3000 → 같은 origin처럼 /api, /static, /health 를 7000으로 전달
     proxy: {
-      "/api": { target: "http://localhost:7000", changeOrigin: true },
-      "/static": { target: "http://localhost:7000", changeOrigin: true },
-      "/health": { target: "http://localhost:7000", changeOrigin: true },
+      "/api": { ...proxyCommon },
+      "/static": { ...proxyCommon },
+      "/health": { ...proxyCommon },
+      "/motions": { ...proxyCommon },
     },
   },
 });

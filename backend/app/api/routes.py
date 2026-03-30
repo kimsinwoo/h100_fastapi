@@ -139,6 +139,21 @@ def _check_rate_limit(request: Request) -> None:
         _rate_store = {k: v for k, v in _rate_store.items() if now - v[1] < settings.rate_limit_window_seconds}
 
 
+def _looks_like_image_bytes(buf: bytes) -> bool:
+    """MIME이 비어 있거나 application/octet-stream일 때 PNG/JPEG/WebP/GIF 시그니처로 판별."""
+    if len(buf) < 12:
+        return False
+    if buf[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    if buf[:3] == b"\xff\xd8\xff":
+        return True
+    if buf[:6] in (b"GIF87a", b"GIF89a"):
+        return True
+    if buf[:4] == b"RIFF" and len(buf) >= 12 and buf[8:12] == b"WEBP":
+        return True
+    return False
+
+
 def _parse_optional_float(s: str | None) -> float | None:
     if s is None or (isinstance(s, str) and not s.strip()):
         return None
@@ -847,6 +862,22 @@ async def list_video_presets() -> dict[str, str]:
     return dict(VIDEO_PROMPT_PRESETS)
 
 
+@router.get("/video/pet-templates")
+async def list_pet_prompt_templates() -> dict[str, object]:
+    """
+    강아지·고양이 I2V용 카테고리·템플릿 ID 목록 (Pet LTX 마스터 프롬프트 호환).
+    실제 생성은 기존 POST /api/video/generate + 사용자 프롬프트; 프론트에서 텍스트 조합에 활용.
+    """
+    from app.inference.pet_prompt_engine import PetPromptEngine
+
+    return {
+        "categories": PetPromptEngine.list_categories(),
+        "template_ids": PetPromptEngine.list_template_ids(),
+        "quality_suffix": PetPromptEngine.QUALITY_SUFFIX,
+        "default_negative": PetPromptEngine.DEFAULT_NEGATIVE,
+    }
+
+
 async def _run_video_job(job_id: str, run_kw: dict) -> None:
     """백그라운드에서 동영상 생성 후 잡 상태 갱신. 1분 타임아웃 회피용."""
     try:
@@ -900,7 +931,8 @@ async def generate_video(
     content = await upload.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
-    if not upload.content_type or not upload.content_type.startswith("image/"):
+    ct = (upload.content_type or "").strip().lower()
+    if not (ct.startswith("image/") or _looks_like_image_bytes(content)):
         raise HTTPException(status_code=400, detail="File must be an image (e.g. image/png, image/jpeg)")
     settings = get_settings()
     if len(content) > settings.upload_max_bytes:

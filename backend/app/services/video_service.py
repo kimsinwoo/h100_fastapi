@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 _pipeline: Any = None
 _pipeline_lock = asyncio.Lock()
+_video_i2v_sem: asyncio.Semaphore | None = None
+
+
+def get_video_i2v_semaphore() -> asyncio.Semaphore:
+    """이미지→비디오 동시 실행 수 제한 (GPU/ComfyUI OOM 방지)."""
+    global _video_i2v_sem
+    if _video_i2v_sem is None:
+        limit = max(1, int(get_settings().gpu_semaphore_limit))
+        _video_i2v_sem = asyncio.Semaphore(limit)
+    return _video_i2v_sem
 
 # ---------- LTX-2.3-22b 기준 (HF 카드: 해상도 32배수, 프레임 8n+1, distilled 8 steps CFG=1) ----------
 # 품질 모드: 768×432(32배수), 10초(241 frames), 25 steps (full) / 8 steps (distilled)
@@ -397,7 +407,11 @@ def _run_image_to_video_sync(
     if not (prompt or "").strip():
         raise ValueError("prompt is required for image-to-video")
 
-    img = Image.open(io.BytesIO(image_bytes))
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()
+    except Exception as e:
+        raise ValueError(f"Invalid or corrupted image: {e}") from e
     img = ImageOps.exif_transpose(img)
     img = img.convert("RGB")
     w, h = img.size
@@ -545,103 +559,104 @@ async def run_image_to_video(
     condition_strength: float | None = None,
     reference_video_path: Path | None = None,
 ) -> tuple[bytes, float]:
-    settings = get_settings()
-    # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
-    if _is_ltx23():
-        if num_inference_steps == DEFAULT_NUM_STEPS:
-            num_inference_steps = getattr(settings, "ltx23_num_steps", LTX23_DEFAULT_STEPS)
-        if guidance_scale == DEFAULT_GUIDANCE_SCALE:
-            guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
+    async with get_video_i2v_semaphore():
+        settings = get_settings()
+        # LTX-2.3-22b distilled: config 기본값 사용 (8 steps, CFG=1)
+        if _is_ltx23():
+            if num_inference_steps == DEFAULT_NUM_STEPS:
+                num_inference_steps = getattr(settings, "ltx23_num_steps", LTX23_DEFAULT_STEPS)
+            if guidance_scale == DEFAULT_GUIDANCE_SCALE:
+                guidance_scale = getattr(settings, "ltx23_guidance_scale", LTX23_DEFAULT_GUIDANCE)
 
-    # ComfyUI 사용 조건: LTX2_USE_COMFYUI=true 이거나, ComfyUI 활성 + 워크플로 파일 존재 시 (품질용 ComfyUI JSON 있으면 우선 사용)
-    use_comfyui = getattr(settings, "ltx2_use_comfyui", False)
-    if not use_comfyui and getattr(settings, "comfyui_enabled", False):
-        wf_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
-        wf_path = settings.pipelines_dir / f"{wf_name}.json"
-        if not wf_path.exists():
-            wf_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
-        if wf_path.exists():
-            use_comfyui = True
-            logger.info("Using ComfyUI for video (workflow found: %s)", wf_path.name)
-    if _is_ltx23() and not use_comfyui:
-        raise RuntimeError(
-            "LTX-2.3 is not supported by this diffusers version. "
-            "Use ComfyUI: set LTX2_USE_COMFYUI=true or COMFYUI_ENABLED=true and add pipelines/ltx23_i2v.json or comfyui_ltx23_workflow.json. "
-            "See backend/pipelines/README_LTX23.md"
-        )
+        # ComfyUI 사용 조건: LTX2_USE_COMFYUI=true 이거나, ComfyUI 활성 + 워크플로 파일 존재 시 (품질용 ComfyUI JSON 있으면 우선 사용)
+        use_comfyui = getattr(settings, "ltx2_use_comfyui", False)
+        if not use_comfyui and getattr(settings, "comfyui_enabled", False):
+            wf_name = getattr(settings, "comfyui_ltx23_workflow", "ltx23_i2v") or "ltx23_i2v"
+            wf_path = settings.pipelines_dir / f"{wf_name}.json"
+            if not wf_path.exists():
+                wf_path = settings.pipelines_dir / "comfyui_ltx23_workflow.json"
+            if wf_path.exists():
+                use_comfyui = True
+                logger.info("Using ComfyUI for video (workflow found: %s)", wf_path.name)
+        if _is_ltx23() and not use_comfyui:
+            raise RuntimeError(
+                "LTX-2.3 is not supported by this diffusers version. "
+                "Use ComfyUI: set LTX2_USE_COMFYUI=true or COMFYUI_ENABLED=true and add pipelines/ltx23_i2v.json or comfyui_ltx23_workflow.json. "
+                "See backend/pipelines/README_LTX23.md"
+            )
 
-    # Wan VACE v2v: 이미지 + 레퍼런스 영상 → 영상 (pipelines/video_wan_vace_14B_v2v.json 등)
-    wan_enabled = getattr(settings, "wan_vace_v2v_enabled", False)
-    wan_name = getattr(settings, "comfyui_wan_vace_v2v_workflow", "video_wan_vace_14B_v2v") or "video_wan_vace_14B_v2v"
-    wan_path = settings.pipelines_dir / f"{wan_name}.json"
-    if (
-        wan_enabled
-        and getattr(settings, "comfyui_enabled", False)
-        and reference_video_path
-        and reference_video_path.exists()
-        and wan_path.is_file()
-    ):
-        from app.services.comfyui_service import run_wan_vace_v2v_image_to_video as _run_wan_vace
+        # Wan VACE v2v: 이미지 + 레퍼런스 영상 → 영상 (pipelines/video_wan_vace_14B_v2v.json 등)
+        wan_enabled = getattr(settings, "wan_vace_v2v_enabled", False)
+        wan_name = getattr(settings, "comfyui_wan_vace_v2v_workflow", "video_wan_vace_14B_v2v") or "video_wan_vace_14B_v2v"
+        wan_path = settings.pipelines_dir / f"{wan_name}.json"
+        if (
+            wan_enabled
+            and getattr(settings, "comfyui_enabled", False)
+            and reference_video_path
+            and reference_video_path.exists()
+            and wan_path.is_file()
+        ):
+            from app.services.comfyui_service import run_wan_vace_v2v_image_to_video as _run_wan_vace
 
+            start = time.perf_counter()
+            out_bytes = await _run_wan_vace(
+                image_bytes=image_bytes,
+                prompt=prompt,
+                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                reference_video_path=reference_video_path,
+                seed=seed,
+                width=width,
+                height=height,
+                num_frames=num_frames,
+            )
+            return out_bytes, time.perf_counter() - start
+
+        if use_comfyui:
+            from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
+            start = time.perf_counter()
+            out_bytes = await _run_comfyui(
+                image_bytes=image_bytes,
+                prompt=prompt,
+                negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
+                width=width,
+                height=height,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                seed=seed,
+                reference_video_path=reference_video_path,
+            )
+            return out_bytes, time.perf_counter() - start
+
+        # LTX-2 diffusers: 2.3 스타일 품질 파이프라인 적용 (텍스트·시네마틱)
+        prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
+        neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
+        if neg == DEFAULT_NEGATIVE or not neg:
+            neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
+
+        strength = condition_strength if condition_strength is not None else 1.0
+        await get_video_pipeline()
+        loop = asyncio.get_event_loop()
         start = time.perf_counter()
-        out_bytes = await _run_wan_vace(
-            image_bytes=image_bytes,
-            prompt=prompt,
-            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
-            reference_video_path=reference_video_path,
-            seed=seed,
-            width=width,
-            height=height,
-            num_frames=num_frames,
+        result = await loop.run_in_executor(
+            None,
+            lambda: _run_image_to_video_sync(
+                image_bytes,
+                prompt_quality,
+                neg,
+                width,
+                height,
+                num_frames,
+                frame_rate,
+                num_inference_steps,
+                guidance_scale,
+                seed,
+                condition_strength=strength,
+            ),
         )
-        return out_bytes, time.perf_counter() - start
-
-    if use_comfyui:
-        from app.services.comfyui_service import run_ltx23_image_to_video as _run_comfyui
-        start = time.perf_counter()
-        out_bytes = await _run_comfyui(
-            image_bytes=image_bytes,
-            prompt=prompt,
-            negative_prompt=negative_prompt or DEFAULT_NEGATIVE,
-            width=width,
-            height=height,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            seed=seed,
-            reference_video_path=reference_video_path,
-        )
-        return out_bytes, time.perf_counter() - start
-
-    # LTX-2 diffusers: 2.3 스타일 품질 파이프라인 적용 (텍스트·시네마틱)
-    prompt_quality = (VIDEO_PROMPT_QUALITY_PREFIX + prompt.strip()) if (prompt or "").strip() else prompt
-    neg = (negative_prompt or "").strip() or DEFAULT_NEGATIVE
-    if neg == DEFAULT_NEGATIVE or not neg:
-        neg = f"{DEFAULT_NEGATIVE} {NEGATIVE_VIDEO_TEXT}".strip()
-
-    strength = condition_strength if condition_strength is not None else 1.0
-    await get_video_pipeline()
-    loop = asyncio.get_event_loop()
-    start = time.perf_counter()
-    result = await loop.run_in_executor(
-        None,
-        lambda: _run_image_to_video_sync(
-            image_bytes,
-            prompt_quality,
-            neg,
-            width,
-            height,
-            num_frames,
-            frame_rate,
-            num_inference_steps,
-            guidance_scale,
-            seed,
-            condition_strength=strength,
-        ),
-    )
-    elapsed = time.perf_counter() - start
-    return result, elapsed
+        elapsed = time.perf_counter() - start
+        return result, elapsed
 
 
 def is_video_pipeline_loaded() -> bool:

@@ -62,6 +62,8 @@ export default function VideoPage() {
   /** API pipeline: ltx = LTX+레퍼런스, pose_sdxl = 포즈→ComfyUI 프레임 */
   const [dancePipeline, setDancePipeline] = useState<DancePipelineMode>("ltx");
   const [customDancePipeline, setCustomDancePipeline] = useState<DancePipelineMode>("ltx");
+  /** <video> 로드 실패 시(404·MIME·data URL 한계 등) 안내 */
+  const [videoPlaybackError, setVideoPlaybackError] = useState<string | null>(null);
 
   const currentPresets = PRESET_GROUPS.find((g) => g.key === presetGroup)?.list ?? VIDEO_PRESETS;
 
@@ -121,6 +123,7 @@ export default function VideoPage() {
       setState({ phase: "error", message: "프롬프트를 입력해주세요." });
       return;
     }
+    setVideoPlaybackError(null);
     setState({ phase: "loading" });
     try {
       const data = await generateVideo(file, prompt.trim(), null, negativePrompt.trim() || null);
@@ -135,6 +138,7 @@ export default function VideoPage() {
       setState({ phase: "error", message: "캐릭터 이미지를 업로드해주세요." });
       return;
     }
+    setVideoPlaybackError(null);
     setState({ phase: "loading" });
     try {
       const data = await generateDance(file, selectedMotionId, danceCharacter, dancePipeline);
@@ -196,6 +200,7 @@ export default function VideoPage() {
       setState({ phase: "error", message: "레퍼런스 동영상을 업로드해주세요." });
       return;
     }
+    setVideoPlaybackError(null);
     setState({ phase: "loading" });
     try {
       const data = await generateDanceCustom(file, customRefVideo, customCharacter, customDancePipeline);
@@ -540,12 +545,25 @@ export default function VideoPage() {
               </p>
               <div className="overflow-hidden rounded-lg border border-gray-200 bg-black">
                 <video
+                  key={videoSrc}
                   src={videoSrc}
                   controls
                   className="w-full"
                   playsInline
+                  preload="metadata"
+                  onLoadedData={() => setVideoPlaybackError(null)}
+                  onError={() =>
+                    setVideoPlaybackError(
+                      "브라우저에서 이 동영상을 재생할 수 없습니다. (파일 URL·프록시 /static·형식 확인) 다운로드로 저장해 재생해 보세요."
+                    )
+                  }
                 />
               </div>
+              {videoPlaybackError && (
+                <p className="mt-2 text-sm text-amber-800" role="alert">
+                  {videoPlaybackError}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={handleDownload}

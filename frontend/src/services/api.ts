@@ -15,14 +15,19 @@ import type {
 const FRONTEND_TIMEOUT_MS = 2 * 60 * 1000; // 120_000
 
 /**
- * 백엔드 베이스 URL.
- * 비우면 현재 페이지 origin 기준 상대 경로(/api, /health) — Vite 프록시(3000→7000) 또는 백엔드가 정적 파일을 같이 서빙할 때 동작.
- * 원격 API만 쓸 때는 .env에 VITE_API_BASE_URL=https://your-api.example.com 설정.
+ * API 베이스 URL.
+ * - `localhost` / `127.0.0.1` 에서 개발: 비움 → 요청이 `localhost:3000`에만 가고 Vite proxy가 백엔드로 넘김 → **CORS 없음**
+ * - 원격/다른 도메인에서 직접 API 호출: 빌드 시 `.env`에 `VITE_API_BASE_URL=https://호스트/경로` 설정
  */
-const DEFAULT_API_BASE = "";
 const getBaseURL = (): string => {
-  const url = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ?? "";
-  return (url || "").trim() || DEFAULT_API_BASE;
+  const env = import.meta.env?.VITE_API_BASE_URL;
+  const trimmed = (typeof env === "string" ? env : "").trim();
+  if (trimmed) return trimmed;
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname;
+    if (h === "localhost" || h === "127.0.0.1") return "";
+  }
+  return "";
 };
 
 const api = axios.create({
@@ -71,7 +76,7 @@ uploadApi.interceptors.request.use((config) => {
 });
 
 const IMAGE_POLL_INTERVAL_MS = 3000;
-const IMAGE_POLL_MAX_WAIT_MS = 8 * 60 * 1000; // 포즈 보강·재시도 시 여유
+const IMAGE_POLL_MAX_WAIT_MS = 5 * 60 * 1000; // 5분
 
 /** Z-Image / SDXL: 비동기 잡 제출 후 폴링 (62초+ 걸릴 때 타임아웃 회피). species: 강아지/고양이에 맞는 프롬프트 적용. */
 export async function generateImage(
@@ -196,156 +201,19 @@ export async function getComfyUIWorkflow(): Promise<Record<string, unknown>> {
   return data;
 }
 
-/** 워크플로에 이미지 파일명·프롬프트 주입 (ComfyUI 노드: LoadImage, CLIPTextEncode 등). */
-function injectWorkflowInputs(
-  workflow: Record<string, { class_type?: string; inputs?: Record<string, unknown> }>,
-  imageName: string,
-  promptText: string
-): Record<string, { class_type?: string; inputs?: Record<string, unknown> }> {
-  const out: Record<string, { class_type?: string; inputs?: Record<string, unknown> }> = {};
-  for (const [nid, node] of Object.entries(workflow)) {
-    if (!node || typeof node !== "object") {
-      out[nid] = node;
-      continue;
-    }
-    const ct = ((node.class_type as string) ?? "").toLowerCase();
-    const inputs = { ...(node.inputs ?? {}) };
-    if (ct.includes("loadimage") || ct.includes("load image")) {
-      inputs.image = imageName;
-    }
-    if (ct.includes("clip") && ct.includes("text")) {
-      inputs.text = promptText;
-    }
-    out[nid] = { ...node, inputs };
-  }
-  return out;
-}
-
 const VIDEO_POLL_INTERVAL_MS = 5000;
 const VIDEO_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
-const COMFYUI_POLL_INTERVAL_MS = 2000;
-const COMFYUI_POLL_MAX_MS = 30 * 60 * 1000;
 
-/** 대용량 ArrayBuffer → base64 (spread/btoa 한 번에 넣으면 스택 초과 가능) */
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  const chunk = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[]);
-  }
-  return btoa(binary);
-}
-
-/** ComfyUI 동영상 생성 (업로드/prompt/history/view는 백엔드 프록시 경로로 요청). */
-async function generateVideoViaComfyUI(
-  file: File,
-  prompt: string,
-  _preset?: string | null,
-  _negativePrompt?: string | null,
-  workflowRaw?: Record<string, unknown>
-): Promise<GenerateVideoResponse> {
-  const backendBase = (getBaseURL() ?? "").replace(/\/$/, "");
-  const raw = workflowRaw ?? (await getComfyUIWorkflow());
-  const promptMap =
-    raw?.prompt && typeof raw.prompt === "object" && !Array.isArray(raw.prompt)
-      ? (raw.prompt as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>)
-      : (raw as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>);
-  if (!promptMap || Object.keys(promptMap).length === 0) {
-    throw new Error("Invalid ComfyUI workflow: no prompt map");
-  }
-
-  const form = new FormData();
-  form.append("image", file);
-  const uploadRes = await fetch(`${backendBase}/api/video/comfyui/upload/image`, {
-    method: "POST",
-    body: form,
-    credentials: "include",
-  });
-  if (!uploadRes.ok) {
-    const t = await uploadRes.text();
-    throw new Error(`ComfyUI upload failed: ${uploadRes.status} ${t.slice(0, 200)}`);
-  }
-  const uploadJson = (await uploadRes.json()) as { name?: string; subfolder?: string };
-  const imageName = uploadJson.name ?? "image.png";
-
-  const injected = injectWorkflowInputs(promptMap, imageName, (prompt ?? "").trim() || "gentle motion");
-  const promptId = crypto.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, () => ((Math.random() * 16) | 0).toString(16));
-  const promptRes = await fetch(`${backendBase}/api/video/comfyui/prompt`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: injected, prompt_id: promptId }),
-    credentials: "include",
-  });
-  if (!promptRes.ok) {
-    const t = await promptRes.text();
-    throw new Error(`ComfyUI prompt failed: ${promptRes.status} ${t.slice(0, 300)}`);
-  }
-  const promptJson = (await promptRes.json()) as { error?: string; prompt_id?: string };
-  if (promptJson.error) throw new Error(`ComfyUI: ${promptJson.error}`);
-  const pid = promptJson.prompt_id ?? promptId;
-
-  const start = Date.now();
-  let videoFilename: string | null = null;
-  let subfolder = "";
-  let typeOut = "output";
-  while (Date.now() - start < COMFYUI_POLL_MAX_MS) {
-    const hisRes = await fetch(`${backendBase}/api/video/comfyui/history/${pid}`, { credentials: "include" });
-    if (!hisRes.ok) {
-      await new Promise((r) => setTimeout(r, COMFYUI_POLL_INTERVAL_MS));
-      continue;
-    }
-    const his = (await hisRes.json()) as Record<string, unknown>;
-    const node = (typeof his[pid] === "object" && his[pid] !== null ? his[pid] : his) as Record<string, unknown>;
-    const outputs = (node?.outputs ?? {}) as Record<string, { videos?: Array<{ filename?: string; subfolder?: string; type?: string }>; gifs?: unknown[]; animations?: unknown[] }>;
-    for (const _nid of Object.keys(outputs)) {
-      const out = outputs[_nid];
-      const videos = out?.videos ?? out?.gifs ?? out?.animations;
-      if (Array.isArray(videos) && videos.length > 0) {
-        const v = videos[0] as { filename?: string; subfolder?: string; type?: string };
-        if (v?.filename) {
-          videoFilename = v.filename;
-          subfolder = v.subfolder ?? "";
-          typeOut = v.type ?? "output";
-          break;
-        }
-      }
-    }
-    if (videoFilename) break;
-    await new Promise((r) => setTimeout(r, COMFYUI_POLL_INTERVAL_MS));
-  }
-  if (!videoFilename) throw new Error("ComfyUI video generation timed out or no video output");
-
-  const viewParams = new URLSearchParams({ filename: videoFilename, type: typeOut });
-  if (subfolder) viewParams.set("subfolder", subfolder);
-  const viewRes = await fetch(`${backendBase}/api/video/comfyui/view?${viewParams.toString()}`, { credentials: "include" });
-  if (!viewRes.ok) throw new Error(`ComfyUI view failed: ${viewRes.status}`);
-  const videoBlob = await viewRes.blob();
-  const processingTime = (Date.now() - start) / 1000;
-  const buf = await videoBlob.arrayBuffer();
-  const b64 = arrayBufferToBase64(buf);
-  return {
-    video_url: "",
-    processing_time: processingTime,
-    video_base64: b64,
-  };
-}
-
+/**
+ * 이미지→동영상: 항상 POST /api/video/generate 후 상태 폴링.
+ * (백엔드가 ComfyUI 워크플로·프롬프트 주입·해상도/프레임 반영을 일관 처리함. 브라우저에서 ComfyUI 직접 호출 경로는 사용하지 않음.)
+ */
 export async function generateVideo(
   file: File,
   prompt: string,
   preset?: string | null,
   negativePrompt?: string | null
 ): Promise<GenerateVideoResponse> {
-  try {
-    const w = await getComfyUIWorkflow();
-    if (w && typeof w === "object" && Object.keys(w).length > 0) {
-      return await generateVideoViaComfyUI(file, prompt, preset, negativePrompt, w);
-    }
-  } catch {
-    // 워크플로 없음 또는 ComfyUI 비활성 → 백엔드 잡 방식 사용
-  }
-
   const form = new FormData();
   form.append("image", file);
   form.append("prompt", (prompt ?? "").trim());
@@ -409,6 +277,9 @@ export type DanceGenerateResponse = {
   motion_id: string;
   character: string;
 };
+
+/** 댄스 생성 API pipeline 필드와 동일 */
+export type DancePipelineMode = "ltx" | "pose_sdxl";
 
 const DANCE_POLL_INTERVAL_MS = 2000;
 const DANCE_POLL_MAX_WAIT_MS = 30 * 60 * 1000; // 30분
@@ -476,9 +347,6 @@ export async function refreshDanceList(): Promise<{ message: string; added: stri
   const { data } = await api.post<{ message: string; added: string[]; total: number }>("/api/dance/refresh");
   return data;
 }
-
-/** 댄스 생성 파이프라인: ltx(기본)=LTX+레퍼런스 영상, pose_sdxl=포즈→ComfyUI 프레임→ffmpeg */
-export type DancePipelineMode = "ltx" | "pose_sdxl";
 
 export async function generateDance(
   file: File,
@@ -808,11 +676,6 @@ const HEALTH_CHAT_INTRO =
 /** 구조화 응답일 때 사용할 짧은 안내 문구 (사고 과정 노출 방지) */
 export const HEALTH_CHAT_SHORT_INTRO = HEALTH_CHAT_INTRO;
 
-const getBaseUrl = () => {
-  const u = (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL?.trim();
-  return u || DEFAULT_API_BASE;
-};
-
 /** 스트리밍 채팅: 청크마다 onChunk 호출, 완료 시 전체 content 반환. 표시가 빨리 되고 체감 속도 개선. */
 export async function llmChatStream(
   messages: Array<{ role: string; content: string }>,
@@ -820,8 +683,8 @@ export async function llmChatStream(
   maxTokens = 4096,
   temperature = 0.4
 ): Promise<string> {
-  const base = getBaseUrl();
-  const url = base.replace(/\/$/, "") + "/api/llm/chat/stream";
+  const base = (getBaseURL() || "").replace(/\/$/, "");
+  const url = `${base}/api/llm/chat/stream`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -970,9 +833,15 @@ export function getApiResourceUrl(pathOrUrl: string): string {
   return `${baseClean}${path}`;
 }
 
-/** 재생용: 백엔드는 순수 base64; 예전 클라이언트가 data: 를 중복 붙인 경우에도 재생 가능 */
+/**
+ * 재생용 src. 백엔드가 `video_url` + `video_base64` 를 함께 줄 때가 있는데,
+ * 큰 MP4를 data URL로 넣으면 브라우저가 재생 못 하는 경우가 많아 **URL을 우선**한다.
+ * (base64는 멀티 Pod에서 GET /static 404 일 때 등 보조용)
+ */
 export function videoSrcFromApiField(videoBase64: string | null | undefined, videoUrl: string): string {
-  if (!videoBase64?.trim()) return getApiResourceUrl(videoUrl);
+  const path = (videoUrl || "").trim();
+  if (path) return getApiResourceUrl(path);
+  if (!videoBase64?.trim()) return "";
   const t = videoBase64.trim();
   if (t.startsWith("data:")) return t;
   return `data:video/mp4;base64,${t}`;

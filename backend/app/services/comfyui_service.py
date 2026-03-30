@@ -556,6 +556,62 @@ def _inject_ltx23_workflow_inputs(
     return wf
 
 
+def _inject_ltx23_runtime_params(
+    workflow: dict[str, Any],
+    width: int,
+    height: int,
+    num_frames: int,
+    frame_rate: float,
+    guidance_scale: float,
+    seed: int | None,
+) -> dict[str, Any]:
+    """
+    API에서 넘긴 해상도·프레임 수·FPS·CFG·시드를 워크플로의 PrimitiveInt / CFGGuider / RandomNoise에 반영.
+    pipelines/ltx23_i2v.json 계열(제목 Width/Height/Length/Frame Rate)과 호환.
+    """
+    import copy
+
+    from app.inference.ltx_constraints import clamp_frames_8n_plus_1, clamp_wh_multiple_of_32
+
+    wf = copy.deepcopy(workflow)
+    nodes = _unwrap_workflow(wf)
+    w, h = clamp_wh_multiple_of_32(width, height)
+    nf = clamp_frames_8n_plus_1(num_frames)
+    fr = max(1, min(60, int(round(frame_rate))))
+    cfg = float(max(0.0, min(10.0, guidance_scale)))
+    seed_i = int(seed) % (2**31) if seed is not None else None
+
+    for _nid, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        ct = (node.get("class_type") or "").strip()
+        meta_title = ((node.get("_meta") or {}).get("title") or "").strip().lower()
+        inp = dict(node.get("inputs") or {})
+
+        if ct == "PrimitiveInt" and "value" in inp:
+            if meta_title == "width":
+                inp["value"] = w
+            elif meta_title == "height":
+                inp["value"] = h
+            elif meta_title == "length":
+                inp["value"] = nf
+            elif "frame rate" in meta_title or meta_title == "fps":
+                inp["value"] = fr
+            node["inputs"] = inp
+        elif ct == "CFGGuider" and "cfg" in inp:
+            inp["cfg"] = cfg
+            node["inputs"] = inp
+        elif ct == "RandomNoise" and seed_i is not None and "noise_seed" in inp:
+            inp["noise_seed"] = seed_i
+            node["inputs"] = inp
+
+    logger.info(
+        "[inject] LTX runtime: %dx%d, frames=%d, fps=%d, cfg=%.2f, seed=%s",
+        w, h, nf, fr, cfg, seed_i,
+    )
+    return wf
+
+
 async def run_ltx23_image_to_video(
     image_bytes: bytes,
     prompt: str,
@@ -607,8 +663,17 @@ async def run_ltx23_image_to_video(
             negative_prompt_text=negative_prompt or "",
             reference_video_filename=ref_filename,
         )
-        # ComfyUI API는 노드 dict만 받음. 래핑된 구조면 언래핑 후 전송
-        prompt_to_send = _unwrap_workflow(prompt_graph)
+        prompt_graph = _inject_ltx23_runtime_params(
+            prompt_graph,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            guidance_scale=guidance_scale,
+            seed=seed,
+        )
+        # ComfyUI API는 노드 dict만 받음. 일부 버전은 노드별 _meta 거부 → 제거
+        prompt_to_send = _strip_node_meta_from_prompt(_unwrap_workflow(prompt_graph))
         out = await _post_prompt(prompt_to_send)
         if "error" in out:
             raise RuntimeError(f"ComfyUI LTX-2.3 prompt error: {out['error']}")
